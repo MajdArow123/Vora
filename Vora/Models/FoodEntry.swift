@@ -28,6 +28,7 @@ final class FoodEntry {
     var carbsG: Double
     var fatG: Double
     var fibreG: Double
+    var sugarG: Double = 0
     var sodiumMg: Double
 
     init(
@@ -41,6 +42,7 @@ final class FoodEntry {
         carbsG: Double,
         fatG: Double,
         fibreG: Double = 0,
+        sugarG: Double = 0,
         sodiumMg: Double = 0
     ) {
         self.id = id
@@ -53,6 +55,31 @@ final class FoodEntry {
         self.carbsG = carbsG
         self.fatG = fatG
         self.fibreG = fibreG
+        self.sugarG = sugarG
         self.sodiumMg = sodiumMg
+    }
+}
+
+extension MealSlot: Identifiable {
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .breakfast: "Breakfast"
+        case .postWorkout: "Post-Workout"
+        case .lunch: "Lunch"
+        case .dinner: "Dinner"
+        case .snack: "Snacks"
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .breakfast: "sunrise.fill"
+        case .postWorkout: "bolt.fill"
+        case .lunch: "sun.max.fill"
+        case .dinner: "moon.fill"
+        case .snack: "sparkles"
+        }
     }
 }

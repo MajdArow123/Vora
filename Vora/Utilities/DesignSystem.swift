@@ -15,6 +15,14 @@ enum DesignSystem {
         static let background = Color(hex: "F7F4F0")
         /// Warm near-black — primary text.
         static let textPrimary = Color(hex: "2C2825")
+        /// Warm grey — secondary text.
+        static let textSecondary = Color(hex: "8A857E")
+        /// Card surfaces.
+        static let card = Color(hex: "FFFFFF")
+        /// Macro colors: protein shares the brand sage.
+        static let macroProtein = Color(hex: "5C7A61")
+        static let macroCarbs = Color(hex: "7EA8C0")
+        static let macroFat = Color(hex: "C4996B")
     }
 
     enum Typography {

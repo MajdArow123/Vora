@@ -6,20 +6,15 @@
 //
 
 import SwiftUI
+import SwiftData
 
 struct FoodView: View {
     var body: some View {
-        ZStack {
-            DesignSystem.Colors.background
-                .ignoresSafeArea()
-
-            Text("Food")
-                .font(DesignSystem.Typography.screenTitle)
-                .foregroundStyle(DesignSystem.Colors.textPrimary)
-        }
+        FoodDiaryView()
     }
 }
 
 #Preview {
     FoodView()
+        .modelContainer(for: [UserProfile.self, FoodEntry.self, WaterEntry.self, CustomFood.self], inMemory: true)
 }

@@ -14,6 +14,7 @@ struct VoraApp: App {
         let schema = Schema([
             UserProfile.self,
             FoodEntry.self,
+            CustomFood.self,
             WorkoutSession.self,
             ExerciseLog.self,
             SetEntry.self,
