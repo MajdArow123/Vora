@@ -24,6 +24,7 @@ final class ProfileViewModel {
     var draftGoalType: GoalType = .maintain
     var draftActivityLevel: ActivityLevel = .moderatelyActive
     var draftTrainingSplit: TrainingSplit = .fullBody
+    var draftGoalWeightText = ""
     var draftCaloriesText = ""
     var draftProteinText = ""
     var draftCarbsText = ""
@@ -53,6 +54,9 @@ final class ProfileViewModel {
         draftGoalType = profile.goalType
         draftActivityLevel = profile.activityLevel
         draftTrainingSplit = profile.trainingSplit
+        draftGoalWeightText = profile.goalWeightKg > 0
+            ? String(format: "%.1f", profile.goalWeightKg)
+            : ""
         draftCaloriesText = String(profile.dailyCalorieTarget)
         draftProteinText = String(profile.proteinTargetG)
         draftCarbsText = String(profile.carbsTargetG)
@@ -77,6 +81,7 @@ final class ProfileViewModel {
         profile.goalType = draftGoalType
         profile.activityLevel = draftActivityLevel
         profile.trainingSplit = draftTrainingSplit
+        profile.goalWeightKg = parsedGoalWeight ?? 0
         profile.dailyCalorieTarget = calories
         profile.proteinTargetG = protein
         profile.carbsTargetG = carbs
@@ -92,6 +97,14 @@ final class ProfileViewModel {
     }
 
     // MARK: - Validation (same rules as onboarding)
+
+    /// nil when blank (goal weight is optional); invalid text also
+    /// resolves to nil and clears the goal.
+    private var parsedGoalWeight: Double? {
+        let value = Double(draftGoalWeightText.replacingOccurrences(of: ",", with: "."))
+        guard let value, (20...400).contains(value) else { return nil }
+        return value
+    }
 
     private var parsedCalories: Int? { Int(draftCaloriesText) }
     private var parsedProtein: Int? { Int(draftProteinText) }

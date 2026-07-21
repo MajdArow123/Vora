@@ -103,6 +103,10 @@ struct ProfileView: View {
         card("Training") {
             row("Goal", profile.goalType.displayName)
             Divider()
+            row("Goal weight", profile.goalWeightKg > 0
+                ? String(format: "%.1f kg", profile.goalWeightKg)
+                : "Not set")
+            Divider()
             row("Activity", profile.activityLevel.displayName)
             Divider()
             row("Split", profile.trainingSplit.displayName)
@@ -190,6 +194,8 @@ struct ProfileView: View {
         card("Training") {
             pickerRow("Goal", selection: $viewModel.draftGoalType)
             Divider()
+            targetEditRow("Goal weight", text: $viewModel.draftGoalWeightText, unit: "kg", keyboard: .decimalPad)
+            Divider()
             pickerRow("Activity", selection: $viewModel.draftActivityLevel)
             Divider()
             pickerRow("Split", selection: $viewModel.draftTrainingSplit)
@@ -268,14 +274,19 @@ struct ProfileView: View {
         }
     }
 
-    private func targetEditRow(_ label: String, text: Binding<String>, unit: String) -> some View {
+    private func targetEditRow(
+        _ label: String,
+        text: Binding<String>,
+        unit: String,
+        keyboard: UIKeyboardType = .numberPad
+    ) -> some View {
         HStack {
             Text(label)
                 .font(DesignSystem.Typography.body)
                 .foregroundStyle(DesignSystem.Colors.textPrimary.opacity(0.6))
             Spacer()
             TextField("0", text: text)
-                .keyboardType(.numberPad)
+                .keyboardType(keyboard)
                 .multilineTextAlignment(.trailing)
                 .font(DesignSystem.Typography.headline)
                 .frame(width: 80)

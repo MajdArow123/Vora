@@ -22,6 +22,8 @@ final class UserProfile {
     var carbsTargetG: Int
     var fatTargetG: Int
     var waterTargetMl: Double
+    /// Target body weight in kg. 0 means not set.
+    var goalWeightKg: Double = 0
     var preferredUnits: UnitSystem
 
     init(
@@ -37,6 +39,7 @@ final class UserProfile {
         carbsTargetG: Int,
         fatTargetG: Int,
         waterTargetMl: Double = 3500,
+        goalWeightKg: Double = 0,
         preferredUnits: UnitSystem = .metric
     ) {
         self.name = name
@@ -51,6 +54,7 @@ final class UserProfile {
         self.carbsTargetG = carbsTargetG
         self.fatTargetG = fatTargetG
         self.waterTargetMl = waterTargetMl
+        self.goalWeightKg = goalWeightKg
         self.preferredUnits = preferredUnits
     }
 }

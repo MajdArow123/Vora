@@ -6,20 +6,254 @@
 //
 
 import SwiftUI
+import SwiftData
+import Charts
 
 struct HomeView: View {
-    var body: some View {
-        ZStack {
-            DesignSystem.Colors.background
-                .ignoresSafeArea()
+    @Environment(\.modelContext) private var modelContext
+    @State private var viewModel = HomeViewModel()
+    @State private var showingSession = false
 
-            Text("Home")
-                .font(DesignSystem.Typography.screenTitle)
-                .foregroundStyle(DesignSystem.Colors.textPrimary)
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                DesignSystem.Colors.background
+                    .ignoresSafeArea()
+
+                ScrollView {
+                    VStack(spacing: DesignSystem.Spacing.md) {
+                        header
+                        calorieCard
+                        macroMiniCards
+                        todayWorkoutCard
+                        weightTrendCard
+                        WaterTrackerCard(
+                            totalMl: viewModel.waterTotalMl,
+                            targetMl: viewModel.waterTargetMl,
+                            glassCount: viewModel.glassCount,
+                            onAdd: { viewModel.addGlass(context: modelContext) },
+                            onRemove: { viewModel.removeGlass(context: modelContext) }
+                        )
+                        StreakDotsView(weekDots: viewModel.weekDots, streakDays: viewModel.streakDays)
+                        if let insight = viewModel.insight {
+                            InsightCard(insight: insight)
+                        }
+                    }
+                    .padding(.horizontal, DesignSystem.Spacing.md)
+                    .padding(.bottom, DesignSystem.Spacing.xl)
+                }
+            }
+            .toolbar(.hidden, for: .navigationBar)
         }
+        .onAppear {
+            viewModel.load(from: modelContext)
+            NotificationService.shared.refreshWeeklySummary(context: modelContext)
+        }
+        .fullScreenCover(isPresented: $showingSession, onDismiss: {
+            viewModel.load(from: modelContext)
+        }) {
+            ActiveSessionView(sessionName: viewModel.todaySplitDay?.title ?? "Workout")
+        }
+    }
+
+    // MARK: - Header
+
+    private var header: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(greeting)
+                    .font(DesignSystem.Typography.caption)
+                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+                Text(viewModel.profile?.name.split(separator: " ").first.map(String.init) ?? "Welcome")
+                    .font(DesignSystem.Typography.screenTitle)
+                    .foregroundStyle(DesignSystem.Colors.textPrimary)
+            }
+            Spacer()
+            Text(Date.now.formatted(.dateTime.weekday(.wide).day().month()))
+                .font(DesignSystem.Typography.caption)
+                .foregroundStyle(DesignSystem.Colors.textSecondary)
+        }
+        .padding(.top, DesignSystem.Spacing.sm)
+    }
+
+    private var greeting: String {
+        switch Calendar.current.component(.hour, from: .now) {
+        case 5..<12: "Good morning"
+        case 12..<18: "Good afternoon"
+        default: "Good evening"
+        }
+    }
+
+    // MARK: - Calories & macros
+
+    private var calorieCard: some View {
+        HStack(spacing: DesignSystem.Spacing.lg) {
+            CalorieRingView(
+                consumed: viewModel.totalCalories,
+                target: viewModel.profile?.dailyCalorieTarget ?? 0
+            )
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Today")
+                    .font(DesignSystem.Typography.caption)
+                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+                    .textCase(.uppercase)
+                Text("\(Int(viewModel.totalCalories.rounded())) kcal")
+                    .font(DesignSystem.Typography.title)
+                    .foregroundStyle(DesignSystem.Colors.textPrimary)
+                Text("of \(viewModel.profile?.dailyCalorieTarget ?? 0) kcal target")
+                    .font(DesignSystem.Typography.caption)
+                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+            }
+            Spacer()
+        }
+        .padding(DesignSystem.Spacing.md)
+        .frame(maxWidth: .infinity)
+        .background(DesignSystem.Colors.card)
+        .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.large))
+    }
+
+    private var macroMiniCards: some View {
+        HStack(spacing: DesignSystem.Spacing.sm) {
+            macroMiniCard("Protein", viewModel.totalProtein, viewModel.profile?.proteinTargetG ?? 0, DesignSystem.Colors.macroProtein)
+            macroMiniCard("Carbs", viewModel.totalCarbs, viewModel.profile?.carbsTargetG ?? 0, DesignSystem.Colors.macroCarbs)
+            macroMiniCard("Fat", viewModel.totalFat, viewModel.profile?.fatTargetG ?? 0, DesignSystem.Colors.macroFat)
+        }
+    }
+
+    private func macroMiniCard(_ label: String, _ consumed: Double, _ target: Int, _ color: Color) -> some View {
+        MacroProgressBar(label: label, consumedG: consumed, targetG: target, color: color)
+            .padding(DesignSystem.Spacing.md)
+            .background(DesignSystem.Colors.card)
+            .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
+    }
+
+    // MARK: - Today's workout
+
+    @ViewBuilder
+    private var todayWorkoutCard: some View {
+        let day = viewModel.todaySplitDay
+        VStack(alignment: .leading, spacing: DesignSystem.Spacing.sm) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Today's Workout")
+                        .font(DesignSystem.Typography.caption)
+                        .foregroundStyle(DesignSystem.Colors.textSecondary)
+                        .textCase(.uppercase)
+                    Text(day?.title ?? "No plan")
+                        .font(DesignSystem.Typography.title)
+                        .foregroundStyle(DesignSystem.Colors.textPrimary)
+                    if let day, !day.muscleGroups.isEmpty {
+                        Text(day.muscleGroups.map(\.capitalized).joined(separator: " · "))
+                            .font(DesignSystem.Typography.caption)
+                            .foregroundStyle(DesignSystem.Colors.textSecondary)
+                    }
+                }
+                Spacer()
+                Image(systemName: day?.isRest == true ? "moon.zzz.fill" : "dumbbell.fill")
+                    .font(.title2)
+                    .foregroundStyle(DesignSystem.Colors.accent)
+            }
+
+            if viewModel.hasTrainedToday {
+                Label("Session logged", systemImage: "checkmark.circle.fill")
+                    .font(DesignSystem.Typography.headline)
+                    .foregroundStyle(DesignSystem.Colors.accent)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, DesignSystem.Spacing.sm)
+            } else if day?.isRest == true {
+                Text("Rest and recover — your streak carries through rest days.")
+                    .font(DesignSystem.Typography.caption)
+                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+            } else {
+                Button {
+                    showingSession = true
+                } label: {
+                    Text("Start Session")
+                        .font(DesignSystem.Typography.headline)
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, DesignSystem.Spacing.sm + 4)
+                        .background(DesignSystem.Colors.accent)
+                        .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(DesignSystem.Spacing.md)
+        .background(DesignSystem.Colors.card)
+        .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.large))
+    }
+
+    // MARK: - Weight trend
+
+    private var weightTrendCard: some View {
+        VStack(alignment: .leading, spacing: DesignSystem.Spacing.sm) {
+            HStack {
+                Text("Weight — 7 days")
+                    .font(DesignSystem.Typography.headline)
+                    .foregroundStyle(DesignSystem.Colors.textPrimary)
+                Spacer()
+                if let delta = viewModel.weekWeightDeltaKg {
+                    HStack(spacing: 3) {
+                        Image(systemName: delta <= 0 ? "arrow.down.right" : "arrow.up.right")
+                            .font(.caption2)
+                        Text(String(format: "%+.1f kg", delta))
+                            .font(DesignSystem.Typography.caption)
+                    }
+                    .foregroundStyle(delta <= 0 ? DesignSystem.Colors.accent : DesignSystem.Colors.macroFat)
+                }
+            }
+
+            if viewModel.weekWeights.count >= 2 {
+                Chart(viewModel.weekWeights, id: \.id) { entry in
+                    AreaMark(
+                        x: .value("Date", entry.date, unit: .day),
+                        y: .value("Weight", entry.weightKg)
+                    )
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [DesignSystem.Colors.accent.opacity(0.25), .clear],
+                            startPoint: .top, endPoint: .bottom
+                        )
+                    )
+                    LineMark(
+                        x: .value("Date", entry.date, unit: .day),
+                        y: .value("Weight", entry.weightKg)
+                    )
+                    .foregroundStyle(DesignSystem.Colors.accent)
+                    .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round))
+                }
+                .chartYScale(domain: weightDomain)
+                .chartXAxis(.hidden)
+                .chartYAxis {
+                    AxisMarks(values: .automatic(desiredCount: 3)) {
+                        AxisGridLine().foregroundStyle(DesignSystem.Colors.textSecondary.opacity(0.15))
+                        AxisValueLabel().foregroundStyle(DesignSystem.Colors.textSecondary)
+                    }
+                }
+                .frame(height: 90)
+            } else {
+                Text("Log your weight on the Progress tab to see your trend here.")
+                    .font(DesignSystem.Typography.caption)
+                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+                    .frame(maxWidth: .infinity, minHeight: 60)
+            }
+        }
+        .padding(DesignSystem.Spacing.md)
+        .background(DesignSystem.Colors.card)
+        .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
+    }
+
+    private var weightDomain: ClosedRange<Double> {
+        let weights = viewModel.weekWeights.map(\.weightKg)
+        guard let min = weights.min(), let max = weights.max() else { return 0...1 }
+        let pad = Swift.max((max - min) * 0.3, 0.5)
+        return (min - pad)...(max + pad)
     }
 }
 
 #Preview {
     HomeView()
+        .modelContainer(for: UserProfile.self, inMemory: true)
 }

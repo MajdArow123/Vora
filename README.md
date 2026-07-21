@@ -47,7 +47,7 @@ Vora is a premium iOS fitness tracking app that brings nutrition, training, and 
 | 0 | Foundation — project structure, design system, data models, tab shell | ✅ Complete |
 | 1 | Onboarding & Profile | ✅ Complete |
 | 2 | Nutrition Module — diary, search, barcode, water | ✅ Complete |
-| 3 | Workout Module | 🚧 In progress |
+| 3 | Workout Module | ✅ Complete |
 | 4 | Progress & Analytics | 🚧 In progress |
 | 5 | Home Dashboard & Polish | 🚧 In progress |
 
