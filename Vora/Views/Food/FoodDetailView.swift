@@ -74,6 +74,7 @@ struct FoodDetailView: View {
 
             HStack {
                 stepButton("minus") { viewModel.adjustServing(by: -10) }
+                    .accessibilityLabel("Decrease serving size")
 
                 Spacer()
 
@@ -94,6 +95,8 @@ struct FoodDetailView: View {
                             .foregroundStyle(viewModel.servingGrams == grams
                                              ? DesignSystem.Colors.accent
                                              : DesignSystem.Colors.textSecondary)
+                            .contentShape(Rectangle().inset(by: -12))
+                            .accessibilityLabel("\(Int(grams)) grams")
                         }
                     }
                 }
@@ -101,6 +104,7 @@ struct FoodDetailView: View {
                 Spacer()
 
                 stepButton("plus") { viewModel.adjustServing(by: 10) }
+                    .accessibilityLabel("Increase serving size")
             }
             .padding(DesignSystem.Spacing.md)
             .background(DesignSystem.Colors.card)
@@ -191,6 +195,7 @@ struct FoodDetailView: View {
         } label: {
             HStack(spacing: DesignSystem.Spacing.sm) {
                 Image(systemName: justAdded ? "checkmark.circle.fill" : "plus")
+                    .accessibilityHidden(true)
                 Text(justAdded ? "Added" : "Add to \(mealSlot.displayName)")
             }
             .font(DesignSystem.Typography.headline)

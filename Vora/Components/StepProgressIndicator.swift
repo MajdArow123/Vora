@@ -22,6 +22,8 @@ struct StepProgressIndicator: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: currentStep)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Step \(currentStep + 1) of \(totalSteps)")
     }
 }
 

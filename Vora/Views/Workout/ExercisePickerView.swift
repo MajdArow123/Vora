@@ -56,6 +56,7 @@ struct ExercisePickerView: View {
         HStack(spacing: DesignSystem.Spacing.sm) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(DesignSystem.Colors.textSecondary)
+                .accessibilityHidden(true)
             TextField("Search exercises", text: $query)
                 .autocorrectionDisabled()
         }
@@ -89,6 +90,7 @@ struct ExercisePickerView: View {
                             .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityAddTraits(isSelected ? .isSelected : [])
                 }
             }
             .padding(.horizontal, DesignSystem.Spacing.lg)
@@ -136,6 +138,7 @@ struct ExercisePickerView: View {
                 Image(systemName: icon)
                     .foregroundStyle(DesignSystem.Colors.accent)
                     .frame(width: 28)
+                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title)
                         .font(DesignSystem.Typography.body)

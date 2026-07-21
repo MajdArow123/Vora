@@ -22,6 +22,7 @@ struct WorkoutHistoryView: View {
                     Image(systemName: "clock.arrow.circlepath")
                         .font(.title)
                         .foregroundStyle(DesignSystem.Colors.textSecondary.opacity(0.5))
+                        .accessibilityHidden(true)
                     Text("No workouts yet")
                         .font(DesignSystem.Typography.headline)
                         .foregroundStyle(DesignSystem.Colors.textPrimary)
@@ -58,6 +59,7 @@ struct WorkoutHistoryView: View {
             Image(systemName: "dumbbell.fill")
                 .foregroundStyle(DesignSystem.Colors.accent)
                 .frame(width: 32)
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(session.sessionName)
@@ -89,6 +91,7 @@ struct WorkoutHistoryView: View {
             Image(systemName: entry.type.iconName)
                 .foregroundStyle(DesignSystem.Colors.macroCarbs)
                 .frame(width: 32)
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.type.displayName)

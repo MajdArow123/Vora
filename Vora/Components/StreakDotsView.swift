@@ -23,6 +23,12 @@ struct StreakDotsView: View {
         }
     }
 
+    private var streakSummary: String {
+        let trained = weekDots.filter { $0 }.count
+        let streak = streakDays > 0 ? "\(streakDays) day streak" : "No streak"
+        return "\(streak), trained \(trained) of the last 7 days"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: DesignSystem.Spacing.sm) {
             HStack {
@@ -62,6 +68,9 @@ struct StreakDotsView: View {
         .padding(DesignSystem.Spacing.md)
         .background(DesignSystem.Colors.card)
         .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Workout streak")
+        .accessibilityValue(streakSummary)
     }
 }
 

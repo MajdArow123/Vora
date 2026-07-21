@@ -35,6 +35,7 @@ struct WaterTrackerCard: View {
                     HStack(spacing: DesignSystem.Spacing.sm) {
                         Image(systemName: "drop.fill")
                             .foregroundStyle(DesignSystem.Colors.macroCarbs)
+                            .accessibilityHidden(true)
                         Text("\(glassCount)")
                             .font(DesignSystem.Typography.title)
                             .foregroundStyle(DesignSystem.Colors.textPrimary)
@@ -57,6 +58,7 @@ struct WaterTrackerCard: View {
                         }
                         .buttonStyle(.plain)
                         .disabled(glassCount == 0)
+                        .accessibilityLabel("Remove a glass of water")
 
                         Button(action: onAdd) {
                             Image(systemName: "plus.circle.fill")
@@ -65,6 +67,7 @@ struct WaterTrackerCard: View {
                                 .frame(width: 44, height: 44)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("Add a glass of water")
                     }
                 }
 
@@ -85,6 +88,9 @@ struct WaterTrackerCard: View {
                         .font(DesignSystem.Typography.caption)
                         .foregroundStyle(DesignSystem.Colors.textSecondary)
                 }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Water")
+                .accessibilityValue("\(glassCount) glasses, \(String(format: "%.2f of %.1f litres", totalMl / 1000, targetMl / 1000))")
             }
             .padding(DesignSystem.Spacing.md)
             .background(DesignSystem.Colors.card)

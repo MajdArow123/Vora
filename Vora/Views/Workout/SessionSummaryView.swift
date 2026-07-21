@@ -28,6 +28,7 @@ struct SessionSummaryView: View {
                         .font(.system(size: 40, weight: .bold))
                         .foregroundStyle(DesignSystem.Colors.accent)
                 }
+                .accessibilityHidden(true)
 
                 Text("Session Complete")
                     .font(DesignSystem.Typography.screenTitle)
@@ -52,6 +53,7 @@ struct SessionSummaryView: View {
                                 HStack {
                                     Image(systemName: "trophy.fill")
                                         .foregroundStyle(DesignSystem.Colors.macroFat)
+                                        .accessibilityHidden(true)
                                     Text(pr.exerciseName)
                                         .font(DesignSystem.Typography.body)
                                         .foregroundStyle(DesignSystem.Colors.textPrimary)
@@ -92,6 +94,7 @@ struct SessionSummaryView: View {
         .padding(.vertical, DesignSystem.Spacing.md)
         .background(DesignSystem.Colors.card)
         .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
+        .accessibilityElement(children: .combine)
     }
 }
 

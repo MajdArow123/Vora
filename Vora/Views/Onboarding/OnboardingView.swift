@@ -53,8 +53,11 @@ struct OnboardingView: View {
                         .frame(width: 36, height: 36)
                         .background(.white)
                         .clipShape(Circle())
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Back")
 
                 StepProgressIndicator(
                     currentStep: viewModel.step.rawValue - 1,

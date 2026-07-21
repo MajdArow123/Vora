@@ -111,6 +111,9 @@ struct HomeView: View {
         .frame(maxWidth: .infinity)
         .background(DesignSystem.Colors.card)
         .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.large))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Calories")
+        .accessibilityValue("\(Int(viewModel.totalCalories.rounded())) of \(viewModel.profile?.dailyCalorieTarget ?? 0) kilocalories")
     }
 
     private var macroMiniCards: some View {
@@ -126,6 +129,9 @@ struct HomeView: View {
             .padding(DesignSystem.Spacing.md)
             .background(DesignSystem.Colors.card)
             .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(label)
+            .accessibilityValue("\(Int(consumed.rounded())) of \(target) grams")
     }
 
     // MARK: - Today's workout
@@ -153,6 +159,7 @@ struct HomeView: View {
                 Image(systemName: day?.isRest == true ? "moon.zzz.fill" : "dumbbell.fill")
                     .font(.title2)
                     .foregroundStyle(DesignSystem.Colors.accent)
+                    .accessibilityHidden(true)
             }
 
             if viewModel.hasTrainedToday {
@@ -198,6 +205,7 @@ struct HomeView: View {
                     HStack(spacing: 3) {
                         Image(systemName: delta <= 0 ? "arrow.down.right" : "arrow.up.right")
                             .font(.caption2)
+                            .accessibilityHidden(true)
                         Text(String(format: "%+.1f kg", delta))
                             .font(DesignSystem.Typography.caption)
                     }
@@ -233,6 +241,8 @@ struct HomeView: View {
                     }
                 }
                 .frame(height: 90)
+                .accessibilityLabel("Weight trend chart")
+                .accessibilityValue(weightTrendSummary)
             } else {
                 Text("Log your weight on the Progress tab to see your trend here.")
                     .font(DesignSystem.Typography.caption)
@@ -250,6 +260,12 @@ struct HomeView: View {
         guard let min = weights.min(), let max = weights.max() else { return 0...1 }
         let pad = Swift.max((max - min) * 0.3, 0.5)
         return (min - pad)...(max + pad)
+    }
+
+    private var weightTrendSummary: String {
+        guard let first = viewModel.weekWeights.first, let last = viewModel.weekWeights.last else { return "" }
+        let delta = last.weightKg - first.weightKg
+        return String(format: "From %.1f to %.1f kilograms, %+.1f kilograms over the last 7 days", first.weightKg, last.weightKg, delta)
     }
 }
 

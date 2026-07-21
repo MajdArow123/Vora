@@ -75,6 +75,7 @@ struct FoodSearchView: View {
             HStack(spacing: DesignSystem.Spacing.sm) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(DesignSystem.Colors.textSecondary)
+                    .accessibilityHidden(true)
                 TextField("Search foods", text: $viewModel.query)
                     .autocorrectionDisabled()
                 if !viewModel.query.isEmpty {
@@ -85,6 +86,8 @@ struct FoodSearchView: View {
                             .foregroundStyle(DesignSystem.Colors.textSecondary.opacity(0.6))
                     }
                     .buttonStyle(.plain)
+                    .contentShape(Rectangle().inset(by: -14))
+                    .accessibilityLabel("Clear search")
                 }
             }
             .padding(DesignSystem.Spacing.md)
@@ -102,6 +105,7 @@ struct FoodSearchView: View {
                     .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Scan barcode")
         }
         .padding(.horizontal, DesignSystem.Spacing.lg)
     }
@@ -128,6 +132,7 @@ struct FoodSearchView: View {
                             .clipShape(Capsule())
                     }
                     .buttonStyle(.plain)
+                    .contentShape(Rectangle().inset(by: -8))
                 }
             }
             .padding(.horizontal, DesignSystem.Spacing.lg)
@@ -239,6 +244,7 @@ struct FoodSearchView: View {
                     HStack {
                         Image(systemName: "plus.circle.fill")
                             .foregroundStyle(DesignSystem.Colors.accent)
+                            .accessibilityHidden(true)
                         Text("Create Food")
                             .font(DesignSystem.Typography.headline)
                             .foregroundStyle(DesignSystem.Colors.accent)
@@ -305,6 +311,7 @@ struct FoodSearchView: View {
             Image(systemName: icon)
                 .font(.title)
                 .foregroundStyle(DesignSystem.Colors.textSecondary.opacity(0.5))
+                .accessibilityHidden(true)
             Text(title)
                 .font(DesignSystem.Typography.headline)
                 .foregroundStyle(DesignSystem.Colors.textPrimary)

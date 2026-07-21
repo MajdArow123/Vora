@@ -101,7 +101,21 @@ final class FoodSearchViewModel {
             // Superseded by a newer query.
         } catch {
             guard !Task.isCancelled else { return }
-            state = .failed(error.localizedDescription)
+            state = .failed(Self.userMessage(for: error))
+        }
+    }
+
+    /// Friendlier copy for the common connectivity failures; falls back
+    /// to the error's own description (OpenFoodFactsError is already
+    /// user-readable).
+    static func userMessage(for error: Error) -> String {
+        switch (error as? URLError)?.code {
+        case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed:
+            "You are offline. Check your connection and try again."
+        case .timedOut:
+            "The search timed out. Try again in a moment."
+        default:
+            error.localizedDescription
         }
     }
 

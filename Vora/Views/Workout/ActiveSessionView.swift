@@ -49,6 +49,7 @@ struct ActiveSessionView: View {
                         } label: {
                             HStack {
                                 Image(systemName: "plus.circle.fill")
+                                    .accessibilityHidden(true)
                                 Text("Add Exercise")
                                     .font(DesignSystem.Typography.headline)
                                 Spacer()
@@ -115,6 +116,7 @@ struct ActiveSessionView: View {
                     .clipShape(Circle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Close session")
 
             Spacer()
 
@@ -185,7 +187,9 @@ struct ExerciseSessionCard: View {
                     Image(systemName: "ellipsis")
                         .foregroundStyle(DesignSystem.Colors.textSecondary)
                         .frame(width: 36, height: 36)
+                        .contentShape(Rectangle().inset(by: -4))
                 }
+                .accessibilityLabel("Exercise options")
             }
 
             HStack {
@@ -222,6 +226,7 @@ struct ExerciseSessionCard: View {
             } label: {
                 HStack {
                     Image(systemName: "plus")
+                        .accessibilityHidden(true)
                     Text("Add Set")
                 }
                 .font(DesignSystem.Typography.caption)
@@ -262,7 +267,9 @@ private struct SetRow: View {
                 .lineLimit(1)
 
             field(binding(\.weightText), placeholder: "0")
+                .accessibilityLabel("Weight in kilograms")
             field(binding(\.repsText), placeholder: "0")
+                .accessibilityLabel("Reps")
 
             Button {
                 let completed = withAnimation(.spring(duration: 0.3)) {
@@ -280,8 +287,10 @@ private struct SetRow: View {
                                      : DesignSystem.Colors.textSecondary.opacity(0.3))
                     .frame(width: 40, height: 40)
                     .scaleEffect(set.isCompleted ? 1.08 : 1)
+                    .contentShape(Rectangle().inset(by: -2))
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(set.isCompleted ? "Mark set incomplete" : "Mark set complete")
         }
         .padding(.vertical, 2)
         .padding(.horizontal, DesignSystem.Spacing.xs)

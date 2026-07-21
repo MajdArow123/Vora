@@ -19,11 +19,15 @@ struct RestTimerBar: View {
             HStack(spacing: DesignSystem.Spacing.md) {
                 Image(systemName: "timer")
                     .foregroundStyle(.white)
+                    .accessibilityHidden(true)
 
                 Text(Self.timeString(remaining))
                     .font(.system(.title3, design: .monospaced, weight: .bold))
                     .foregroundStyle(.white)
                     .frame(width: 64, alignment: .leading)
+                    .accessibilityLabel("Rest time remaining")
+                    .accessibilityValue(Self.timeString(remaining))
+                    .accessibilityAddTraits(.updatesFrequently)
 
                 Spacer()
 
@@ -41,8 +45,10 @@ struct RestTimerBar: View {
                         .padding(.vertical, DesignSystem.Spacing.sm)
                         .background(.white)
                         .clipShape(Capsule())
+                        .contentShape(Rectangle().inset(by: -6))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Skip rest")
             }
             .padding(DesignSystem.Spacing.md)
             .background(DesignSystem.Colors.accent)

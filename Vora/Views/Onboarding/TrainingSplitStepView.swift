@@ -43,6 +43,7 @@ struct TrainingSplitStepView: View {
                     .font(.title3)
                     .foregroundStyle(DesignSystem.Colors.accent)
                     .frame(width: 32)
+                    .accessibilityHidden(true)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(split.displayName)
@@ -59,6 +60,7 @@ struct TrainingSplitStepView: View {
                     .foregroundStyle(isSelected
                                      ? DesignSystem.Colors.accent
                                      : DesignSystem.Colors.textPrimary.opacity(0.2))
+                    .accessibilityHidden(true)
             }
             .padding(DesignSystem.Spacing.md)
             .background(.white)
@@ -69,6 +71,7 @@ struct TrainingSplitStepView: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private func icon(for split: TrainingSplit) -> String {

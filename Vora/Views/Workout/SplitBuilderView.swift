@@ -79,6 +79,7 @@ struct SplitBuilderView: View {
             Image(systemName: "chevron.right")
                 .font(.caption)
                 .foregroundStyle(DesignSystem.Colors.textSecondary.opacity(0.5))
+                .accessibilityHidden(true)
         }
         .padding(DesignSystem.Spacing.md)
         .background(DesignSystem.Colors.card)
@@ -173,8 +174,10 @@ private struct FlowingChips: View {
                         .padding(.vertical, DesignSystem.Spacing.sm)
                         .background(isSelected ? DesignSystem.Colors.accent : DesignSystem.Colors.card)
                         .clipShape(Capsule())
+                        .contentShape(Rectangle().inset(by: -8))
                 }
                 .buttonStyle(.plain)
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
         }
     }

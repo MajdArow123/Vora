@@ -42,6 +42,7 @@ struct ProgressView: View {
                         Image(systemName: "plus.circle.fill")
                             .foregroundStyle(DesignSystem.Colors.accent)
                     }
+                    .accessibilityLabel("Log weight")
                 }
             }
         }
@@ -116,11 +117,14 @@ struct ProgressView: View {
                     }
                 }
                 .frame(height: 200)
+                .accessibilityLabel("Weight trend chart")
+                .accessibilityValue(weightChartSummary)
             } else {
                 VStack(spacing: DesignSystem.Spacing.sm) {
                     Image(systemName: "scalemass")
                         .font(.title)
                         .foregroundStyle(DesignSystem.Colors.textSecondary)
+                        .accessibilityHidden(true)
                     Text("Log at least two weigh-ins to see your trend.")
                         .font(DesignSystem.Typography.caption)
                         .foregroundStyle(DesignSystem.Colors.textSecondary)
@@ -138,6 +142,12 @@ struct ProgressView: View {
         guard let min = weights.min(), let max = weights.max() else { return 0...1 }
         let pad = Swift.max((max - min) * 0.15, 0.5)
         return (min - pad)...(max + pad)
+    }
+
+    private var weightChartSummary: String {
+        guard let first = viewModel.rangeWeights.first, let last = viewModel.rangeWeights.last else { return "" }
+        let delta = last.weightKg - first.weightKg
+        return String(format: "From %.1f to %.1f kilograms, %+.1f kilograms over this range", first.weightKg, last.weightKg, delta)
     }
 
     // MARK: - Stat row
@@ -163,6 +173,7 @@ struct ProgressView: View {
                 Image(systemName: icon)
                     .font(.caption)
                     .foregroundStyle(DesignSystem.Colors.accent)
+                    .accessibilityHidden(true)
                 Text(value)
                     .font(DesignSystem.Typography.title)
                     .foregroundStyle(DesignSystem.Colors.textPrimary)
@@ -175,6 +186,7 @@ struct ProgressView: View {
         .padding(DesignSystem.Spacing.md)
         .background(DesignSystem.Colors.card)
         .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: - Goal projection
@@ -188,6 +200,7 @@ struct ProgressView: View {
                 .frame(width: 36, height: 36)
                 .background(DesignSystem.Colors.accent.opacity(0.12))
                 .clipShape(Circle())
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("Goal projection")
@@ -269,7 +282,7 @@ struct ProgressView: View {
                     if let delta = viewModel.delta(for: entry) {
                         Text(String(format: "%+.1f", delta))
                             .font(DesignSystem.Typography.caption)
-                            .foregroundStyle(delta <= 0 ? Color(hex: "4C8A5A") : Color(hex: "B4574E"))
+                            .foregroundStyle(delta <= 0 ? DesignSystem.Colors.positive : DesignSystem.Colors.negative)
                     }
                     Text(String(format: "%.1f kg", entry.weightKg))
                         .font(DesignSystem.Typography.body)
@@ -310,6 +323,7 @@ private struct LogWeightSheet: View {
                         TextField("0.0", text: $weightText)
                             .keyboardType(.decimalPad)
                             .focused($focused)
+                            .accessibilityLabel("Weight in kilograms")
                             .font(.system(size: 44, weight: .bold))
                             .foregroundStyle(DesignSystem.Colors.textPrimary)
                             .multilineTextAlignment(.trailing)

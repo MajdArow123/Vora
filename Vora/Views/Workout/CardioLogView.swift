@@ -68,6 +68,7 @@ struct CardioLogView: View {
                             Image(systemName: "flame.fill")
                                 .font(.title2)
                                 .foregroundStyle(DesignSystem.Colors.macroFat)
+                                .accessibilityHidden(true)
                         }
                         .padding(DesignSystem.Spacing.md)
                         .background(DesignSystem.Colors.card)
@@ -107,6 +108,7 @@ struct CardioLogView: View {
                 Image(systemName: type.iconName)
                     .font(.title3)
                     .foregroundStyle(isSelected ? .white : DesignSystem.Colors.accent)
+                    .accessibilityHidden(true)
                 Text(type.displayName)
                     .font(DesignSystem.Typography.caption)
                     .fontWeight(.semibold)
@@ -118,6 +120,7 @@ struct CardioLogView: View {
             .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 

@@ -53,6 +53,7 @@ struct GoalStepView: View {
                     .font(.title3)
                     .foregroundStyle(DesignSystem.Colors.accent)
                     .frame(width: 32)
+                    .accessibilityHidden(true)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(goal.displayName)
@@ -69,6 +70,7 @@ struct GoalStepView: View {
                     .foregroundStyle(isSelected
                                      ? DesignSystem.Colors.accent
                                      : DesignSystem.Colors.textPrimary.opacity(0.2))
+                    .accessibilityHidden(true)
             }
             .padding(DesignSystem.Spacing.md)
             .background(.white)
@@ -79,6 +81,7 @@ struct GoalStepView: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private func activityRow(_ level: ActivityLevel) -> some View {
@@ -102,6 +105,7 @@ struct GoalStepView: View {
                     .foregroundStyle(isSelected
                                      ? DesignSystem.Colors.accent
                                      : DesignSystem.Colors.textPrimary.opacity(0.2))
+                    .accessibilityHidden(true)
             }
             .padding(DesignSystem.Spacing.md)
             .background(.white)
@@ -112,6 +116,7 @@ struct GoalStepView: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 

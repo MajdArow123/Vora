@@ -15,32 +15,41 @@ import UserNotifications
 /// the pending request always carries the freshest stats.
 final class NotificationService {
     static let shared = NotificationService()
-    private static let weeklySummaryId = "vora.weeklySummary"
+    static let weeklySummaryId = "vora.weeklySummary"
 
     private init() {}
 
     func refreshWeeklySummary(context: ModelContext, now: Date = .now) {
+        #if DEBUG
+        // Keeps the permission alert out of App Store screenshot runs.
+        if ProcessInfo.processInfo.arguments.contains("--suppress-notification-prompt") { return }
+        #endif
         let center = UNUserNotificationCenter.current()
         let content = weeklySummaryContent(context: context, now: now)
 
         center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
             guard granted else { return }
-
-            var components = DateComponents()
-            components.weekday = 1 // Sunday
-            components.hour = 19
-            let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: true)
-            let request = UNNotificationRequest(
-                identifier: Self.weeklySummaryId,
-                content: content,
-                trigger: trigger
-            )
             center.removePendingNotificationRequests(withIdentifiers: [Self.weeklySummaryId])
-            center.add(request)
+            center.add(Self.weeklySummaryRequest(content: content))
         }
     }
 
-    private func weeklySummaryContent(context: ModelContext, now: Date) -> UNMutableNotificationContent {
+    /// Repeats every Sunday at 19:00 local time.
+    static func weeklySummaryRequest(content: UNMutableNotificationContent) -> UNNotificationRequest {
+        var components = DateComponents()
+        components.weekday = 1 // Sunday
+        components.hour = 19
+        let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: true)
+        return UNNotificationRequest(
+            identifier: weeklySummaryId,
+            content: content,
+            trigger: trigger
+        )
+    }
+
+    /// Internal (not private) so the content generation is unit-testable
+    /// without touching UNUserNotificationCenter.
+    func weeklySummaryContent(context: ModelContext, now: Date) -> UNMutableNotificationContent {
         let cal = Calendar.current
         let todayStart = cal.startOfDay(for: now)
         let weekAgo = cal.date(byAdding: .day, value: -6, to: todayStart) ?? todayStart

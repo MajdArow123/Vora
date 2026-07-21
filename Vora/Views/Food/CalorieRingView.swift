@@ -45,6 +45,11 @@ struct CalorieRingView: View {
             }
         }
         .frame(width: 128, height: 128)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Calories")
+        .accessibilityValue(remaining >= 0
+                            ? "\(Int(consumed.rounded())) of \(target) kilocalories eaten, \(remaining) remaining"
+                            : "\(Int(consumed.rounded())) of \(target) kilocalories eaten, \(abs(remaining)) over")
     }
 }
 

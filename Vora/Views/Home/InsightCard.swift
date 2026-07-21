@@ -18,6 +18,7 @@ struct InsightCard: View {
                 .frame(width: 36, height: 36)
                 .background(DesignSystem.Colors.accent.opacity(0.12))
                 .clipShape(Circle())
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(insight.title)
@@ -33,6 +34,7 @@ struct InsightCard: View {
         .padding(DesignSystem.Spacing.md)
         .background(DesignSystem.Colors.card)
         .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
+        .accessibilityElement(children: .combine)
     }
 }
 

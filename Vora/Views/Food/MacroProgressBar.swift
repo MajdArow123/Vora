@@ -43,6 +43,9 @@ struct MacroProgressBar: View {
             }
             .frame(height: 6)
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(label)
+        .accessibilityValue("\(Int(consumedG.rounded())) of \(targetG) grams")
     }
 }
 

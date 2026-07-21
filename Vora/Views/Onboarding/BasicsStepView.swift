@@ -162,6 +162,7 @@ struct BasicsStepView: View {
                     .foregroundStyle(isSelected
                                      ? DesignSystem.Colors.accent
                                      : DesignSystem.Colors.textPrimary.opacity(0.2))
+                    .accessibilityHidden(true)
             }
             .padding(DesignSystem.Spacing.md)
             .frame(maxWidth: .infinity)
@@ -173,6 +174,7 @@ struct BasicsStepView: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private func fieldLabel(_ text: String) -> some View {

@@ -52,10 +52,14 @@ struct ProfileView: View {
     private var editBar: some View {
         HStack {
             if viewModel.isEditing {
-                Button("Cancel") {
+                Button {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         viewModel.cancelEditing()
                     }
+                } label: {
+                    Text("Cancel")
+                        .frame(minWidth: 44, minHeight: 44, alignment: .leading)
+                        .contentShape(Rectangle())
                 }
                 .font(DesignSystem.Typography.body)
                 .foregroundStyle(DesignSystem.Colors.textPrimary.opacity(0.6))
@@ -64,10 +68,14 @@ struct ProfileView: View {
             Spacer()
 
             if viewModel.isEditing {
-                Button("Save") {
+                Button {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         viewModel.saveChanges(in: modelContext)
                     }
+                } label: {
+                    Text("Save")
+                        .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
+                        .contentShape(Rectangle())
                 }
                 .font(DesignSystem.Typography.headline)
                 .foregroundStyle(viewModel.canSave
@@ -75,10 +83,14 @@ struct ProfileView: View {
                                  : DesignSystem.Colors.textPrimary.opacity(0.3))
                 .disabled(!viewModel.canSave)
             } else {
-                Button("Edit") {
+                Button {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         viewModel.beginEditing()
                     }
+                } label: {
+                    Text("Edit")
+                        .frame(minWidth: 44, minHeight: 44, alignment: .trailing)
+                        .contentShape(Rectangle())
                 }
                 .font(DesignSystem.Typography.headline)
                 .foregroundStyle(DesignSystem.Colors.accent)
@@ -290,6 +302,7 @@ struct ProfileView: View {
                 .multilineTextAlignment(.trailing)
                 .font(DesignSystem.Typography.headline)
                 .frame(width: 80)
+                .accessibilityLabel(label)
             Text(unit)
                 .font(DesignSystem.Typography.caption)
                 .foregroundStyle(DesignSystem.Colors.textPrimary.opacity(0.5))
@@ -310,7 +323,7 @@ struct ProfileView: View {
                 content()
             }
             .padding(DesignSystem.Spacing.md)
-            .background(.white)
+            .background(DesignSystem.Colors.card)
             .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
         }
     }

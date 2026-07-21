@@ -95,6 +95,7 @@ struct FoodDiaryView: View {
             navButton("chevron.left") {
                 viewModel.goToPreviousDay(context: modelContext)
             }
+            .accessibilityLabel("Previous day")
 
             Spacer()
 
@@ -124,10 +125,12 @@ struct FoodDiaryView: View {
                         .foregroundStyle(DesignSystem.Colors.textPrimary)
                         .frame(width: 44, height: 44)
                 }
+                .accessibilityLabel("More options")
 
                 navButton("chevron.right") {
                     viewModel.goToNextDay(context: modelContext)
                 }
+                .accessibilityLabel("Next day")
             }
         }
     }

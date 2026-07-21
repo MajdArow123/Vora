@@ -19,6 +19,7 @@ struct WelcomeStepView: View {
                 Image(systemName: "leaf.fill")
                     .font(.system(size: 48))
                     .foregroundStyle(DesignSystem.Colors.accent)
+                    .accessibilityHidden(true)
             }
 
             Text("Vora")

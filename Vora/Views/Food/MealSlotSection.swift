@@ -25,6 +25,7 @@ struct MealSlotSection: View {
                         .font(.subheadline)
                         .foregroundStyle(DesignSystem.Colors.accent)
                         .frame(width: 24)
+                        .accessibilityHidden(true)
 
                     Text(slot.displayName)
                         .font(DesignSystem.Typography.headline)

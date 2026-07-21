@@ -56,6 +56,7 @@ struct TargetsStepView: View {
                 .font(DesignSystem.Typography.headline)
                 .foregroundStyle(DesignSystem.Colors.textPrimary)
                 .frame(width: 80)
+                .accessibilityLabel(label)
 
             Text(unit)
                 .font(DesignSystem.Typography.caption)

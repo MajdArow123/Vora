@@ -74,6 +74,7 @@ struct BarcodeScannerView: View {
                 Image(systemName: "camera.fill")
                     .font(.title)
                     .foregroundStyle(DesignSystem.Colors.textSecondary.opacity(0.5))
+                    .accessibilityHidden(true)
                 Text(cameraAuthorized == false ? "Camera access denied" : "Camera unavailable")
                     .font(DesignSystem.Typography.headline)
                     .foregroundStyle(DesignSystem.Colors.textPrimary)

@@ -330,6 +330,7 @@
 				DEVELOPMENT_TEAM = J929M66FZ4;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = SupportFiles/Info.plist;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Vora uses the camera to scan food barcodes.";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "Vora reads your weight, steps, energy burned, and workouts to keep your progress in sync with Apple Health.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Vora saves your workouts and body weight to Apple Health.";
@@ -366,6 +367,7 @@
 				DEVELOPMENT_TEAM = J929M66FZ4;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = SupportFiles/Info.plist;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Vora uses the camera to scan food barcodes.";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "Vora reads your weight, steps, energy burned, and workouts to keep your progress in sync with Apple Health.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Vora saves your workouts and body weight to Apple Health.";

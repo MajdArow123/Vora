@@ -80,6 +80,7 @@ struct WorkoutView: View {
                 if viewModel.hasTrainedToday {
                     HStack(spacing: 4) {
                         Image(systemName: "checkmark.circle.fill")
+                            .accessibilityHidden(true)
                         Text("Done")
                     }
                     .font(DesignSystem.Typography.caption)
@@ -143,6 +144,8 @@ struct WorkoutView: View {
                     .frame(width: 34, height: 34)
                 }
                 .frame(maxWidth: .infinity)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(accessibilityLabel(for: day, state: state))
             }
         }
         .padding(DesignSystem.Spacing.md)
@@ -158,6 +161,22 @@ struct WorkoutView: View {
         case .missed: DesignSystem.Colors.background
         case .rest: DesignSystem.Colors.background.opacity(0.5)
         }
+    }
+
+    private func accessibilityLabel(for day: SplitDay, state: SplitDayState) -> String {
+        let fullDayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        let name = fullDayNames[day.dayIndex]
+        if day.isRest {
+            return "\(name), rest day"
+        }
+        let status = switch state {
+        case .done: "completed"
+        case .today: "today"
+        case .upcoming: "upcoming"
+        case .missed: "missed"
+        case .rest: "rest day"
+        }
+        return "\(name), \(day.title), \(status)"
     }
 
     @ViewBuilder
@@ -202,6 +221,7 @@ struct WorkoutView: View {
                             Image(systemName: "trophy.fill")
                                 .font(.caption)
                                 .foregroundStyle(DesignSystem.Colors.macroFat)
+                                .accessibilityHidden(true)
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(record.exerciseName)
                                     .font(DesignSystem.Typography.body)
@@ -255,6 +275,7 @@ struct WorkoutView: View {
             Image(systemName: icon)
                 .font(.title3)
                 .foregroundStyle(DesignSystem.Colors.accent)
+                .accessibilityHidden(true)
             Text(title)
                 .font(DesignSystem.Typography.caption)
                 .foregroundStyle(DesignSystem.Colors.textPrimary)
