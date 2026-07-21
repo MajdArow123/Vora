@@ -19,6 +19,25 @@ enum UnitSystem: String, Codable, CaseIterable {
     case imperial
 }
 
+extension GoalType {
+    var displayName: String {
+        switch self {
+        case .fatLoss: "Fat Loss"
+        case .maintain: "Maintain"
+        case .muscleGain: "Muscle Gain"
+        }
+    }
+}
+
+extension UnitSystem {
+    var displayName: String {
+        switch self {
+        case .metric: "Metric"
+        case .imperial: "Imperial"
+        }
+    }
+}
+
 @Model
 final class UserProfile {
     var name: String

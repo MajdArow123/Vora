@@ -6,8 +6,26 @@
 //
 
 import SwiftUI
+import SwiftData
 
 struct ContentView: View {
+    @Query private var profiles: [UserProfile]
+
+    var body: some View {
+        Group {
+            if profiles.isEmpty {
+                OnboardingView()
+                    .transition(.opacity)
+            } else {
+                MainTabView()
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.35), value: profiles.isEmpty)
+    }
+}
+
+private struct MainTabView: View {
     var body: some View {
         TabView {
             HomeView()
@@ -46,4 +64,5 @@ struct ContentView: View {
 
 #Preview {
     ContentView()
+        .modelContainer(for: UserProfile.self, inMemory: true)
 }
