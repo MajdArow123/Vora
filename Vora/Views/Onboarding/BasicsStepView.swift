@@ -40,6 +40,18 @@ struct BasicsStepView: View {
                 }
 
                 VStack(alignment: .leading, spacing: DesignSystem.Spacing.sm) {
+                    fieldLabel("Biological sex")
+                    HStack(spacing: DesignSystem.Spacing.sm) {
+                        ForEach(BiologicalSex.allCases, id: \.self) { sex in
+                            sexCard(sex)
+                        }
+                    }
+                    Text("Used only to calculate your calorie targets.")
+                        .font(DesignSystem.Typography.caption)
+                        .foregroundStyle(DesignSystem.Colors.textPrimary.opacity(0.5))
+                }
+
+                VStack(alignment: .leading, spacing: DesignSystem.Spacing.sm) {
                     fieldLabel("Date of birth")
                     HStack {
                         Text("Born")
@@ -134,6 +146,33 @@ struct BasicsStepView: View {
             .frame(height: 110)
             .clipped()
         }
+    }
+
+    private func sexCard(_ sex: BiologicalSex) -> some View {
+        let isSelected = viewModel.biologicalSex == sex
+        return Button {
+            viewModel.biologicalSex = sex
+        } label: {
+            HStack {
+                Text(sex.displayName)
+                    .font(DesignSystem.Typography.headline)
+                    .foregroundStyle(DesignSystem.Colors.textPrimary)
+                Spacer()
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected
+                                     ? DesignSystem.Colors.accent
+                                     : DesignSystem.Colors.textPrimary.opacity(0.2))
+            }
+            .padding(DesignSystem.Spacing.md)
+            .frame(maxWidth: .infinity)
+            .background(.white)
+            .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
+            .overlay(
+                RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium)
+                    .strokeBorder(isSelected ? DesignSystem.Colors.accent : .clear, lineWidth: 2)
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     private func fieldLabel(_ text: String) -> some View {

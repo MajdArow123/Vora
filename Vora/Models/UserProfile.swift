@@ -8,42 +8,15 @@
 import Foundation
 import SwiftData
 
-enum GoalType: String, Codable, CaseIterable {
-    case fatLoss
-    case maintain
-    case muscleGain
-}
-
-enum UnitSystem: String, Codable, CaseIterable {
-    case metric
-    case imperial
-}
-
-extension GoalType {
-    var displayName: String {
-        switch self {
-        case .fatLoss: "Fat Loss"
-        case .maintain: "Maintain"
-        case .muscleGain: "Muscle Gain"
-        }
-    }
-}
-
-extension UnitSystem {
-    var displayName: String {
-        switch self {
-        case .metric: "Metric"
-        case .imperial: "Imperial"
-        }
-    }
-}
-
 @Model
 final class UserProfile {
     var name: String
     var dateOfBirth: Date
     var heightCm: Double
+    var biologicalSex: BiologicalSex = BiologicalSex.male
     var goalType: GoalType
+    var activityLevel: ActivityLevel = ActivityLevel.moderatelyActive
+    var trainingSplit: TrainingSplit = TrainingSplit.fullBody
     var dailyCalorieTarget: Int
     var proteinTargetG: Int
     var carbsTargetG: Int
@@ -55,7 +28,10 @@ final class UserProfile {
         name: String,
         dateOfBirth: Date,
         heightCm: Double,
+        biologicalSex: BiologicalSex,
         goalType: GoalType,
+        activityLevel: ActivityLevel,
+        trainingSplit: TrainingSplit,
         dailyCalorieTarget: Int,
         proteinTargetG: Int,
         carbsTargetG: Int,
@@ -66,7 +42,10 @@ final class UserProfile {
         self.name = name
         self.dateOfBirth = dateOfBirth
         self.heightCm = heightCm
+        self.biologicalSex = biologicalSex
         self.goalType = goalType
+        self.activityLevel = activityLevel
+        self.trainingSplit = trainingSplit
         self.dailyCalorieTarget = dailyCalorieTarget
         self.proteinTargetG = proteinTargetG
         self.carbsTargetG = carbsTargetG

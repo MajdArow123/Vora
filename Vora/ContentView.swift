@@ -10,18 +10,23 @@ import SwiftData
 
 struct ContentView: View {
     @Query private var profiles: [UserProfile]
+    @State private var isFinishingOnboarding = false
+
+    private var showOnboarding: Bool {
+        profiles.isEmpty || isFinishingOnboarding
+    }
 
     var body: some View {
         Group {
-            if profiles.isEmpty {
-                OnboardingView()
+            if showOnboarding {
+                OnboardingView(isFinishingOnboarding: $isFinishingOnboarding)
                     .transition(.opacity)
             } else {
                 MainTabView()
                     .transition(.opacity)
             }
         }
-        .animation(.easeInOut(duration: 0.35), value: profiles.isEmpty)
+        .animation(.easeInOut(duration: 0.35), value: showOnboarding)
     }
 }
 

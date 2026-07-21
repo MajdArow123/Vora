@@ -11,6 +11,11 @@ import SwiftData
 struct OnboardingView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var viewModel = OnboardingViewModel()
+    @State private var healthKitService = HealthKitService()
+
+    /// Kept true by ContentView while the post-save HealthKit permission
+    /// request runs, so the tab bar doesn't appear underneath the sheet.
+    @Binding var isFinishingOnboarding: Bool
 
     var body: some View {
         ZStack {
@@ -26,7 +31,7 @@ struct OnboardingView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 PrimaryButton(title: ctaTitle, action: handleContinue)
-                    .disabled(!viewModel.canContinue)
+                    .disabled(!viewModel.canContinue || isFinishingOnboarding)
                     .padding(.horizontal, DesignSystem.Spacing.lg)
                     .padding(.bottom, DesignSystem.Spacing.md)
             }
@@ -70,6 +75,8 @@ struct OnboardingView: View {
                 GoalStepView(viewModel: viewModel)
             case .targets:
                 TargetsStepView(viewModel: viewModel)
+            case .trainingSplit:
+                TrainingSplitStepView(viewModel: viewModel)
             case .summary:
                 SummaryStepView(viewModel: viewModel)
             }
@@ -90,17 +97,29 @@ struct OnboardingView: View {
     }
 
     private func handleContinue() {
-        withAnimation(.easeInOut(duration: 0.3)) {
-            if viewModel.step == .summary {
-                viewModel.completeOnboarding(in: modelContext)
-            } else {
+        if viewModel.step == .summary {
+            finishOnboarding()
+        } else {
+            withAnimation(.easeInOut(duration: 0.3)) {
                 viewModel.advance()
+            }
+        }
+    }
+
+    private func finishOnboarding() {
+        isFinishingOnboarding = true
+        viewModel.completeOnboarding(in: modelContext)
+
+        Task {
+            await healthKitService.requestAuthorization()
+            withAnimation(.easeInOut(duration: 0.35)) {
+                isFinishingOnboarding = false
             }
         }
     }
 }
 
 #Preview {
-    OnboardingView()
+    OnboardingView(isFinishingOnboarding: .constant(false))
         .modelContainer(for: UserProfile.self, inMemory: true)
 }

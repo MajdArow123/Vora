@@ -25,12 +25,14 @@ struct SummaryStepView: View {
                 summaryCard("You") {
                     summaryRow("Name", viewModel.trimmedName)
                     summaryRow("Age", "\(viewModel.age)")
+                    summaryRow("Biological sex", viewModel.biologicalSex?.displayName ?? "—")
                     summaryRow("Height", viewModel.heightText)
                     summaryRow("Weight", viewModel.weightText)
                 }
 
                 summaryCard("Plan") {
                     summaryRow("Goal", viewModel.goalType?.displayName ?? "—")
+                    summaryRow("Training split", viewModel.trainingSplit?.displayName ?? "—")
                     summaryRow("Calories", "\(viewModel.caloriesText) kcal")
                     summaryRow("Protein", "\(viewModel.proteinText) g")
                     summaryRow("Carbs", "\(viewModel.carbsText) g")
