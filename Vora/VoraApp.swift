@@ -20,6 +20,8 @@ struct VoraApp: App {
             SetEntry.self,
             WeightEntry.self,
             WaterEntry.self,
+            CardioEntry.self,
+            SplitDay.self,
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
