@@ -10,6 +10,8 @@ import SwiftData
 
 @main
 struct VoraApp: App {
+    @AppStorage(AppearanceSetting.storageKey) private var appearance: AppearanceSetting = .system
+
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
             UserProfile.self,
@@ -39,6 +41,7 @@ struct VoraApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .preferredColorScheme(appearance.colorScheme)
         }
         .modelContainer(sharedModelContainer)
     }

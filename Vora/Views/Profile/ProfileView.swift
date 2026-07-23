@@ -11,6 +11,8 @@ import SwiftData
 struct ProfileView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var viewModel = ProfileViewModel()
+    @AppStorage(AppearanceSetting.storageKey) private var appearance: AppearanceSetting = .system
+    @State private var showingAppearancePicker = false
 
     var body: some View {
         ZStack {
@@ -138,6 +140,41 @@ struct ProfileView: View {
 
         card("Preferences") {
             row("Units", profile.preferredUnits.displayName)
+            Divider()
+            appearanceRow
+        }
+    }
+
+    private var appearanceRow: some View {
+        Button {
+            showingAppearancePicker = true
+        } label: {
+            HStack {
+                Text("Appearance")
+                    .font(DesignSystem.Typography.body)
+                    .foregroundStyle(DesignSystem.Colors.textPrimary.opacity(0.6))
+                Spacer()
+                Image(systemName: appearance.iconName)
+                    .font(.caption)
+                    .foregroundStyle(DesignSystem.Colors.accent)
+                    .accessibilityHidden(true)
+                Text(appearance.displayName)
+                    .font(DesignSystem.Typography.headline)
+                    .foregroundStyle(DesignSystem.Colors.textPrimary)
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+                    .accessibilityHidden(true)
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Appearance")
+        .accessibilityValue(appearance.displayName)
+        .sheet(isPresented: $showingAppearancePicker) {
+            AppearancePickerSheet()
+                .presentationDetents([.height(300)])
         }
     }
 
@@ -350,6 +387,64 @@ extension BiologicalSex: ProfileDisplayable {}
 extension GoalType: ProfileDisplayable {}
 extension ActivityLevel: ProfileDisplayable {}
 extension TrainingSplit: ProfileDisplayable {}
+
+// MARK: - Appearance picker
+
+private struct AppearancePickerSheet: View {
+    @AppStorage(AppearanceSetting.storageKey) private var appearance: AppearanceSetting = .system
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                DesignSystem.Colors.background
+                    .ignoresSafeArea()
+
+                VStack(spacing: DesignSystem.Spacing.sm) {
+                    ForEach(AppearanceSetting.allCases) { option in
+                        optionRow(option)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, DesignSystem.Spacing.lg)
+                .padding(.top, DesignSystem.Spacing.md)
+            }
+            .navigationTitle("Appearance")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+
+    private func optionRow(_ option: AppearanceSetting) -> some View {
+        Button {
+            appearance = option
+            dismiss()
+        } label: {
+            HStack(spacing: DesignSystem.Spacing.md) {
+                Image(systemName: option.iconName)
+                    .foregroundStyle(DesignSystem.Colors.accent)
+                    .frame(width: 28)
+                    .accessibilityHidden(true)
+                Text(option.displayName)
+                    .font(DesignSystem.Typography.body)
+                    .foregroundStyle(DesignSystem.Colors.textPrimary)
+                Spacer()
+                if option == appearance {
+                    Image(systemName: "checkmark")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(DesignSystem.Colors.accent)
+                        .accessibilityHidden(true)
+                }
+            }
+            .padding(DesignSystem.Spacing.md)
+            .frame(minHeight: 44)
+            .background(DesignSystem.Colors.card)
+            .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(option == appearance ? .isSelected : [])
+    }
+}
 
 #Preview {
     ProfileView()
