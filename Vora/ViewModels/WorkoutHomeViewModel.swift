@@ -47,6 +47,10 @@ final class WorkoutHomeViewModel {
         splitDays.first { $0.dayIndex == todayIndex }
     }
 
+    var trainingSplit: TrainingSplit {
+        profile?.trainingSplit ?? .fullBody
+    }
+
     var hasTrainedToday: Bool {
         weekSessions.contains { Calendar.current.isDateInToday($0.date) }
     }

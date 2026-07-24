@@ -14,6 +14,7 @@ struct WorkoutView: View {
     @State private var showingSession = false
     @State private var showingCardio = false
     @State private var showingSplitBuilder = false
+    @State private var showingTemplateEditor = false
 
     var body: some View {
         NavigationStack {
@@ -44,9 +45,24 @@ struct WorkoutView: View {
         .fullScreenCover(isPresented: $showingSession, onDismiss: {
             viewModel.load(from: modelContext)
         }) {
-            ActiveSessionView(sessionName: viewModel.todaySplitDay.map {
-                $0.isRest ? "Extra Session" : $0.title
-            } ?? "Session")
+            ActiveSessionView(
+                sessionName: viewModel.todaySplitDay.map {
+                    $0.isRest ? "Extra Session" : $0.title
+                } ?? "Session",
+                templateExercises: viewModel.todaySplitDay?.isRest == false
+                    ? WorkoutTemplateStore.template(
+                        for: viewModel.trainingSplit,
+                        dayIndex: viewModel.todayIndex
+                    )
+                    : []
+            )
+        }
+        .sheet(isPresented: $showingTemplateEditor) {
+            TemplateEditorView(
+                split: viewModel.trainingSplit,
+                dayIndex: viewModel.todayIndex,
+                dayTitle: viewModel.todaySplitDay?.title ?? "Today"
+            )
         }
         .sheet(isPresented: $showingCardio, onDismiss: {
             viewModel.load(from: modelContext)
@@ -96,6 +112,23 @@ struct WorkoutView: View {
                 title: day?.isRest == false ? "Start Session" : "Start Session Anyway"
             ) {
                 showingSession = true
+            }
+
+            if day?.isRest == false {
+                Button {
+                    showingTemplateEditor = true
+                } label: {
+                    HStack(spacing: DesignSystem.Spacing.xs) {
+                        Image(systemName: "square.and.pencil")
+                            .accessibilityHidden(true)
+                        Text("Edit Template")
+                    }
+                    .font(DesignSystem.Typography.caption)
+                    .foregroundStyle(DesignSystem.Colors.accent)
+                    .frame(maxWidth: .infinity)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
         }
         .padding(DesignSystem.Spacing.md)

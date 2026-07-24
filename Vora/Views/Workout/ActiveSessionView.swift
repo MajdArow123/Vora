@@ -14,12 +14,16 @@ struct ActiveSessionView: View {
     @State private var viewModel: ActiveSessionViewModel
     @State private var showingExercisePicker = false
     @State private var showingDiscardConfirm = false
+    @State private var didPrefill = false
+    @State private var editMode: EditMode = .inactive
     @AppStorage("restTimerSeconds") private var restTimerSeconds = 90
 
     private let healthKitService = HealthKitService()
+    private let templateExercises: [String]
 
-    init(sessionName: String) {
+    init(sessionName: String, templateExercises: [String] = []) {
         _viewModel = State(initialValue: ActiveSessionViewModel(sessionName: sessionName))
+        self.templateExercises = templateExercises
     }
 
     var body: some View {
@@ -32,39 +36,60 @@ struct ActiveSessionView: View {
                     .padding(.horizontal, DesignSystem.Spacing.lg)
                     .padding(.vertical, DesignSystem.Spacing.sm)
 
-                ScrollView {
-                    VStack(spacing: DesignSystem.Spacing.md) {
-                        ForEach(viewModel.exercises) { exercise in
-                            ExerciseSessionCard(
-                                exercise: exercise,
-                                viewModel: viewModel,
-                                onSetCompleted: {
-                                    viewModel.startRest(duration: TimeInterval(restTimerSeconds))
-                                }
-                            )
-                        }
-
-                        Button {
-                            showingExercisePicker = true
-                        } label: {
-                            HStack {
-                                Image(systemName: "plus.circle.fill")
-                                    .accessibilityHidden(true)
-                                Text("Add Exercise")
-                                    .font(DesignSystem.Typography.headline)
-                                Spacer()
-                            }
-                            .foregroundStyle(DesignSystem.Colors.accent)
-                            .padding(DesignSystem.Spacing.md)
-                            .background(DesignSystem.Colors.card)
-                            .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(.horizontal, DesignSystem.Spacing.lg)
-                    .padding(.bottom, 120)
+                if viewModel.exercises.count > 1 {
+                    reorderToggle
+                        .padding(.horizontal, DesignSystem.Spacing.lg)
                 }
+
+                List {
+                    ForEach(viewModel.exercises) { exercise in
+                        ExerciseSessionCard(
+                            exercise: exercise,
+                            viewModel: viewModel,
+                            onSetCompleted: {
+                                viewModel.startRest(duration: TimeInterval(restTimerSeconds))
+                            }
+                        )
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(rowInsets)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            Button(role: .destructive) {
+                                viewModel.removeExercise(exercise.id)
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
+                    }
+                    .onMove { offsets, destination in
+                        viewModel.moveExercise(fromOffsets: offsets, toOffset: destination)
+                    }
+
+                    Button {
+                        showingExercisePicker = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "plus.circle.fill")
+                                .accessibilityHidden(true)
+                            Text("Add Exercise")
+                                .font(DesignSystem.Typography.headline)
+                            Spacer()
+                        }
+                        .foregroundStyle(DesignSystem.Colors.accent)
+                        .padding(DesignSystem.Spacing.md)
+                        .background(DesignSystem.Colors.card)
+                        .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(rowInsets)
+                }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .contentMargins(.bottom, 120, for: .scrollContent)
+                .environment(\.editMode, $editMode)
                 .scrollDismissesKeyboard(.interactively)
             }
 
@@ -94,6 +119,45 @@ struct ActiveSessionView: View {
         ) {
             Button("Discard Session", role: .destructive) { dismiss() }
             Button("Keep Training", role: .cancel) {}
+        }
+        .onAppear {
+            guard !didPrefill else { return }
+            didPrefill = true
+            viewModel.prefill(with: templateExercises, context: modelContext)
+        }
+    }
+
+    // MARK: - Reorder
+
+    private var rowInsets: EdgeInsets {
+        EdgeInsets(
+            top: DesignSystem.Spacing.sm,
+            leading: DesignSystem.Spacing.lg,
+            bottom: DesignSystem.Spacing.sm,
+            trailing: DesignSystem.Spacing.lg
+        )
+    }
+
+    private var reorderToggle: some View {
+        HStack {
+            Spacer()
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    editMode = editMode == .active ? .inactive : .active
+                }
+            } label: {
+                HStack(spacing: DesignSystem.Spacing.xs) {
+                    Image(systemName: editMode == .active
+                          ? "checkmark"
+                          : "line.3.horizontal")
+                        .accessibilityHidden(true)
+                    Text(editMode == .active ? "Done" : "Reorder")
+                }
+                .font(DesignSystem.Typography.caption)
+                .foregroundStyle(DesignSystem.Colors.accent)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(editMode == .active ? "Finish reordering" : "Reorder exercises")
         }
     }
 

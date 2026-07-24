@@ -72,6 +72,7 @@ enum ExerciseLibrary {
         .init(name: "Hip Thrust", muscleGroup: .glutes, equipment: .barbell),
         .init(name: "Glute Bridge", muscleGroup: .glutes, equipment: .bodyweight),
         .init(name: "Cable Kickback", muscleGroup: .glutes, equipment: .cable),
+        .init(name: "Hip Abduction", muscleGroup: .glutes, equipment: .machine),
         .init(name: "Kettlebell Swing", muscleGroup: .glutes, equipment: .kettlebell),
         // Calves
         .init(name: "Standing Calf Raise", muscleGroup: .calves, equipment: .machine),
@@ -85,6 +86,10 @@ enum ExerciseLibrary {
         .init(name: "Cable Crunch", muscleGroup: .core, equipment: .cable),
         .init(name: "Russian Twist", muscleGroup: .core, equipment: .bodyweight),
     ]
+
+    static func definition(named name: String) -> ExerciseDefinition? {
+        all.first { $0.name.compare(name, options: .caseInsensitive) == .orderedSame }
+    }
 
     static func filtered(
         query: String,

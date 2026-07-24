@@ -83,6 +83,34 @@ final class ActiveSessionViewModel {
         completedSetCount > 0
     }
 
+    // MARK: - Template pre-population
+
+    /// Loads the split day's template into a fresh session: one exercise
+    /// per name with 4 empty sets. Weights are pre-filled from the most
+    /// recent session containing the exercise; reps are left empty so the
+    /// user consciously enters them. No-op once exercises exist.
+    func prefill(with names: [String], context: ModelContext) {
+        guard exercises.isEmpty, !names.isEmpty else { return }
+
+        exercises = names.map { name in
+            let previous = Self.previousSets(for: name, context: context)
+            let sets = (0..<4).map { index in
+                var set = DraftSet()
+                if let reference = index < previous.count ? previous[index] : previous.last {
+                    set.weightText = Self.weightString(reference.weightKg)
+                }
+                return set
+            }
+            return DraftExercise(
+                name: name,
+                muscleGroups: ExerciseLibrary.definition(named: name)
+                    .map { [$0.muscleGroup.rawValue] } ?? [],
+                sets: sets,
+                previousSets: previous
+            )
+        }
+    }
+
     // MARK: - Exercise management
 
     func addExercise(name: String, muscleGroups: [String], context: ModelContext) {
@@ -102,6 +130,17 @@ final class ActiveSessionViewModel {
 
     func removeExercise(_ id: DraftExercise.ID) {
         exercises.removeAll { $0.id == id }
+    }
+
+    /// Matches SwiftUI's move(fromOffsets:toOffset:) semantics, where the
+    /// destination is an index into the pre-removal array. Implemented by
+    /// hand so this view model stays SwiftUI-free.
+    func moveExercise(fromOffsets offsets: IndexSet, toOffset destination: Int) {
+        let moving = offsets.sorted(by: >).compactMap { index in
+            exercises.indices.contains(index) ? exercises.remove(at: index) : nil
+        }.reversed()
+        let insertAt = destination - offsets.count(where: { $0 < destination })
+        exercises.insert(contentsOf: moving, at: insertAt)
     }
 
     func addSet(to exerciseID: DraftExercise.ID) {
