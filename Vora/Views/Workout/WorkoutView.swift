@@ -208,44 +208,78 @@ struct WorkoutView: View {
                 .foregroundStyle(DesignSystem.Colors.textSecondary)
                 .textCase(.uppercase)
 
-            VStack(spacing: DesignSystem.Spacing.sm) {
-                if viewModel.personalRecords.isEmpty {
-                    Text("Records appear after your first logged session.")
-                        .font(DesignSystem.Typography.caption)
-                        .foregroundStyle(DesignSystem.Colors.textSecondary)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.vertical, DesignSystem.Spacing.sm)
-                } else {
+            if viewModel.personalRecords.isEmpty {
+                Text("Records appear after your first logged session.")
+                    .font(DesignSystem.Typography.caption)
+                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(DesignSystem.Spacing.md)
+                    .background(DesignSystem.Colors.card)
+                    .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
+            } else {
+                VStack(spacing: DesignSystem.Spacing.sm) {
                     ForEach(viewModel.personalRecords) { record in
-                        HStack {
-                            Image(systemName: "trophy.fill")
-                                .font(.caption)
-                                .foregroundStyle(DesignSystem.Colors.macroFat)
-                                .accessibilityHidden(true)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(record.exerciseName)
-                                    .font(DesignSystem.Typography.body)
-                                    .foregroundStyle(DesignSystem.Colors.textPrimary)
-                                    .lineLimit(1)
-                                Text("Est. 1RM \(Int(record.estimatedOneRepMax.rounded())) kg")
-                                    .font(DesignSystem.Typography.caption)
-                                    .foregroundStyle(DesignSystem.Colors.textSecondary)
-                            }
-                            Spacer()
-                            Text("\(ActiveSessionViewModel.weightString(record.weightKg)) kg × \(record.reps)")
-                                .font(DesignSystem.Typography.headline)
-                                .foregroundStyle(DesignSystem.Colors.textPrimary)
+                        NavigationLink {
+                            ExerciseHistoryView(record: record)
+                        } label: {
+                            personalRecordCard(record)
                         }
-                        if record.id != viewModel.personalRecords.last?.id {
-                            Divider()
-                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }
-            .padding(DesignSystem.Spacing.md)
-            .background(DesignSystem.Colors.card)
-            .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
         }
+    }
+
+    private func personalRecordCard(_ record: PersonalRecord) -> some View {
+        HStack(spacing: DesignSystem.Spacing.md) {
+            Image(systemName: "trophy.fill")
+                .font(.subheadline)
+                .foregroundStyle(DesignSystem.Colors.accent)
+                .frame(width: 36, height: 36)
+                .background(DesignSystem.Colors.accent.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.small))
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(record.exerciseName)
+                    .font(DesignSystem.Typography.headline)
+                    .foregroundStyle(DesignSystem.Colors.textPrimary)
+                    .lineLimit(1)
+                Text("Est. 1RM \(ActiveSessionViewModel.weightString(record.estimatedOneRepMax)) kg")
+                    .font(DesignSystem.Typography.body)
+                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+                Text(record.date.formatted(.dateTime.month(.abbreviated).day().year()))
+                    .font(DesignSystem.Typography.caption)
+                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+            }
+
+            Spacer()
+
+            HStack(alignment: .firstTextBaseline, spacing: DesignSystem.Spacing.xs) {
+                Text("\(ActiveSessionViewModel.weightString(record.weightKg)) kg")
+                    .font(DesignSystem.Typography.title)
+                    .foregroundStyle(DesignSystem.Colors.accent)
+                Text("× \(record.reps)")
+                    .font(DesignSystem.Typography.caption)
+                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+            }
+        }
+        .padding(DesignSystem.Spacing.md)
+        .background(DesignSystem.Colors.card)
+        .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
+        .overlay(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(DesignSystem.Colors.accent)
+                .frame(width: 3)
+                .padding(.vertical, DesignSystem.Spacing.sm)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(record.exerciseName)
+        .accessibilityValue(
+            "Personal record \(ActiveSessionViewModel.weightString(record.weightKg)) kilograms by \(record.reps) reps, estimated one rep max \(ActiveSessionViewModel.weightString(record.estimatedOneRepMax)) kilograms, \(record.date.formatted(.dateTime.month(.wide).day().year()))"
+        )
+        .accessibilityHint("Shows history for this exercise")
     }
 
     // MARK: - Actions
