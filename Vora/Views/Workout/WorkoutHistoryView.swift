@@ -36,7 +36,12 @@ struct WorkoutHistoryView: View {
                         ForEach(viewModel.items) { item in
                             switch item {
                             case .lifting(let session):
-                                liftingRow(session)
+                                NavigationLink {
+                                    WorkoutSessionDetailView(session: session)
+                                } label: {
+                                    liftingRow(session)
+                                }
+                                .buttonStyle(.plain)
                             case .cardio(let entry):
                                 cardioRow(entry)
                             }
