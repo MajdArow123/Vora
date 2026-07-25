@@ -54,8 +54,54 @@ enum DemoSeeder {
         seedWeights(into: context, today: today, calendar: cal)
         seedFoodAndWater(into: context, today: today, calendar: cal)
         seedWorkouts(into: context, today: today, calendar: cal)
+        seedFoodLibrary(into: context)
 
         try? context.save()
+    }
+
+    /// Custom foods, a saved meal, and a recipe so the food-search tabs
+    /// have content to show.
+    private static func seedFoodLibrary(into context: ModelContext) {
+        context.insert(CustomFood(
+            name: "Overnight Oats",
+            defaultServingGrams: 250,
+            caloriesPer100g: 145,
+            proteinPer100g: 6,
+            carbsPer100g: 20,
+            fatPer100g: 4,
+            fibrePer100g: 3,
+            sugarPer100g: 7,
+            sodiumMgPer100g: 40
+        ))
+        context.insert(CustomFood(
+            name: "Chicken & Rice Bowl",
+            defaultServingGrams: 400,
+            caloriesPer100g: 132,
+            proteinPer100g: 12,
+            carbsPer100g: 15,
+            fatPer100g: 2.5,
+            fibrePer100g: 1,
+            sugarPer100g: 1,
+            sodiumMgPer100g: 210
+        ))
+
+        context.insert(SavedMeal(name: "Typical Breakfast", items: [
+            SavedMealItem(foodName: "Overnight Oats", servingGrams: 250, calories: 363,
+                          proteinG: 15, carbsG: 50, fatG: 10, orderIndex: 0),
+            SavedMealItem(foodName: "Greek Yogurt", servingGrams: 170, calories: 165,
+                          proteinG: 15, carbsG: 7, fatG: 8, orderIndex: 1),
+            SavedMealItem(foodName: "Banana", servingGrams: 120, calories: 107,
+                          proteinG: 1, carbsG: 27, fatG: 0, orderIndex: 2),
+        ]))
+
+        context.insert(Recipe(name: "Protein Pancakes", servings: 4, ingredients: [
+            RecipeIngredient(foodName: "Rolled Oats", servingGrams: 200, calories: 750,
+                             proteinG: 26, carbsG: 135, fatG: 14, orderIndex: 0),
+            RecipeIngredient(foodName: "Whey Protein", servingGrams: 60, calories: 240,
+                             proteinG: 48, carbsG: 6, fatG: 3, orderIndex: 1),
+            RecipeIngredient(foodName: "Eggs", servingGrams: 150, calories: 215,
+                             proteinG: 19, carbsG: 1, fatG: 15, orderIndex: 2),
+        ]))
     }
 
     /// 90 days trending 84 → ~80.5 kg with mild noise; the last three

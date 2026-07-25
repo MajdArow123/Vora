@@ -18,6 +18,7 @@ struct LargeDatasetTests {
             UserProfile.self, FoodEntry.self, CustomFood.self,
             WorkoutSession.self, ExerciseLog.self, SetEntry.self,
             WeightEntry.self, WaterEntry.self, CardioEntry.self, SplitDay.self,
+            SavedMeal.self, SavedMealItem.self, Recipe.self, RecipeIngredient.self,
         ])
         let container = try ModelContainer(
             for: schema,

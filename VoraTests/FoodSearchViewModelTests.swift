@@ -18,6 +18,7 @@ struct FoodSearchViewModelTests {
             UserProfile.self, FoodEntry.self, CustomFood.self,
             WorkoutSession.self, ExerciseLog.self, SetEntry.self,
             WeightEntry.self, WaterEntry.self, CardioEntry.self, SplitDay.self,
+            SavedMeal.self, SavedMealItem.self, Recipe.self, RecipeIngredient.self,
         ])
         return try ModelContainer(
             for: schema,
@@ -213,5 +214,147 @@ struct FoodSearchViewModelTests {
         // Non-connectivity URLErrors also fall through to their own description.
         let badURL = URLError(.badURL)
         #expect(FoodSearchViewModel.userMessage(for: badURL) == badURL.localizedDescription)
+    }
+
+    // MARK: - Saved meals & recipes
+
+    @Test func savedMealsAndRecipesLoadNewestFirst() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        context.insert(SavedMeal(name: "Older Meal", createdAt: anchor.addingTimeInterval(-120)))
+        context.insert(SavedMeal(name: "Newer Meal", createdAt: anchor.addingTimeInterval(-60)))
+        context.insert(Recipe(name: "Older Recipe", createdAt: anchor.addingTimeInterval(-120)))
+        context.insert(Recipe(name: "Newer Recipe", createdAt: anchor.addingTimeInterval(-60)))
+        try context.save()
+
+        let viewModel = FoodSearchViewModel()
+        viewModel.loadLocal(from: context)
+
+        #expect(viewModel.savedMeals.map(\.name) == ["Newer Meal", "Older Meal"])
+        #expect(viewModel.recipes.map(\.name) == ["Newer Recipe", "Older Recipe"])
+    }
+
+    @Test func filteredMealsAndRecipesMatchNameCaseInsensitively() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        context.insert(SavedMeal(name: "Typical Breakfast"))
+        context.insert(SavedMeal(name: "Leg Day Fuel"))
+        context.insert(Recipe(name: "Protein Pancakes"))
+        context.insert(Recipe(name: "Chili"))
+        try context.save()
+
+        let viewModel = FoodSearchViewModel()
+        viewModel.loadLocal(from: context)
+
+        viewModel.query = "  breakfast "
+        #expect(viewModel.filteredSavedMeals.map(\.name) == ["Typical Breakfast"])
+
+        viewModel.query = "PANCAKE"
+        #expect(viewModel.filteredRecipes.map(\.name) == ["Protein Pancakes"])
+
+        viewModel.query = ""
+        #expect(viewModel.filteredSavedMeals.count == 2)
+        #expect(viewModel.filteredRecipes.count == 2)
+    }
+
+    @Test func deleteMealCascadesToItems() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let meal = SavedMeal(name: "Doomed", items: [
+            SavedMealItem(foodName: "Oats", servingGrams: 80, calories: 300,
+                          proteinG: 10, carbsG: 54, fatG: 6, orderIndex: 0),
+            SavedMealItem(foodName: "Eggs", servingGrams: 100, calories: 143,
+                          proteinG: 13, carbsG: 1, fatG: 10, orderIndex: 1),
+        ])
+        context.insert(meal)
+        try context.save()
+
+        let viewModel = FoodSearchViewModel()
+        viewModel.loadLocal(from: context)
+        viewModel.deleteMeal(meal, context: context)
+
+        #expect(viewModel.savedMeals.isEmpty)
+        #expect(try context.fetchCount(FetchDescriptor<SavedMeal>()) == 0)
+        #expect(try context.fetchCount(FetchDescriptor<SavedMealItem>()) == 0)
+    }
+
+    @Test func deleteRecipeCascadesToIngredients() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let recipe = Recipe(name: "Doomed", servings: 2, ingredients: [
+            RecipeIngredient(foodName: "Rice", servingGrams: 200, calories: 260,
+                             proteinG: 5, carbsG: 56, fatG: 1, orderIndex: 0),
+        ])
+        context.insert(recipe)
+        try context.save()
+
+        let viewModel = FoodSearchViewModel()
+        viewModel.loadLocal(from: context)
+        viewModel.deleteRecipe(recipe, context: context)
+
+        #expect(viewModel.recipes.isEmpty)
+        #expect(try context.fetchCount(FetchDescriptor<Recipe>()) == 0)
+        #expect(try context.fetchCount(FetchDescriptor<RecipeIngredient>()) == 0)
+    }
+
+    // MARK: - Save day as meal
+
+    private func dayEntry(name: String, hour: Int, calories: Double = 200) -> FoodEntry {
+        FoodEntry(
+            date: anchor.addingTimeInterval(Double(hour) * 3600),
+            mealSlot: .lunch,
+            foodName: name,
+            servingGrams: 150,
+            calories: calories,
+            proteinG: 12,
+            carbsG: 24,
+            fatG: 7
+        )
+    }
+
+    @Test func saveDayAsMealSnapshotsOnlyThatDayInLoggedOrder() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        context.insert(dayEntry(name: "Lunch Rice", hour: 12))
+        context.insert(dayEntry(name: "Breakfast Oats", hour: 8, calories: 320))
+        context.insert(dayEntry(name: "Dinner Steak", hour: 19))
+        // Adjacent-day noise that must not be snapshotted.
+        context.insert(dayEntry(name: "Yesterday Soup", hour: -2))
+        context.insert(dayEntry(name: "Tomorrow Toast", hour: 26))
+        try context.save()
+
+        let viewModel = FoodSearchViewModel()
+        viewModel.loadLocal(from: context)
+
+        let saved = viewModel.saveDayAsMeal(named: "  My Day  ", dayOf: anchor, context: context)
+
+        #expect(saved)
+        let meal = try #require(viewModel.savedMeals.first)
+        #expect(meal.name == "My Day")
+        #expect(meal.items.count == 3)
+        // orderIndex follows time-of-day order, not insertion order.
+        #expect(meal.sortedItems.map(\.foodName) == ["Breakfast Oats", "Lunch Rice", "Dinner Steak"])
+        let first = try #require(meal.sortedItems.first)
+        #expect(first.servingGrams == 150)
+        #expect(first.calories == 320)
+        #expect(first.proteinG == 12)
+        #expect(first.carbsG == 24)
+        #expect(first.fatG == 7)
+    }
+
+    @Test func saveDayAsMealRejectsBlankNameAndEmptyDay() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        context.insert(dayEntry(name: "Oats", hour: 8))
+        try context.save()
+
+        let viewModel = FoodSearchViewModel()
+        viewModel.loadLocal(from: context)
+
+        #expect(!viewModel.saveDayAsMeal(named: "   ", dayOf: anchor, context: context))
+        // Two days ahead has no entries.
+        let emptyDay = anchor.addingTimeInterval(48 * 3600)
+        #expect(!viewModel.saveDayAsMeal(named: "Nothing", dayOf: emptyDay, context: context))
+        #expect(try context.fetchCount(FetchDescriptor<SavedMeal>()) == 0)
     }
 }

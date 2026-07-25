@@ -16,5 +16,11 @@ struct FoodView: View {
 
 #Preview {
     FoodView()
-        .modelContainer(for: [UserProfile.self, FoodEntry.self, WaterEntry.self, CustomFood.self], inMemory: true)
+        .modelContainer(
+            for: [
+                UserProfile.self, FoodEntry.self, WaterEntry.self, CustomFood.self,
+                SavedMeal.self, SavedMealItem.self, Recipe.self, RecipeIngredient.self,
+            ],
+            inMemory: true
+        )
 }

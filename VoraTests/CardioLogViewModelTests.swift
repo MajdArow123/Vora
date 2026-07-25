@@ -16,6 +16,7 @@ struct CardioLogViewModelTests {
             UserProfile.self, FoodEntry.self, CustomFood.self,
             WorkoutSession.self, ExerciseLog.self, SetEntry.self,
             WeightEntry.self, WaterEntry.self, CardioEntry.self, SplitDay.self,
+            SavedMeal.self, SavedMealItem.self, Recipe.self, RecipeIngredient.self,
         ])
         return try ModelContainer(
             for: schema,
@@ -31,8 +32,11 @@ struct CardioLogViewModelTests {
         #expect(abs(viewModel.estimatedCalories - 311.25) < 0.001)
     }
 
+    // Same order as CardioType.loggableCases (inlined: the static property is
+    // main-actor-isolated and @Test argument expansion is nonisolated).
     @Test(arguments: zip(
-        CardioType.loggableCases,
+        [CardioType.treadmill, .stairClimber, .elliptical, .stationaryBike,
+         .row, .run, .cycle, .walk, .swim, .other],
         // With each type's default inputs at 75 kg for one hour:
         // treadmill 8.3, stairs 7.0, elliptical 6.0, bike 6.8 (8 × 80 = 640),
         // row 7.0, run 10.5, cycle 8.0, walk 3.5, swim 8.0, other 6.0 MET.

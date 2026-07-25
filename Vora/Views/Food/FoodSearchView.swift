@@ -8,9 +8,15 @@
 import SwiftUI
 import SwiftData
 
+/// How the search screen is being used: logging foods into a meal slot
+/// (the diary flow) or picking an ingredient for the recipe builder.
+enum FoodSearchMode {
+    case log(mealSlot: MealSlot, logDate: Date)
+    case pick(onPick: (FoodItem, Double) -> Void)
+}
+
 struct FoodSearchView: View {
-    let mealSlot: MealSlot
-    let logDate: Date
+    let mode: FoodSearchMode
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
@@ -18,6 +24,32 @@ struct FoodSearchView: View {
     @State private var path: [FoodItem] = []
     @State private var showingScanner = false
     @State private var showingCustomFoodForm = false
+    @State private var showingRecipeBuilder = false
+    @State private var showingSaveMealPrompt = false
+    @State private var showingEmptyDayAlert = false
+    @State private var newMealName = ""
+    @State private var mealForDetail: SavedMeal?
+    @State private var recipeForDetail: Recipe?
+
+    init(mode: FoodSearchMode) {
+        self.mode = mode
+    }
+
+    init(mealSlot: MealSlot, logDate: Date) {
+        self.init(mode: .log(mealSlot: mealSlot, logDate: logDate))
+    }
+
+    /// Slot and date when logging; nil in ingredient-picker mode.
+    private var logContext: (slot: MealSlot, date: Date)? {
+        if case .log(let slot, let date) = mode { return (slot, date) }
+        return nil
+    }
+
+    /// Recipes and Meals are hidden while picking ingredients — recipes
+    /// can't contain recipes, and there is no slot to log a meal into.
+    private var visibleFilters: [SearchFilter] {
+        logContext != nil ? SearchFilter.allCases : [.all, .myFoods]
+    }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -32,15 +64,26 @@ struct FoodSearchView: View {
                 }
                 .padding(.top, DesignSystem.Spacing.md)
             }
-            .navigationTitle("Add to \(mealSlot.displayName)")
+            .navigationTitle(logContext.map { "Add to \($0.slot.displayName)" } ?? "Add Ingredient")
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: FoodItem.self) { item in
-                FoodDetailView(
-                    item: item,
-                    mealSlot: mealSlot,
-                    logDate: logDate,
-                    onAdded: { dismiss() }
-                )
+                switch mode {
+                case .log(let mealSlot, let logDate):
+                    FoodDetailView(
+                        item: item,
+                        mealSlot: mealSlot,
+                        logDate: logDate,
+                        onAdded: { dismiss() }
+                    )
+                case .pick(let onPick):
+                    FoodDetailView(
+                        item: item,
+                        mode: .pick(buttonTitle: "Add Ingredient", onPick: { picked, grams in
+                            onPick(picked, grams)
+                            path.removeAll()
+                        })
+                    )
+                }
             }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -65,6 +108,51 @@ struct FoodSearchView: View {
             viewModel.loadLocal(from: modelContext)
         }) {
             CustomFoodFormView()
+        }
+        .sheet(isPresented: $showingRecipeBuilder, onDismiss: {
+            viewModel.loadLocal(from: modelContext)
+        }) {
+            RecipeBuilderView()
+        }
+        .sheet(item: $mealForDetail) { meal in
+            if let logContext {
+                SavedMealDetailView(
+                    meal: meal,
+                    mealSlot: logContext.slot,
+                    logDate: logContext.date,
+                    onLogged: { dismiss() }
+                )
+            }
+        }
+        .sheet(item: $recipeForDetail) { recipe in
+            if let logContext {
+                RecipeDetailView(
+                    recipe: recipe,
+                    mealSlot: logContext.slot,
+                    logDate: logContext.date,
+                    onLogged: { dismiss() }
+                )
+            }
+        }
+        .alert("Save as Meal", isPresented: $showingSaveMealPrompt) {
+            TextField("Meal name", text: $newMealName)
+            Button("Save") {
+                if let logContext {
+                    viewModel.saveDayAsMeal(
+                        named: newMealName,
+                        dayOf: logContext.date,
+                        context: modelContext
+                    )
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Saves everything logged on this day as one reusable meal.")
+        }
+        .alert("Nothing to Save", isPresented: $showingEmptyDayAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Log some foods first, then save the day as a meal.")
         }
     }
 
@@ -115,7 +203,7 @@ struct FoodSearchView: View {
     private var filterTabs: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: DesignSystem.Spacing.sm) {
-                ForEach(SearchFilter.allCases) { filter in
+                ForEach(visibleFilters) { filter in
                     let isSelected = viewModel.filter == filter
                     Button {
                         withAnimation(.easeInOut(duration: 0.2)) {
@@ -149,17 +237,9 @@ struct FoodSearchView: View {
         case .myFoods:
             myFoodsContent
         case .recipes:
-            emptyPlaceholder(
-                icon: "book.closed",
-                title: "Recipes",
-                message: "Build multi-ingredient recipes in a later phase."
-            )
+            recipesContent
         case .meals:
-            emptyPlaceholder(
-                icon: "square.stack.3d.up",
-                title: "Meals",
-                message: "Save full meals for one-tap logging in a later phase."
-            )
+            mealsContent
         }
     }
 
@@ -180,11 +260,20 @@ struct FoodSearchView: View {
             }
         case .loaded(let items):
             if items.isEmpty {
-                emptyPlaceholder(
-                    icon: "magnifyingglass",
-                    title: "No results",
-                    message: "Try a different name, or create it as a custom food."
-                )
+                ScrollView {
+                    VStack(spacing: DesignSystem.Spacing.sm) {
+                        emptyPlaceholder(
+                            icon: "magnifyingglass",
+                            title: "No results",
+                            message: "Try a different name, or create it as a custom food."
+                        )
+                        .padding(.top, DesignSystem.Spacing.xl)
+                        if viewModel.myFoods.isEmpty {
+                            createFoodButton
+                        }
+                    }
+                    .padding(.horizontal, DesignSystem.Spacing.lg)
+                }
             } else {
                 resultsList(items)
             }
@@ -196,6 +285,9 @@ struct FoodSearchView: View {
     private var recentsList: some View {
         ScrollView {
             LazyVStack(spacing: DesignSystem.Spacing.sm) {
+                if viewModel.myFoods.isEmpty {
+                    createFoodButton
+                }
                 if viewModel.recents.isEmpty {
                     emptyPlaceholder(
                         icon: "clock",
@@ -238,23 +330,7 @@ struct FoodSearchView: View {
     private var myFoodsContent: some View {
         ScrollView {
             LazyVStack(spacing: DesignSystem.Spacing.sm) {
-                Button {
-                    showingCustomFoodForm = true
-                } label: {
-                    HStack {
-                        Image(systemName: "plus.circle.fill")
-                            .foregroundStyle(DesignSystem.Colors.accent)
-                            .accessibilityHidden(true)
-                        Text("Create Food")
-                            .font(DesignSystem.Typography.headline)
-                            .foregroundStyle(DesignSystem.Colors.accent)
-                        Spacer()
-                    }
-                    .padding(DesignSystem.Spacing.md)
-                    .background(DesignSystem.Colors.card)
-                    .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
-                }
-                .buttonStyle(.plain)
+                createFoodButton
 
                 if viewModel.filteredMyFoods.isEmpty {
                     emptyPlaceholder(
@@ -275,7 +351,170 @@ struct FoodSearchView: View {
         .scrollDismissesKeyboard(.immediately)
     }
 
-    // MARK: - Rows
+    // MARK: - Meals tab
+
+    private var mealsContent: some View {
+        ScrollView {
+            LazyVStack(spacing: DesignSystem.Spacing.sm) {
+                actionCard(icon: "square.and.arrow.down", title: "Save Today as Meal") {
+                    guard let logContext else { return }
+                    if viewModel.entries(onDayOf: logContext.date, context: modelContext).isEmpty {
+                        showingEmptyDayAlert = true
+                    } else {
+                        newMealName = "Meal – \(logContext.date.formatted(.dateTime.day().month()))"
+                        showingSaveMealPrompt = true
+                    }
+                }
+
+                if viewModel.filteredSavedMeals.isEmpty {
+                    emptyPlaceholder(
+                        icon: "square.stack.3d.up",
+                        title: "No saved meals yet",
+                        message: "Save a full day of logging as a reusable meal."
+                    )
+                    .padding(.top, DesignSystem.Spacing.xl)
+                } else {
+                    ForEach(viewModel.filteredSavedMeals) { meal in
+                        mealRow(meal)
+                    }
+                }
+            }
+            .padding(.horizontal, DesignSystem.Spacing.lg)
+            .padding(.bottom, DesignSystem.Spacing.lg)
+        }
+        .scrollDismissesKeyboard(.immediately)
+    }
+
+    private func mealRow(_ meal: SavedMeal) -> some View {
+        Button {
+            mealForDetail = meal
+        } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(meal.name)
+                        .font(DesignSystem.Typography.body)
+                        .foregroundStyle(DesignSystem.Colors.textPrimary)
+                        .lineLimit(1)
+                    Text("\(meal.items.count) item\(meal.items.count == 1 ? "" : "s") · \(macroSummary(meal.totalProteinG, meal.totalCarbsG, meal.totalFatG))")
+                        .font(DesignSystem.Typography.caption)
+                        .foregroundStyle(DesignSystem.Colors.textSecondary)
+                        .lineLimit(1)
+                }
+                Spacer()
+                Text("\(Int(meal.totalCalories.rounded())) kcal")
+                    .font(DesignSystem.Typography.caption)
+                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+            }
+            .padding(DesignSystem.Spacing.md)
+            .background(DesignSystem.Colors.card)
+            .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button(role: .destructive) {
+                mealForDetail = nil
+                withAnimation {
+                    viewModel.deleteMeal(meal, context: modelContext)
+                }
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+    }
+
+    // MARK: - Recipes tab
+
+    private var recipesContent: some View {
+        ScrollView {
+            LazyVStack(spacing: DesignSystem.Spacing.sm) {
+                actionCard(icon: "plus.circle.fill", title: "Create Recipe") {
+                    showingRecipeBuilder = true
+                }
+
+                if viewModel.filteredRecipes.isEmpty {
+                    emptyPlaceholder(
+                        icon: "book.closed",
+                        title: "No recipes yet",
+                        message: "Build multi-ingredient recipes and log them in one tap."
+                    )
+                    .padding(.top, DesignSystem.Spacing.xl)
+                } else {
+                    ForEach(viewModel.filteredRecipes) { recipe in
+                        recipeRow(recipe)
+                    }
+                }
+            }
+            .padding(.horizontal, DesignSystem.Spacing.lg)
+            .padding(.bottom, DesignSystem.Spacing.lg)
+        }
+        .scrollDismissesKeyboard(.immediately)
+    }
+
+    private func recipeRow(_ recipe: Recipe) -> some View {
+        Button {
+            recipeForDetail = recipe
+        } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(recipe.name)
+                        .font(DesignSystem.Typography.body)
+                        .foregroundStyle(DesignSystem.Colors.textPrimary)
+                        .lineLimit(1)
+                    Text("Makes \(recipe.servings) serving\(recipe.servings == 1 ? "" : "s")")
+                        .font(DesignSystem.Typography.caption)
+                        .foregroundStyle(DesignSystem.Colors.textSecondary)
+                }
+                Spacer()
+                Text("\(Int(recipe.perServingCalories.rounded())) kcal / serving")
+                    .font(DesignSystem.Typography.caption)
+                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+            }
+            .padding(DesignSystem.Spacing.md)
+            .background(DesignSystem.Colors.card)
+            .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button(role: .destructive) {
+                recipeForDetail = nil
+                withAnimation {
+                    viewModel.deleteRecipe(recipe, context: modelContext)
+                }
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+    }
+
+    // MARK: - Rows & shared pieces
+
+    private var createFoodButton: some View {
+        actionCard(icon: "plus.circle.fill", title: "Create Food") {
+            showingCustomFoodForm = true
+        }
+    }
+
+    private func actionCard(icon: String, title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack {
+                Image(systemName: icon)
+                    .foregroundStyle(DesignSystem.Colors.accent)
+                    .accessibilityHidden(true)
+                Text(title)
+                    .font(DesignSystem.Typography.headline)
+                    .foregroundStyle(DesignSystem.Colors.accent)
+                Spacer()
+            }
+            .padding(DesignSystem.Spacing.md)
+            .background(DesignSystem.Colors.card)
+            .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func macroSummary(_ protein: Double, _ carbs: Double, _ fat: Double) -> String {
+        "P \(Int(protein.rounded())) · C \(Int(carbs.rounded())) · F \(Int(fat.rounded()))"
+    }
 
     private func foodRow(_ item: FoodItem) -> some View {
         Button {
@@ -293,6 +532,10 @@ struct FoodSearchView: View {
                             .foregroundStyle(DesignSystem.Colors.textSecondary)
                             .lineLimit(1)
                     }
+                    Text("\(macroSummary(item.proteinPer100g, item.carbsPer100g, item.fatPer100g)) per 100 g")
+                        .font(DesignSystem.Typography.caption)
+                        .foregroundStyle(DesignSystem.Colors.textSecondary)
+                        .lineLimit(1)
                 }
                 Spacer()
                 Text("\(Int(item.caloriesPer100g.rounded())) kcal / 100 g")
@@ -327,5 +570,11 @@ struct FoodSearchView: View {
 
 #Preview {
     FoodSearchView(mealSlot: .breakfast, logDate: .now)
-        .modelContainer(for: [UserProfile.self, FoodEntry.self, CustomFood.self], inMemory: true)
+        .modelContainer(
+            for: [
+                UserProfile.self, FoodEntry.self, CustomFood.self,
+                SavedMeal.self, SavedMealItem.self, Recipe.self, RecipeIngredient.self,
+            ],
+            inMemory: true
+        )
 }

@@ -8,20 +8,28 @@
 import SwiftUI
 import SwiftData
 
+/// How the detail screen resolves its primary action: log a FoodEntry
+/// (the diary flow) or hand the item + chosen grams back to a caller
+/// (the recipe-ingredient picker).
+enum FoodDetailMode {
+    case log(mealSlot: MealSlot, logDate: Date, onAdded: () -> Void)
+    case pick(buttonTitle: String, onPick: (FoodItem, Double) -> Void)
+}
+
 struct FoodDetailView: View {
-    let mealSlot: MealSlot
-    let logDate: Date
-    let onAdded: () -> Void
+    let mode: FoodDetailMode
 
     @Environment(\.modelContext) private var modelContext
     @State private var viewModel: FoodDetailViewModel
     @State private var justAdded = false
 
-    init(item: FoodItem, mealSlot: MealSlot, logDate: Date, onAdded: @escaping () -> Void) {
-        self.mealSlot = mealSlot
-        self.logDate = logDate
-        self.onAdded = onAdded
+    init(item: FoodItem, mode: FoodDetailMode) {
+        self.mode = mode
         _viewModel = State(initialValue: FoodDetailViewModel(item: item))
+    }
+
+    init(item: FoodItem, mealSlot: MealSlot, logDate: Date, onAdded: @escaping () -> Void) {
+        self.init(item: item, mode: .log(mealSlot: mealSlot, logDate: logDate, onAdded: onAdded))
     }
 
     var body: some View {
@@ -181,22 +189,40 @@ struct FoodDetailView: View {
 
     // MARK: - Add button
 
+    private var buttonTitle: String {
+        switch mode {
+        case .log(let mealSlot, _, _): "Add to \(mealSlot.displayName)"
+        case .pick(let title, _): title
+        }
+    }
+
     private var addButton: some View {
         Button {
             guard !justAdded else { return }
-            viewModel.log(to: mealSlot, on: logDate, context: modelContext)
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
-            withAnimation(.spring(duration: 0.3)) {
-                justAdded = true
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
-                onAdded()
+            switch mode {
+            case .log(let mealSlot, let logDate, let onAdded):
+                viewModel.log(to: mealSlot, on: logDate, context: modelContext)
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                withAnimation(.spring(duration: 0.3)) {
+                    justAdded = true
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+                    onAdded()
+                }
+            case .pick(_, let onPick):
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                withAnimation(.spring(duration: 0.3)) {
+                    justAdded = true
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+                    onPick(viewModel.item, viewModel.servingGrams)
+                }
             }
         } label: {
             HStack(spacing: DesignSystem.Spacing.sm) {
                 Image(systemName: justAdded ? "checkmark.circle.fill" : "plus")
                     .accessibilityHidden(true)
-                Text(justAdded ? "Added" : "Add to \(mealSlot.displayName)")
+                Text(justAdded ? "Added" : buttonTitle)
             }
             .font(DesignSystem.Typography.headline)
             .foregroundStyle(.white)
