@@ -11,6 +11,7 @@ import SwiftData
 @main
 struct VoraApp: App {
     @AppStorage(AppearanceSetting.storageKey) private var appearance: AppearanceSetting = .system
+    @Environment(\.scenePhase) private var scenePhase
 
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
@@ -46,6 +47,10 @@ struct VoraApp: App {
         WindowGroup {
             ContentView()
                 .preferredColorScheme(appearance.colorScheme)
+                .onChange(of: scenePhase, initial: true) { _, phase in
+                    guard phase == .active else { return }
+                    NotificationService.shared.refreshAll(context: sharedModelContainer.mainContext)
+                }
         }
         .modelContainer(sharedModelContainer)
     }

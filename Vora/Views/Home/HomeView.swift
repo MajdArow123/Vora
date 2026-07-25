@@ -47,7 +47,6 @@ struct HomeView: View {
         }
         .onAppear {
             viewModel.load(from: modelContext)
-            NotificationService.shared.refreshWeeklySummary(context: modelContext)
         }
         .fullScreenCover(isPresented: $showingSession, onDismiss: {
             viewModel.load(from: modelContext)

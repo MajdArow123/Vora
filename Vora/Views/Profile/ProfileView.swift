@@ -143,6 +143,8 @@ struct ProfileView: View {
             Divider()
             appearanceRow
         }
+
+        RemindersSection()
     }
 
     private var appearanceRow: some View {
