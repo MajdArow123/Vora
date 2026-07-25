@@ -31,7 +31,7 @@ struct StrengthProgressSection: View {
                     exercisePicker
                     Spacer()
                     if let latest = viewModel.progression.last {
-                        Text("e1RM \(ActiveSessionViewModel.weightString(latest.estimatedOneRepMax)) kg")
+                        Text("e1RM \(String(format: "%.1f", latest.estimatedOneRepMax)) kg")
                             .font(DesignSystem.Typography.headline)
                             .foregroundStyle(DesignSystem.Colors.accent)
                     }

@@ -279,7 +279,7 @@ struct WorkoutView: View {
                     .font(DesignSystem.Typography.headline)
                     .foregroundStyle(DesignSystem.Colors.textPrimary)
                     .lineLimit(1)
-                Text("Est. 1RM \(ActiveSessionViewModel.weightString(record.estimatedOneRepMax)) kg")
+                Text("Est. 1RM \(String(format: "%.1f", record.estimatedOneRepMax)) kg")
                     .font(DesignSystem.Typography.body)
                     .foregroundStyle(DesignSystem.Colors.textSecondary)
                 Text(record.date.formatted(.dateTime.month(.abbreviated).day().year()))
@@ -310,7 +310,7 @@ struct WorkoutView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(record.exerciseName)
         .accessibilityValue(
-            "Personal record \(ActiveSessionViewModel.weightString(record.weightKg)) kilograms by \(record.reps) reps, estimated one rep max \(ActiveSessionViewModel.weightString(record.estimatedOneRepMax)) kilograms, \(record.date.formatted(.dateTime.month(.wide).day().year()))"
+            "Personal record \(ActiveSessionViewModel.weightString(record.weightKg)) kilograms by \(record.reps) reps, estimated one rep max \(String(format: "%.1f", record.estimatedOneRepMax)) kilograms, \(record.date.formatted(.dateTime.month(.wide).day().year()))"
         )
         .accessibilityHint("Shows history for this exercise")
     }
