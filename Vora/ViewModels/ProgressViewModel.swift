@@ -9,7 +9,7 @@ import Foundation
 import Observation
 import SwiftData
 
-enum WeightChartRange: String, CaseIterable, Identifiable {
+enum ChartRange: String, CaseIterable, Identifiable {
     case month = "1M"
     case quarter = "3M"
     case halfYear = "6M"
@@ -48,7 +48,7 @@ final class ProgressViewModel {
     private(set) var daysTracked = 0
     private(set) var weeklyAverages: [WeeklyAverage] = []
 
-    var selectedRange: WeightChartRange = .month
+    var selectedRange: ChartRange = .month
 
     // MARK: - Loading
 

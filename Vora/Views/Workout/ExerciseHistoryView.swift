@@ -15,15 +15,6 @@ struct ExerciseHistoryView: View {
 
     @State private var entries: [ExerciseSessionStat] = []
 
-    struct ExerciseSessionStat: Identifiable {
-        let id: UUID
-        let date: Date
-        let bestWeightKg: Double
-        let bestReps: Int
-        let completedSets: Int
-        var isPR = false
-    }
-
     var body: some View {
         ZStack {
             DesignSystem.Colors.background
@@ -158,27 +149,7 @@ struct ExerciseHistoryView: View {
         let descriptor = FetchDescriptor<WorkoutSession>(sortBy: [SortDescriptor(\.date)])
         guard let sessions = try? modelContext.fetch(descriptor) else { return }
 
-        let target = record.exerciseName.lowercased()
-        var stats: [ExerciseSessionStat] = []
-
-        for session in sessions {
-            let sets = session.exercises
-                .filter { $0.exerciseName.lowercased() == target }
-                .flatMap(\.sets)
-                .filter { $0.isCompleted && $0.weightKg > 0 && $0.reps > 0 }
-            guard var best = sets.first else { continue }
-            for set in sets where set.weightKg > best.weightKg
-                || (set.weightKg == best.weightKg && set.reps > best.reps) {
-                best = set
-            }
-            stats.append(ExerciseSessionStat(
-                id: session.id,
-                date: session.date,
-                bestWeightKg: best.weightKg,
-                bestReps: best.reps,
-                completedSets: sets.count
-            ))
-        }
+        var stats = StrengthProgression.sessionStats(for: record.exerciseName, sessions: sessions)
 
         if let prIndex = stats.firstIndex(where: {
             $0.bestWeightKg == record.weightKg && $0.bestReps == record.reps

@@ -138,16 +138,18 @@ enum DemoSeeder {
 
         for dayOffset in 0..<30 {
             let day = calendar.date(byAdding: .day, value: -dayOffset, to: today)!
+            // Deterministic ±6% day-to-day variation so trend charts have texture.
+            let dayFactor = 1 + Double((dayOffset * 13) % 7 - 3) * 0.02
             for meal in meals {
                 context.insert(FoodEntry(
                     date: day.addingTimeInterval(meal.hour * 3600),
                     mealSlot: meal.slot,
                     foodName: meal.name,
                     servingGrams: meal.grams,
-                    calories: meal.kcal,
-                    proteinG: meal.p,
-                    carbsG: meal.c,
-                    fatG: meal.f,
+                    calories: (meal.kcal * dayFactor).rounded(),
+                    proteinG: (meal.p * dayFactor).rounded(),
+                    carbsG: (meal.c * dayFactor).rounded(),
+                    fatG: (meal.f * dayFactor).rounded(),
                     fibreG: 6,
                     sugarG: 9,
                     sodiumMg: 320
@@ -182,12 +184,16 @@ enum DemoSeeder {
             default: exercises = [("Back Squat", 120, ["quads"]), ("Romanian Deadlift", 95, ["hamstrings"]), ("Leg Press", 180, ["quads"]), ("Seated Calf Raise", 45, ["calves"]), ("Leg Curl", 40, ["hamstrings"])]
             }
 
+            // Older sessions lift lighter (~2% per week, nearest 2.5 kg)
+            // so progression charts show real growth over the month.
+            let progressFactor = 1 - 0.02 * Double(dayOffset / 7)
             var totalVolume = 0.0
             let logs = exercises.enumerated().map { index, exercise in
+                let progressed = Swift.max((exercise.1 * progressFactor / 2.5).rounded() * 2.5, 2.5)
                 let sets = (1...3).map { setNumber in
-                    SetEntry(setNumber: setNumber, weightKg: exercise.1, reps: 8, isCompleted: true)
+                    SetEntry(setNumber: setNumber, weightKg: progressed, reps: 8, isCompleted: true)
                 }
-                totalVolume += exercise.1 * 8 * 3
+                totalVolume += progressed * 8 * 3
                 return ExerciseLog(
                     exerciseName: exercise.0,
                     muscleGroups: exercise.2,
@@ -205,46 +211,59 @@ enum DemoSeeder {
             ))
         }
 
-        context.insert(CardioEntry(
-            date: calendar.date(byAdding: .day, value: -1, to: today)!.addingTimeInterval(8 * 3600),
-            type: .treadmill,
-            durationSeconds: 1800,
-            estimatedCalories: CardioCalculator.calories(
-                type: .treadmill,
-                inputs: CardioInputs(speedKmh: 8.5, inclinePercent: 2),
-                weightKg: 75,
-                durationSeconds: 1800
-            ),
-            speedKmh: 8.5,
-            inclinePercent: 2,
-            distanceKm: CardioCalculator.distanceKm(speedKmh: 8.5, durationSeconds: 1800)
-        ))
-        context.insert(CardioEntry(
-            date: calendar.date(byAdding: .day, value: -2, to: today)!.addingTimeInterval(8 * 3600),
-            type: .run,
-            durationSeconds: 1860,
-            estimatedCalories: CardioCalculator.calories(
-                type: .run,
-                inputs: CardioInputs(speedKmh: 10),
-                weightKg: 75,
-                durationSeconds: 1860
-            ),
-            speedKmh: 10,
-            distanceKm: CardioCalculator.distanceKm(speedKmh: 10, durationSeconds: 1860),
-            pace: CardioCalculator.pace(fromSpeedKmh: 10)
-        ))
-        context.insert(CardioEntry(
-            date: calendar.date(byAdding: .day, value: -4, to: today)!.addingTimeInterval(9 * 3600),
-            type: .stairClimber,
-            durationSeconds: 1200,
-            estimatedCalories: CardioCalculator.calories(
-                type: .stairClimber,
-                inputs: CardioInputs(stepsPerMinute: 85),
-                weightKg: 75,
-                durationSeconds: 1200
-            ),
-            stepsPerMinute: 85
-        ))
+        // Roughly two cardio entries per week across the month so the
+        // weekly cardio trend chart has several bars.
+        for (index, dayOffset) in [1, 2, 4, 8, 11, 15, 18, 22, 25, 29].enumerated() {
+            let date = calendar.date(byAdding: .day, value: -dayOffset, to: today)!
+                .addingTimeInterval(8 * 3600)
+            let duration = 1500 + (index % 3) * 300
+
+            switch index % 3 {
+            case 0:
+                context.insert(CardioEntry(
+                    date: date,
+                    type: .treadmill,
+                    durationSeconds: duration,
+                    estimatedCalories: CardioCalculator.calories(
+                        type: .treadmill,
+                        inputs: CardioInputs(speedKmh: 8.5, inclinePercent: 2),
+                        weightKg: 75,
+                        durationSeconds: duration
+                    ),
+                    speedKmh: 8.5,
+                    inclinePercent: 2,
+                    distanceKm: CardioCalculator.distanceKm(speedKmh: 8.5, durationSeconds: duration)
+                ))
+            case 1:
+                context.insert(CardioEntry(
+                    date: date,
+                    type: .run,
+                    durationSeconds: duration,
+                    estimatedCalories: CardioCalculator.calories(
+                        type: .run,
+                        inputs: CardioInputs(speedKmh: 10),
+                        weightKg: 75,
+                        durationSeconds: duration
+                    ),
+                    speedKmh: 10,
+                    distanceKm: CardioCalculator.distanceKm(speedKmh: 10, durationSeconds: duration),
+                    pace: CardioCalculator.pace(fromSpeedKmh: 10)
+                ))
+            default:
+                context.insert(CardioEntry(
+                    date: date,
+                    type: .stairClimber,
+                    durationSeconds: duration,
+                    estimatedCalories: CardioCalculator.calories(
+                        type: .stairClimber,
+                        inputs: CardioInputs(stepsPerMinute: 85),
+                        weightKg: 75,
+                        durationSeconds: duration
+                    ),
+                    stepsPerMinute: 85
+                ))
+            }
+        }
     }
 }
 

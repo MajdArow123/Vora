@@ -9,9 +9,20 @@ import SwiftUI
 import SwiftData
 import Charts
 
+private enum ProgressSegment: String, CaseIterable, Identifiable {
+    case weight = "Weight"
+    case strength = "Strength"
+    case nutrition = "Nutrition"
+
+    var id: String { rawValue }
+}
+
 struct ProgressView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var viewModel = ProgressViewModel()
+    @State private var strengthViewModel = StrengthProgressViewModel()
+    @State private var nutritionViewModel = NutritionProgressViewModel()
+    @State private var segment: ProgressSegment = .weight
     @State private var showingLogWeight = false
 
     var body: some View {
@@ -22,12 +33,21 @@ struct ProgressView: View {
 
                 ScrollView {
                     VStack(spacing: DesignSystem.Spacing.md) {
-                        weightChartCard
-                        statRow
-                        goalProjectionCard
-                        StreakDotsView(weekDots: viewModel.weekDots, streakDays: viewModel.streakDays)
-                        weeklyAveragesCard
-                        weightLogCard
+                        segmentPicker
+
+                        switch segment {
+                        case .weight:
+                            weightChartCard
+                            statRow
+                            goalProjectionCard
+                            StreakDotsView(weekDots: viewModel.weekDots, streakDays: viewModel.streakDays)
+                            weeklyAveragesCard
+                            weightLogCard
+                        case .strength:
+                            StrengthProgressSection(viewModel: strengthViewModel)
+                        case .nutrition:
+                            NutritionProgressSection(viewModel: nutritionViewModel)
+                        }
                     }
                     .padding(.horizontal, DesignSystem.Spacing.md)
                     .padding(.bottom, DesignSystem.Spacing.xl)
@@ -35,23 +55,46 @@ struct ProgressView: View {
             }
             .navigationTitle("Progress")
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showingLogWeight = true
-                    } label: {
-                        Image(systemName: "plus.circle.fill")
-                            .foregroundStyle(DesignSystem.Colors.accent)
+                if segment == .weight {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            showingLogWeight = true
+                        } label: {
+                            Image(systemName: "plus.circle.fill")
+                                .foregroundStyle(DesignSystem.Colors.accent)
+                        }
+                        .accessibilityLabel("Log weight")
                     }
-                    .accessibilityLabel("Log weight")
                 }
             }
         }
-        .onAppear { viewModel.load(from: modelContext) }
+        .onAppear { loadActiveSegment() }
+        .onChange(of: segment) { loadActiveSegment() }
         .sheet(isPresented: $showingLogWeight, onDismiss: {
-            viewModel.load(from: modelContext)
+            loadActiveSegment()
         }) {
             LogWeightSheet()
                 .presentationDetents([.height(260)])
+        }
+    }
+
+    private var segmentPicker: some View {
+        Picker("Section", selection: $segment) {
+            ForEach(ProgressSegment.allCases) { section in
+                Text(section.rawValue).tag(section)
+            }
+        }
+        .pickerStyle(.segmented)
+    }
+
+    private func loadActiveSegment() {
+        switch segment {
+        case .weight:
+            viewModel.load(from: modelContext)
+        case .strength:
+            strengthViewModel.load(from: modelContext)
+        case .nutrition:
+            nutritionViewModel.load(from: modelContext)
         }
     }
 
@@ -72,7 +115,7 @@ struct ProgressView: View {
             }
 
             Picker("Range", selection: $viewModel.selectedRange) {
-                ForEach(WeightChartRange.allCases) { range in
+                ForEach(ChartRange.allCases) { range in
                     Text(range.rawValue).tag(range)
                 }
             }
