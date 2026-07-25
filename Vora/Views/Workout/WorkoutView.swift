@@ -278,10 +278,13 @@ struct WorkoutView: View {
                 Text(record.exerciseName)
                     .font(DesignSystem.Typography.headline)
                     .foregroundStyle(DesignSystem.Colors.textPrimary)
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
                 Text("Est. 1RM \(String(format: "%.1f", record.estimatedOneRepMax)) kg")
                     .font(DesignSystem.Typography.body)
                     .foregroundStyle(DesignSystem.Colors.textSecondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
                 Text(record.date.formatted(.dateTime.month(.abbreviated).day().year()))
                     .font(DesignSystem.Typography.caption)
                     .foregroundStyle(DesignSystem.Colors.textSecondary)
@@ -291,12 +294,14 @@ struct WorkoutView: View {
 
             HStack(alignment: .firstTextBaseline, spacing: DesignSystem.Spacing.xs) {
                 Text(StrengthProgression.setsPart(count: record.totalSets))
-                    .font(DesignSystem.Typography.title)
+                    .font(DesignSystem.Typography.headline)
                     .foregroundStyle(DesignSystem.Colors.accent)
                 Text("× \(StrengthProgression.repsPart(minReps: record.minReps, maxReps: record.maxReps))")
-                    .font(DesignSystem.Typography.caption)
+                    .font(DesignSystem.Typography.body)
                     .foregroundStyle(DesignSystem.Colors.textSecondary)
             }
+            .lineLimit(1)
+            .fixedSize()
         }
         .padding(DesignSystem.Spacing.md)
         .background(DesignSystem.Colors.card)
