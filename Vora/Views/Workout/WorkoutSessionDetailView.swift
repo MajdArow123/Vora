@@ -174,21 +174,16 @@ struct WorkoutSessionDetailView: View {
                 Text(entry.type.displayName)
                     .font(DesignSystem.Typography.headline)
                     .foregroundStyle(DesignSystem.Colors.textPrimary)
-                Text("Cardio · same day")
+                Text(entry.statsLine)
                     .font(DesignSystem.Typography.caption)
                     .foregroundStyle(DesignSystem.Colors.textSecondary)
             }
 
             Spacer()
 
-            VStack(alignment: .trailing, spacing: 2) {
-                Text("\(Int(entry.estimatedCalories.rounded())) kcal")
-                    .font(DesignSystem.Typography.headline)
-                    .foregroundStyle(DesignSystem.Colors.textPrimary)
-                Text(Self.durationString(entry.durationSeconds))
-                    .font(DesignSystem.Typography.caption)
-                    .foregroundStyle(DesignSystem.Colors.textSecondary)
-            }
+            Text("\(Int(entry.estimatedCalories.rounded())) kcal")
+                .font(DesignSystem.Typography.headline)
+                .foregroundStyle(DesignSystem.Colors.textPrimary)
         }
         .padding(DesignSystem.Spacing.md)
         .background(DesignSystem.Colors.card)

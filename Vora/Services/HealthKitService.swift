@@ -78,6 +78,10 @@ final class HealthKitService {
 
     private static func activity(for type: CardioType) -> HKWorkoutActivityType {
         switch type {
+        case .treadmill: .running
+        case .stairClimber: .stairClimbing
+        case .elliptical: .elliptical
+        case .stationaryBike: .cycling
         case .run: .running
         case .walk: .walking
         case .cycle: .cycling

@@ -160,10 +160,44 @@ enum DemoSeeder {
         }
 
         context.insert(CardioEntry(
+            date: calendar.date(byAdding: .day, value: -1, to: today)!.addingTimeInterval(8 * 3600),
+            type: .treadmill,
+            durationSeconds: 1800,
+            estimatedCalories: CardioCalculator.calories(
+                type: .treadmill,
+                inputs: CardioInputs(speedKmh: 8.5, inclinePercent: 2),
+                weightKg: 75,
+                durationSeconds: 1800
+            ),
+            speedKmh: 8.5,
+            inclinePercent: 2,
+            distanceKm: CardioCalculator.distanceKm(speedKmh: 8.5, durationSeconds: 1800)
+        ))
+        context.insert(CardioEntry(
             date: calendar.date(byAdding: .day, value: -2, to: today)!.addingTimeInterval(8 * 3600),
             type: .run,
             durationSeconds: 1860,
-            estimatedCalories: 340
+            estimatedCalories: CardioCalculator.calories(
+                type: .run,
+                inputs: CardioInputs(speedKmh: 10),
+                weightKg: 75,
+                durationSeconds: 1860
+            ),
+            speedKmh: 10,
+            distanceKm: CardioCalculator.distanceKm(speedKmh: 10, durationSeconds: 1860),
+            pace: CardioCalculator.pace(fromSpeedKmh: 10)
+        ))
+        context.insert(CardioEntry(
+            date: calendar.date(byAdding: .day, value: -4, to: today)!.addingTimeInterval(9 * 3600),
+            type: .stairClimber,
+            durationSeconds: 1200,
+            estimatedCalories: CardioCalculator.calories(
+                type: .stairClimber,
+                inputs: CardioInputs(stepsPerMinute: 85),
+                weightKg: 75,
+                durationSeconds: 1200
+            ),
+            stepsPerMinute: 85
         ))
     }
 }

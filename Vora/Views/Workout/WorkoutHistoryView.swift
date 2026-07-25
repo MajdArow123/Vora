@@ -102,7 +102,7 @@ struct WorkoutHistoryView: View {
                 Text(entry.type.displayName)
                     .font(DesignSystem.Typography.headline)
                     .foregroundStyle(DesignSystem.Colors.textPrimary)
-                Text(entry.date.formatted(.dateTime.weekday(.abbreviated).day().month()))
+                Text(entry.statsLine)
                     .font(DesignSystem.Typography.caption)
                     .foregroundStyle(DesignSystem.Colors.textSecondary)
             }
@@ -113,7 +113,7 @@ struct WorkoutHistoryView: View {
                 Text("\(Int(entry.estimatedCalories.rounded())) kcal")
                     .font(DesignSystem.Typography.headline)
                     .foregroundStyle(DesignSystem.Colors.textPrimary)
-                Text("\(entry.durationSeconds / 60) min")
+                Text(entry.date.formatted(.dateTime.weekday(.abbreviated).day().month()))
                     .font(DesignSystem.Typography.caption)
                     .foregroundStyle(DesignSystem.Colors.textSecondary)
             }
