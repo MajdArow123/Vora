@@ -108,28 +108,32 @@ struct ExerciseHistoryView: View {
     // MARK: - Session rows
 
     private func sessionRow(_ entry: ExerciseSessionStat) -> some View {
-        HStack(spacing: DesignSystem.Spacing.md) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(entry.date.formatted(.dateTime.month(.abbreviated).day().year()))
-                    .font(DesignSystem.Typography.headline)
-                    .foregroundStyle(DesignSystem.Colors.textPrimary)
-                Text("\(entry.completedSets) sets")
-                    .font(DesignSystem.Typography.caption)
-                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+        VStack(alignment: .leading, spacing: DesignSystem.Spacing.sm) {
+            HStack(spacing: DesignSystem.Spacing.md) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(entry.date.formatted(.dateTime.month(.abbreviated).day().year()))
+                        .font(DesignSystem.Typography.headline)
+                        .foregroundStyle(DesignSystem.Colors.textPrimary)
+                    Text(entry.setsSummary)
+                        .font(DesignSystem.Typography.caption)
+                        .foregroundStyle(DesignSystem.Colors.textSecondary)
+                }
+
+                Spacer()
+
+                if entry.isPR {
+                    Image(systemName: "trophy.fill")
+                        .font(.caption)
+                        .foregroundStyle(DesignSystem.Colors.macroFat)
+                        .accessibilityHidden(true)
+                }
             }
 
-            Spacer()
-
-            if entry.isPR {
-                Image(systemName: "trophy.fill")
-                    .font(.caption)
-                    .foregroundStyle(DesignSystem.Colors.macroFat)
-                    .accessibilityHidden(true)
+            VStack(spacing: 2) {
+                ForEach(entry.sets) { set in
+                    setRow(set)
+                }
             }
-
-            Text("\(ActiveSessionViewModel.weightString(entry.bestWeightKg)) kg × \(entry.bestReps)")
-                .font(DesignSystem.Typography.headline)
-                .foregroundStyle(DesignSystem.Colors.textPrimary)
         }
         .padding(DesignSystem.Spacing.md)
         .background(entry.isPR
@@ -139,8 +143,28 @@ struct ExerciseHistoryView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(entry.date.formatted(.dateTime.month(.wide).day().year()))
         .accessibilityValue(
-            "Best set \(ActiveSessionViewModel.weightString(entry.bestWeightKg)) kilograms by \(entry.bestReps) reps, \(entry.completedSets) sets completed\(entry.isPR ? ", personal record" : "")"
+            "\(entry.spokenSetsSummary), best \(ActiveSessionViewModel.weightString(entry.bestWeightKg)) kilograms\(entry.isPR ? ", personal record" : "")"
         )
+    }
+
+    private func setRow(_ set: SetDetail) -> some View {
+        HStack(spacing: DesignSystem.Spacing.md) {
+            Text("Set \(set.setNumber)")
+                .font(DesignSystem.Typography.caption)
+                .foregroundStyle(DesignSystem.Colors.textSecondary)
+                .frame(width: 52, alignment: .leading)
+
+            Text("\(ActiveSessionViewModel.weightString(set.weightKg)) kg")
+                .font(DesignSystem.Typography.headline)
+                .foregroundStyle(DesignSystem.Colors.textPrimary)
+
+            Text("× \(set.reps)")
+                .font(DesignSystem.Typography.caption)
+                .foregroundStyle(DesignSystem.Colors.textSecondary)
+
+            Spacer()
+        }
+        .padding(.vertical, 2)
     }
 
     // MARK: - Data

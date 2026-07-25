@@ -248,6 +248,22 @@ struct StrengthProgressViewModelTests {
         #expect(stats.first?.completedSets == 1)
     }
 
+    @Test func sessionStatsIncludeIndividualSetsSortedBySetNumber() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        insertSession(context, date: now, exercise: "Lat Pulldown",
+                      sets: [(30, 12, true), (30, 12, true), (27.5, 10, true), (25, 8, false)])
+        try context.save()
+
+        let stat = try #require(StrengthProgression.sessionStats(
+            for: "Lat Pulldown", sessions: try fetchSessions(context)
+        ).first)
+        #expect(stat.sets.map(\.setNumber) == [1, 2, 3])
+        #expect(stat.sets.map(\.weightKg) == [30, 30, 27.5])
+        #expect(stat.sets.map(\.reps) == [12, 12, 10])
+        #expect(stat.setsSummary == "3 sets × 10–12 reps")
+    }
+
     @Test func sessionStatEstimatedOneRepMaxUsesEpley() {
         let stat = ExerciseSessionStat(
             id: UUID(), date: .now, bestWeightKg: 100, bestReps: 10, completedSets: 3

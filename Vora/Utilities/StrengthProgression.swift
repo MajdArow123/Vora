@@ -7,6 +7,14 @@
 
 import Foundation
 
+/// A single completed set, for per-session drill-down display.
+struct SetDetail: Identifiable {
+    let id = UUID()
+    let setNumber: Int
+    let weightKg: Double
+    let reps: Int
+}
+
 /// Per-session best set for a single exercise.
 struct ExerciseSessionStat: Identifiable {
     let id: UUID
@@ -15,11 +23,23 @@ struct ExerciseSessionStat: Identifiable {
     let bestReps: Int
     let completedSets: Int
     var isPR = false
+    var sets: [SetDetail] = []
 
     /// Epley estimate.
     var estimatedOneRepMax: Double {
         bestWeightKg * (1 + Double(bestReps) / 30)
     }
+
+    var setsSummary: String {
+        StrengthProgression.setsSummary(count: completedSets, minReps: minReps, maxReps: maxReps)
+    }
+
+    var spokenSetsSummary: String {
+        StrengthProgression.spokenSetsSummary(count: completedSets, minReps: minReps, maxReps: maxReps)
+    }
+
+    private var minReps: Int { sets.map(\.reps).min() ?? bestReps }
+    private var maxReps: Int { sets.map(\.reps).max() ?? bestReps }
 }
 
 /// Pure aggregation over fetched sessions, shared by the exercise
@@ -51,10 +71,34 @@ enum StrengthProgression {
                 date: session.date,
                 bestWeightKg: best.weightKg,
                 bestReps: best.reps,
-                completedSets: sets.count
+                completedSets: sets.count,
+                sets: sets.sorted { $0.setNumber < $1.setNumber }
+                    .map { SetDetail(setNumber: $0.setNumber, weightKg: $0.weightKg, reps: $0.reps) }
             ))
         }
         return stats
+    }
+
+    /// "4 sets × 10–12 reps" / "4 sets × 8 reps" / "1 set × 8 reps".
+    static func setsSummary(count: Int, minReps: Int, maxReps: Int) -> String {
+        "\(setsPart(count: count)) × \(repsPart(minReps: minReps, maxReps: maxReps))"
+    }
+
+    static func setsPart(count: Int) -> String {
+        count == 1 ? "1 set" : "\(count) sets"
+    }
+
+    static func repsPart(minReps: Int, maxReps: Int) -> String {
+        guard minReps == maxReps else { return "\(minReps)–\(maxReps) reps" }
+        return maxReps == 1 ? "1 rep" : "\(maxReps) reps"
+    }
+
+    /// VoiceOver-friendly variant without symbols: "4 sets of 10 to 12 reps".
+    static func spokenSetsSummary(count: Int, minReps: Int, maxReps: Int) -> String {
+        let reps = minReps == maxReps
+            ? (maxReps == 1 ? "1 rep" : "\(maxReps) reps")
+            : "\(minReps) to \(maxReps) reps"
+        return "\(setsPart(count: count)) of \(reps)"
     }
 
     /// Distinct exercise names with at least one qualifying set,

@@ -155,6 +155,62 @@ struct WorkoutHomeViewModelTests {
         #expect(records.first?.date == prDate)
     }
 
+    @Test func recordCarriesSetCountAndRepRangeFromAchievingSession() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        insertSession(context, exercise: "Lat Pulldown", sets: [
+            (30, 12, true), (30, 12, true), (27.5, 10, true), (27.5, 10, true), (25, 8, false),
+        ])
+        try context.save()
+
+        let record = try #require(WorkoutHomeViewModel.computePersonalRecords(from: context).first)
+        #expect(record.totalSets == 4)
+        #expect(record.minReps == 10)
+        #expect(record.maxReps == 12)
+    }
+
+    @Test func setStatsComeFromTheAchievingSessionNotTheLatest() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let cal = Calendar.current
+        let prDate = cal.date(byAdding: .day, value: -3, to: .now)!
+        insertSession(context, date: prDate, exercise: "Row",
+                      sets: [(80, 8, true), (80, 8, true), (75, 8, true)])
+        insertSession(context, exercise: "Row", sets: [(70, 10, true), (70, 10, true)])
+        try context.save()
+
+        let record = try #require(WorkoutHomeViewModel.computePersonalRecords(from: context).first)
+        #expect(record.totalSets == 3)
+        #expect(record.minReps == 8)
+        #expect(record.maxReps == 8)
+    }
+
+    // MARK: - Sets summary formatting
+
+    @Test func setsSummaryShowsRepRangeWhenRepsVary() {
+        let record = PersonalRecord(
+            exerciseName: "Bench", weightKg: 100, reps: 10, date: .now,
+            totalSets: 4, minReps: 10, maxReps: 12
+        )
+        #expect(record.setsSummary == "4 sets × 10–12 reps")
+    }
+
+    @Test func setsSummaryCollapsesUniformReps() {
+        let record = PersonalRecord(
+            exerciseName: "Bench", weightKg: 100, reps: 8, date: .now,
+            totalSets: 4, minReps: 8, maxReps: 8
+        )
+        #expect(record.setsSummary == "4 sets × 8 reps")
+    }
+
+    @Test func setsSummaryUsesSingularSetAndRep() {
+        let record = PersonalRecord(
+            exerciseName: "Deadlift", weightKg: 200, reps: 1, date: .now,
+            totalSets: 1, minReps: 1, maxReps: 1
+        )
+        #expect(record.setsSummary == "1 set × 1 rep")
+    }
+
     // MARK: - Epley estimate
 
     @Test func estimatedOneRepMaxUsesEpleyFormula() {

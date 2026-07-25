@@ -14,12 +14,23 @@ struct PersonalRecord: Identifiable {
     let weightKg: Double
     let reps: Int
     let date: Date
+    var totalSets: Int = 0
+    var minReps: Int = 0
+    var maxReps: Int = 0
 
     var id: String { exerciseName }
 
     /// Epley estimate.
     var estimatedOneRepMax: Double {
         weightKg * (1 + Double(reps) / 30)
+    }
+
+    var setsSummary: String {
+        StrengthProgression.setsSummary(count: totalSets, minReps: minReps, maxReps: maxReps)
+    }
+
+    var spokenSetsSummary: String {
+        StrengthProgression.spokenSetsSummary(count: totalSets, minReps: minReps, maxReps: maxReps)
     }
 }
 
@@ -117,32 +128,47 @@ final class WorkoutHomeViewModel {
     // MARK: - Personal records
 
     /// Best completed weight per exercise across all history; reps and
-    /// date come from the set that achieved it.
+    /// date come from the set that achieved it, set totals and the rep
+    /// range from the session that achieved it.
     static func computePersonalRecords(from context: ModelContext, limit: Int? = nil) -> [PersonalRecord] {
         let sessions = (try? context.fetch(FetchDescriptor<WorkoutSession>())) ?? []
-        var best: [String: PersonalRecord] = [:]
+        var best: [String: (record: PersonalRecord, session: WorkoutSession)] = [:]
 
         for session in sessions {
             for exercise in session.exercises {
                 for set in exercise.sets where set.isCompleted && set.weightKg > 0 && set.reps > 0 {
                     let key = exercise.exerciseName.lowercased()
-                    let current = best[key]
+                    let current = best[key]?.record
                     let isBetter = current == nil
                         || set.weightKg > current!.weightKg
                         || (set.weightKg == current!.weightKg && set.reps > current!.reps)
                     if isBetter {
-                        best[key] = PersonalRecord(
+                        best[key] = (PersonalRecord(
                             exerciseName: exercise.exerciseName,
                             weightKg: set.weightKg,
                             reps: set.reps,
                             date: session.date
-                        )
+                        ), session)
                     }
                 }
             }
         }
 
-        let sorted = best.values.sorted { $0.weightKg > $1.weightKg }
+        let records = best.values.map { record, session in
+            var record = record
+            let key = record.exerciseName.lowercased()
+            let reps = session.exercises
+                .filter { $0.exerciseName.lowercased() == key }
+                .flatMap(\.sets)
+                .filter { $0.isCompleted && $0.weightKg > 0 && $0.reps > 0 }
+                .map(\.reps)
+            record.totalSets = reps.count
+            record.minReps = reps.min() ?? 0
+            record.maxReps = reps.max() ?? 0
+            return record
+        }
+
+        let sorted = records.sorted { $0.weightKg > $1.weightKg }
         if let limit { return Array(sorted.prefix(limit)) }
         return sorted
     }

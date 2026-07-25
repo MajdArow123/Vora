@@ -290,10 +290,10 @@ struct WorkoutView: View {
             Spacer()
 
             HStack(alignment: .firstTextBaseline, spacing: DesignSystem.Spacing.xs) {
-                Text("\(ActiveSessionViewModel.weightString(record.weightKg)) kg")
+                Text(StrengthProgression.setsPart(count: record.totalSets))
                     .font(DesignSystem.Typography.title)
                     .foregroundStyle(DesignSystem.Colors.accent)
-                Text("× \(record.reps)")
+                Text("× \(StrengthProgression.repsPart(minReps: record.minReps, maxReps: record.maxReps))")
                     .font(DesignSystem.Typography.caption)
                     .foregroundStyle(DesignSystem.Colors.textSecondary)
             }
@@ -310,7 +310,7 @@ struct WorkoutView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(record.exerciseName)
         .accessibilityValue(
-            "Personal record \(ActiveSessionViewModel.weightString(record.weightKg)) kilograms by \(record.reps) reps, estimated one rep max \(String(format: "%.1f", record.estimatedOneRepMax)) kilograms, \(record.date.formatted(.dateTime.month(.wide).day().year()))"
+            "Personal record \(record.spokenSetsSummary), estimated one rep max \(String(format: "%.1f", record.estimatedOneRepMax)) kilograms, \(record.date.formatted(.dateTime.month(.wide).day().year()))"
         )
         .accessibilityHint("Shows history for this exercise")
     }
