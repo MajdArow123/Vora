@@ -13,6 +13,8 @@ enum InsightRule: String, CaseIterable, Codable {
     case proteinGap
     case missedWorkout
     case calorieSurplus
+    case supplementGap
+    case supplementStreakMilestone
 }
 
 struct Insight: Equatable, Codable {
@@ -41,6 +43,9 @@ struct InsightInput {
     /// unbroken run of daily entries.
     var consecutiveDailyWeightsKg: [Double]
     var daysTracked: Int
+    /// Untaken morning / pre-workout supplement names, in user order.
+    var untakenEarlySupplementNames: [String] = []
+    var supplementStreakDays: Int = 0
 }
 
 /// Picks one insight per day from a fixed-priority rule list. The rule
@@ -52,8 +57,10 @@ enum InsightEngine {
     static func generate(from input: InsightInput, excluding lastRule: InsightRule? = nil) -> Insight {
         let candidates: [InsightRule] = [
             .streakMilestone,
+            .supplementStreakMilestone,
             .weightTrendPositive,
             .proteinGap,
+            .supplementGap,
             .missedWorkout,
             .calorieSurplus,
         ]
@@ -121,6 +128,26 @@ enum InsightEngine {
                 title: "Over calorie target",
                 message: "You are \(over) kcal over today's target. One day will not undo your progress — aim to land on target tomorrow.",
                 iconName: "gauge.with.needle"
+            )
+
+        case .supplementGap:
+            guard input.hour >= 14,
+                  let name = input.untakenEarlySupplementNames.first
+            else { return nil }
+            return Insight(
+                rule: rule,
+                title: "Supplement missed",
+                message: "You haven't taken your \(name) today.",
+                iconName: "pills.fill"
+            )
+
+        case .supplementStreakMilestone:
+            guard streakMilestones.contains(input.supplementStreakDays) else { return nil }
+            return Insight(
+                rule: rule,
+                title: "\(input.supplementStreakDays)-day supplement streak",
+                message: "Every supplement taken, \(input.supplementStreakDays) days running. Small habits done daily are the ones that stick.",
+                iconName: "pills.fill"
             )
         }
     }

@@ -31,7 +31,12 @@ final class NotificationService {
         if ProcessInfo.processInfo.arguments.contains("--suppress-notification-prompt") { return }
         #endif
         let center = UNUserNotificationCenter.current()
-        let idsToClear = ReminderKind.allCases.map(\.notificationId) + [Self.weeklySummaryId]
+        // Supplement ids are dynamic: fetch every row (soft delete keeps
+        // deactivated ones around) so stale requests are always cleared.
+        let allSupplements = (try? context.fetch(FetchDescriptor<Supplement>())) ?? []
+        let idsToClear = ReminderKind.allCases.map(\.notificationId)
+            + [Self.weeklySummaryId]
+            + allSupplements.map { Self.supplementNotificationId($0.id) }
 
         // Requests are built before the authorization callback because
         // ModelContext must stay on the calling thread.
@@ -51,6 +56,7 @@ final class NotificationService {
                 requests.append(request)
             }
         }
+        requests += Self.supplementReminderRequests(context: context, now: now)
 
         center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
             center.removePendingNotificationRequests(withIdentifiers: idsToClear)
@@ -83,7 +89,6 @@ final class NotificationService {
         }
 
         guard let fireDate = nextFireDate(
-            kind: kind,
             minutes: minutes,
             todayNeedsReminder: todayNeedsReminder,
             trainingDayIndices: trainingDays,
@@ -107,7 +112,6 @@ final class NotificationService {
     /// `trainingDayIndices` restricts valid days (nil = every day is valid);
     /// an empty set means no day is ever valid.
     static func nextFireDate(
-        kind: ReminderKind,
         minutes: Int,
         todayNeedsReminder: Bool,
         trainingDayIndices: Set<Int>?,
@@ -169,6 +173,92 @@ final class NotificationService {
             content.title = "Workout time"
             content.body = "Time for \(sessionName). Tap to start your session."
             content.userInfo = ["vora.destination": "workout"]
+        }
+        content.sound = .default
+        return content
+    }
+
+    // MARK: - Supplement reminders
+
+    static func supplementNotificationId(_ id: UUID) -> String {
+        "vora.supplement.\(id.uuidString)"
+    }
+
+    /// Groups reminder-enabled supplements whose times fall within five
+    /// minutes of each other into one notification. Greedy: the earliest
+    /// ungrouped supplement anchors a group and absorbs everything within
+    /// the window of its time. The anchor's id names the request, so the
+    /// fetch-all clearing in `refreshAll` always covers batches too.
+    static func supplementReminderGroups(_ supplements: [Supplement]) -> [[Supplement]] {
+        let sorted = supplements.sorted {
+            ($0.reminderMinutes, $0.orderIndex, $0.id.uuidString)
+                < ($1.reminderMinutes, $1.orderIndex, $1.id.uuidString)
+        }
+        var groups: [[Supplement]] = []
+        for supplement in sorted {
+            if let anchor = groups.last?.first,
+               supplement.reminderMinutes - anchor.reminderMinutes <= 5 {
+                groups[groups.count - 1].append(supplement)
+            } else {
+                groups.append([supplement])
+            }
+        }
+        return groups
+    }
+
+    static func supplementsTakenToday(context: ModelContext, now: Date) -> Set<UUID> {
+        let (start, end) = todayBounds(for: now)
+        let logs = (try? context.fetch(FetchDescriptor<SupplementLog>(
+            predicate: #Predicate { $0.date >= start && $0.date < end }
+        ))) ?? []
+        return Set(logs.map(\.supplementID))
+    }
+
+    static func supplementReminderRequests(context: ModelContext, now: Date) -> [UNNotificationRequest] {
+        let enabled = ((try? context.fetch(FetchDescriptor<Supplement>(
+            predicate: #Predicate { $0.isActive && $0.reminderEnabled }
+        ))) ?? [])
+        guard !enabled.isEmpty else { return [] }
+
+        let takenToday = supplementsTakenToday(context: context, now: now)
+        return supplementReminderGroups(enabled).compactMap { group in
+            guard let anchor = group.first else { return nil }
+            let untaken = group.filter { !takenToday.contains($0.id) }
+            guard let fireDate = nextFireDate(
+                minutes: anchor.reminderMinutes,
+                todayNeedsReminder: !untaken.isEmpty,
+                trainingDayIndices: nil,
+                now: now
+            ) else { return nil }
+            let components = Calendar.current.dateComponents(
+                [.year, .month, .day, .hour, .minute],
+                from: fireDate
+            )
+            return UNNotificationRequest(
+                identifier: supplementNotificationId(anchor.id),
+                content: supplementReminderContent(group: group, untaken: untaken, fireDate: fireDate, now: now),
+                trigger: UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
+            )
+        }
+    }
+
+    /// When firing today only the untaken members are listed; a reminder
+    /// rolled to a future day covers the whole group again.
+    static func supplementReminderContent(
+        group: [Supplement],
+        untaken: [Supplement],
+        fireDate: Date,
+        now: Date
+    ) -> UNMutableNotificationContent {
+        let firingToday = Calendar.current.isDate(fireDate, inSameDayAs: now)
+        let members = firingToday && !untaken.isEmpty ? untaken : group
+
+        let content = UNMutableNotificationContent()
+        content.title = "Supplement reminder"
+        if members.count == 1, let single = members.first {
+            content.body = "\(single.name) · \(single.dose) — time to take your supplement"
+        } else {
+            content.body = "Time for your supplements: \(members.map(\.name).joined(separator: ", "))"
         }
         content.sound = .default
         return content

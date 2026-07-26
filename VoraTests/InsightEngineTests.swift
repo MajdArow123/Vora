@@ -109,6 +109,55 @@ struct InsightEngineTests {
         #expect(InsightEngine.generate(from: input).rule == .weightTrendPositive)
     }
 
+    // MARK: - Supplement rules
+
+    @Test func supplementGapFiresAfter2pmWithUntakenName() {
+        var input = baseInput(hour: 14)
+        input.untakenEarlySupplementNames = ["Creatine", "Vitamin D"]
+        let insight = InsightEngine.generate(from: input)
+        #expect(insight.rule == .supplementGap)
+        #expect(insight.message == "You haven't taken your Creatine today.")
+    }
+
+    @Test func supplementGapSilentBefore2pm() {
+        var input = baseInput(hour: 13)
+        input.untakenEarlySupplementNames = ["Creatine"]
+        #expect(InsightEngine.generate(from: input).rule != .supplementGap)
+    }
+
+    @Test func supplementGapSilentWhenAllTaken() {
+        let input = baseInput(hour: 16)
+        #expect(InsightEngine.generate(from: input).rule != .supplementGap)
+    }
+
+    @Test(arguments: [7, 14, 30])
+    func supplementStreakMilestoneFiresAtMilestones(days: Int) {
+        var input = baseInput()
+        input.supplementStreakDays = days
+        #expect(InsightEngine.generate(from: input).rule == .supplementStreakMilestone)
+    }
+
+    @Test(arguments: [6, 8, 29, 31])
+    func supplementStreakMilestoneSilentOffMilestones(days: Int) {
+        var input = baseInput()
+        input.supplementStreakDays = days
+        #expect(InsightEngine.generate(from: input).rule != .supplementStreakMilestone)
+    }
+
+    @Test func proteinGapOutranksSupplementGap() {
+        var input = baseInput(hour: 16)
+        input.proteinConsumedG = 10
+        input.untakenEarlySupplementNames = ["Creatine"]
+        #expect(InsightEngine.generate(from: input).rule == .proteinGap)
+        #expect(InsightEngine.generate(from: input, excluding: .proteinGap).rule == .supplementGap)
+    }
+
+    @Test func excludedSupplementGapDoesNotRepeat() {
+        var input = baseInput(hour: 16)
+        input.untakenEarlySupplementNames = ["Creatine"]
+        #expect(InsightEngine.generate(from: input, excluding: .supplementGap).rule != .supplementGap)
+    }
+
     // MARK: - Priority, exclusion, fallback
 
     @Test func streakMilestoneOutranksOtherMatches() {

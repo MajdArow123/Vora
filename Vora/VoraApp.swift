@@ -30,6 +30,8 @@ struct VoraApp: App {
             SavedMealItem.self,
             Recipe.self,
             RecipeIngredient.self,
+            Supplement.self,
+            SupplementLog.self,
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 

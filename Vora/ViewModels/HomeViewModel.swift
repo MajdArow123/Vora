@@ -26,6 +26,13 @@ final class HomeViewModel {
     private(set) var foodStreakDays = 0
     private(set) var daysTracked = 0
     private(set) var insight: Insight?
+    /// Active supplements sorted by the user's order.
+    private(set) var activeSupplements: [Supplement] = []
+    private(set) var takenSupplementIDs: Set<UUID> = []
+    private(set) var supplementStreakDays = 0
+    /// Untaken morning / pre-workout supplement names, in user order —
+    /// feeds the "supplement missed" insight.
+    private(set) var untakenEarlySupplementNames: [String] = []
 
     private let defaults: UserDefaults
     private let insightDateKey = "vora.insight.date"
@@ -64,6 +71,7 @@ final class HomeViewModel {
         loadWeights(from: context, todayStart: todayStart, calendar: cal)
         loadTraining(from: context, now: now, todayEnd: todayEnd, calendar: cal)
         loadFoodStreak(from: context, now: now, todayEnd: todayEnd, calendar: cal)
+        loadSupplements(from: context, now: now, todayStart: todayStart, todayEnd: todayEnd, calendar: cal)
         daysTracked = TrackingStats.daysTracked(in: context, calendar: cal)
         loadInsight(now: now, calendar: cal)
     }
@@ -119,6 +127,39 @@ final class HomeViewModel {
         foodStreakDays = StreakCalculator.foodStreak(qualifyingDays: qualifying, today: now, calendar: calendar)
     }
 
+    private func loadSupplements(
+        from context: ModelContext,
+        now: Date,
+        todayStart: Date,
+        todayEnd: Date,
+        calendar: Calendar
+    ) {
+        let supplementDescriptor = FetchDescriptor<Supplement>(
+            predicate: #Predicate { $0.isActive },
+            sortBy: [SortDescriptor(\.orderIndex)]
+        )
+        activeSupplements = (try? context.fetch(supplementDescriptor)) ?? []
+
+        // Same 40-day window tradeoff as loadTraining.
+        guard let windowStart = calendar.date(byAdding: .day, value: -40, to: todayEnd) else { return }
+        let logDescriptor = FetchDescriptor<SupplementLog>(
+            predicate: #Predicate { $0.date >= windowStart && $0.date < todayEnd }
+        )
+        let logs = (try? context.fetch(logDescriptor)) ?? []
+
+        takenSupplementIDs = Set(logs.filter { $0.date >= todayStart }.map(\.supplementID))
+        untakenEarlySupplementNames = activeSupplements
+            .filter { ($0.timing == .morning || $0.timing == .preWorkout) && !takenSupplementIDs.contains($0.id) }
+            .map(\.name)
+
+        let qualifying = StreakCalculator.qualifyingSupplementDays(
+            logs: logs.map { (supplementID: $0.supplementID, date: $0.date) },
+            activeSupplements: activeSupplements.map { (id: $0.id, createdAt: $0.createdAt) },
+            calendar: calendar
+        )
+        supplementStreakDays = StreakCalculator.foodStreak(qualifyingDays: qualifying, today: now, calendar: calendar)
+    }
+
     // MARK: - Insight
 
     private func loadInsight(now: Date, calendar: Calendar) {
@@ -159,7 +200,9 @@ final class HomeViewModel {
             hasTrainedToday: hasTrainedToday,
             streakDays: streakDays,
             consecutiveDailyWeightsKg: Self.consecutiveDailyWeights(from: weekWeights, calendar: calendar),
-            daysTracked: daysTracked
+            daysTracked: daysTracked,
+            untakenEarlySupplementNames: untakenEarlySupplementNames,
+            supplementStreakDays: supplementStreakDays
         )
     }
 
@@ -199,6 +242,10 @@ final class HomeViewModel {
 
     var latestWeight: WeightEntry? { weekWeights.last }
 
+    var supplementsTakenCount: Int {
+        activeSupplements.filter { takenSupplementIDs.contains($0.id) }.count
+    }
+
     /// Change between the first and last weigh-in of the trailing week.
     var weekWeightDeltaKg: Double? {
         guard let first = weekWeights.first, let last = weekWeights.last,
@@ -219,5 +266,42 @@ final class HomeViewModel {
         context.delete(latest)
         try? context.save()
         load(from: context)
+    }
+
+    // MARK: - Supplement mutations
+
+    /// Toggles today's taken state. Returns true when the supplement was
+    /// just marked taken, so the caller can fire haptics.
+    @discardableResult
+    func toggleSupplement(_ supplement: Supplement, context: ModelContext, now: Date = .now) -> Bool {
+        let cal = Calendar.current
+        let todayStart = cal.startOfDay(for: now)
+        guard let todayEnd = cal.date(byAdding: .day, value: 1, to: todayStart) else { return false }
+
+        let supplementID = supplement.id
+        let markedTaken: Bool
+        if takenSupplementIDs.contains(supplementID) {
+            let descriptor = FetchDescriptor<SupplementLog>(
+                predicate: #Predicate {
+                    $0.supplementID == supplementID && $0.date >= todayStart && $0.date < todayEnd
+                }
+            )
+            ((try? context.fetch(descriptor)) ?? []).forEach { context.delete($0) }
+            markedTaken = false
+        } else {
+            context.insert(SupplementLog(
+                supplementID: supplementID,
+                supplementName: supplement.name,
+                dose: supplement.dose,
+                date: todayStart,
+                takenAt: now
+            ))
+            markedTaken = true
+        }
+        try? context.save()
+        load(from: context, now: now)
+        // Taken state changes today's reminder condition.
+        NotificationService.shared.refreshAll(context: context, now: now)
+        return markedTaken
     }
 }

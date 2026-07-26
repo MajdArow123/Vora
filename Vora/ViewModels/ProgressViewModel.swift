@@ -56,6 +56,12 @@ final class ProgressViewModel {
     private(set) var streakDays = 0
     private(set) var daysTracked = 0
     private(set) var weeklyAverages: [WeeklyAverage] = []
+    private(set) var hasActiveSupplements = false
+    private(set) var supplementStreakDays = 0
+    /// All-supplements-taken flags for the trailing 7 days, oldest first.
+    private(set) var supplementWeekDots: [Bool] = []
+    /// Percentage of days this month on which every supplement was taken.
+    private(set) var supplementMonthPercent = 0
 
     var selectedRange: ChartRange = .month
 
@@ -73,6 +79,7 @@ final class ProgressViewModel {
 
         loadTraining(from: context, now: now, calendar: cal)
         loadWeeklyAverages(from: context, now: now, calendar: cal)
+        loadSupplements(from: context, now: now, calendar: cal)
         daysTracked = TrackingStats.daysTracked(in: context, calendar: cal)
     }
 
@@ -107,6 +114,46 @@ final class ProgressViewModel {
         streakDays = StreakCalculator.adherenceStreak(
             sessionDates: dates,
             restDayIndices: restIndices,
+            today: now,
+            calendar: calendar
+        )
+    }
+
+    private func loadSupplements(from context: ModelContext, now: Date, calendar: Calendar) {
+        let supplementDescriptor = FetchDescriptor<Supplement>(
+            predicate: #Predicate { $0.isActive }
+        )
+        let active = (try? context.fetch(supplementDescriptor)) ?? []
+        hasActiveSupplements = !active.isEmpty
+        guard hasActiveSupplements else {
+            supplementStreakDays = 0
+            supplementWeekDots = []
+            supplementMonthPercent = 0
+            return
+        }
+
+        let todayStart = calendar.startOfDay(for: now)
+        // Cover both the 40-day streak window and the whole current month.
+        let monthStart = calendar.dateInterval(of: .month, for: now)?.start ?? todayStart
+        let streakStart = calendar.date(byAdding: .day, value: -40, to: todayStart) ?? todayStart
+        let windowStart = min(monthStart, streakStart)
+        guard let todayEnd = calendar.date(byAdding: .day, value: 1, to: todayStart) else { return }
+
+        let logDescriptor = FetchDescriptor<SupplementLog>(
+            predicate: #Predicate { $0.date >= windowStart && $0.date < todayEnd }
+        )
+        let logs = (try? context.fetch(logDescriptor)) ?? []
+
+        let qualifying = StreakCalculator.qualifyingSupplementDays(
+            logs: logs.map { (supplementID: $0.supplementID, date: $0.date) },
+            activeSupplements: active.map { (id: $0.id, createdAt: $0.createdAt) },
+            calendar: calendar
+        )
+        supplementStreakDays = StreakCalculator.foodStreak(qualifyingDays: qualifying, today: now, calendar: calendar)
+        supplementWeekDots = StreakCalculator.trailingWeek(sessionDates: Array(qualifying), today: now, calendar: calendar)
+        supplementMonthPercent = StreakCalculator.monthlyConsistency(
+            qualifyingDays: qualifying,
+            earliestCreatedAt: active.map(\.createdAt).min(),
             today: now,
             calendar: calendar
         )

@@ -45,6 +45,13 @@ struct ProgressView: View {
                             StreakDotsView(weekDots: viewModel.weekDots, streakDays: viewModel.streakDays)
                             weeklyAveragesCard
                             measurementsCard
+                            if viewModel.hasActiveSupplements {
+                                SupplementConsistencyCard(
+                                    streakDays: viewModel.supplementStreakDays,
+                                    weekDots: viewModel.supplementWeekDots,
+                                    monthPercent: viewModel.supplementMonthPercent
+                                )
+                            }
                             weightLogCard
                         case .strength:
                             StrengthProgressSection(viewModel: strengthViewModel)

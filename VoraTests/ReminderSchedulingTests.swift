@@ -139,7 +139,6 @@ struct ReminderSchedulingTests {
 
     @Test func firesTodayWhenNeededAndTimeAhead() {
         let fireDate = NotificationService.nextFireDate(
-            kind: .meal,
             minutes: 720,
             todayNeedsReminder: true,
             trainingDayIndices: nil,
@@ -150,7 +149,6 @@ struct ReminderSchedulingTests {
 
     @Test func skipsToTomorrowWhenConditionAlreadyMet() {
         let fireDate = NotificationService.nextFireDate(
-            kind: .meal,
             minutes: 720,
             todayNeedsReminder: false,
             trainingDayIndices: nil,
@@ -162,7 +160,6 @@ struct ReminderSchedulingTests {
 
     @Test func skipsToTomorrowWhenTimeAlreadyPassed() {
         let fireDate = NotificationService.nextFireDate(
-            kind: .water,
             minutes: 720,
             todayNeedsReminder: true,
             trainingDayIndices: nil,
@@ -175,7 +172,6 @@ struct ReminderSchedulingTests {
     @Test func workoutSkipsToNextTrainingDay() {
         // Wednesday has index 2; only Friday (4) is a training day.
         let fireDate = NotificationService.nextFireDate(
-            kind: .workout,
             minutes: 1050,
             todayNeedsReminder: true,
             trainingDayIndices: [4],
@@ -188,7 +184,6 @@ struct ReminderSchedulingTests {
     @Test func workoutWrapsPastWeekendToMonday() {
         // Only Monday (0) trains; from Wednesday that's 5 days ahead.
         let fireDate = NotificationService.nextFireDate(
-            kind: .workout,
             minutes: 1050,
             todayNeedsReminder: true,
             trainingDayIndices: [0],
@@ -200,7 +195,6 @@ struct ReminderSchedulingTests {
 
     @Test func workoutFiresTodayOnTrainingDayBeforeTime() {
         let fireDate = NotificationService.nextFireDate(
-            kind: .workout,
             minutes: 1050,
             todayNeedsReminder: true,
             trainingDayIndices: [2],
@@ -211,7 +205,6 @@ struct ReminderSchedulingTests {
 
     @Test func allRestSplitProducesNoFireDate() {
         let fireDate = NotificationService.nextFireDate(
-            kind: .workout,
             minutes: 1050,
             todayNeedsReminder: true,
             trainingDayIndices: [],

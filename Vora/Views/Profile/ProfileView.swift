@@ -13,6 +13,7 @@ struct ProfileView: View {
     @State private var viewModel = ProfileViewModel()
     @AppStorage(AppearanceSetting.storageKey) private var appearance: AppearanceSetting = .system
     @State private var showingAppearancePicker = false
+    @State private var showingSupplements = false
 
     var body: some View {
         ZStack {
@@ -142,9 +143,40 @@ struct ProfileView: View {
             row("Units", profile.preferredUnits.displayName)
             Divider()
             appearanceRow
+            Divider()
+            supplementsRow
         }
 
         RemindersSection()
+    }
+
+    private var supplementsRow: some View {
+        Button {
+            showingSupplements = true
+        } label: {
+            HStack {
+                Text("Supplements")
+                    .font(DesignSystem.Typography.body)
+                    .foregroundStyle(DesignSystem.Colors.textPrimary.opacity(0.6))
+                Spacer()
+                Image(systemName: "pills.fill")
+                    .font(.caption)
+                    .foregroundStyle(DesignSystem.Colors.accent)
+                    .accessibilityHidden(true)
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+                    .accessibilityHidden(true)
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Supplements")
+        .accessibilityHint("Manage your supplements")
+        .sheet(isPresented: $showingSupplements) {
+            SupplementManagementView()
+        }
     }
 
     private var appearanceRow: some View {

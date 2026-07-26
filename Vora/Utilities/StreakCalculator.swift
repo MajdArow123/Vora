@@ -93,6 +93,59 @@ enum StreakCalculator {
         return streak
     }
 
+    /// Days on which every supplement that existed by that day was taken.
+    /// A day only qualifies when at least one supplement was required, and
+    /// supplements added later never retroactively break earlier days.
+    /// Returns start-of-day dates.
+    ///
+    /// - Parameters:
+    ///   - logs: supplement id + calendar day of every taken-log.
+    ///   - activeSupplements: id + creation date of the currently active
+    ///     supplements — deactivated ones drop out of every requirement.
+    static func qualifyingSupplementDays(
+        logs: [(supplementID: UUID, date: Date)],
+        activeSupplements: [(id: UUID, createdAt: Date)],
+        calendar: Calendar = .current
+    ) -> Set<Date> {
+        guard !activeSupplements.isEmpty else { return [] }
+        var takenByDay: [Date: Set<UUID>] = [:]
+        for log in logs {
+            takenByDay[calendar.startOfDay(for: log.date), default: []].insert(log.supplementID)
+        }
+        let requirements = activeSupplements.map {
+            (id: $0.id, startDay: calendar.startOfDay(for: $0.createdAt))
+        }
+        return Set(takenByDay.filter { day, takenIDs in
+            let required = requirements.filter { $0.startDay <= day }.map(\.id)
+            return !required.isEmpty && required.allSatisfy(takenIDs.contains)
+        }.keys)
+    }
+
+    /// Percentage (0–100) of days this month on which all supplements were
+    /// taken. The window starts at the later of the month start and the
+    /// earliest supplement's creation day, so a user who added their first
+    /// supplement mid-month is not penalised for the days before it.
+    static func monthlyConsistency(
+        qualifyingDays: Set<Date>,
+        earliestCreatedAt: Date?,
+        today: Date = .now,
+        calendar: Calendar = .current
+    ) -> Int {
+        guard let earliestCreatedAt,
+              let monthStart = calendar.dateInterval(of: .month, for: today)?.start else {
+            return 0
+        }
+        let windowStart = max(monthStart, calendar.startOfDay(for: earliestCreatedAt))
+        let todayStart = calendar.startOfDay(for: today)
+        guard windowStart <= todayStart,
+              let days = calendar.dateComponents([.day], from: windowStart, to: todayStart).day else {
+            return 0
+        }
+        let windowDays = days + 1
+        let qualified = qualifyingDays.filter { $0 >= windowStart && $0 <= todayStart }.count
+        return min(100, Int((Double(qualified) / Double(windowDays) * 100).rounded()))
+    }
+
     /// Trained / not-trained flags for the trailing 7 days, oldest first
     /// (index 6 is today). Drives the streak dot views.
     static func trailingWeek(

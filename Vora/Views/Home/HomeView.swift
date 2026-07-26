@@ -15,6 +15,8 @@ struct HomeView: View {
     @State private var showingSession = false
     @State private var quickLogSlot: MealSlot?
     @State private var showingLogWeight = false
+    @State private var showingSupplementManagement = false
+    @State private var showingAddSupplement = false
 
     var body: some View {
         NavigationStack {
@@ -38,6 +40,13 @@ struct HomeView: View {
                             glassCount: viewModel.glassCount,
                             onAdd: { viewModel.addGlass(context: modelContext) },
                             onRemove: { viewModel.removeGlass(context: modelContext) }
+                        )
+                        SupplementsCard(
+                            supplements: viewModel.activeSupplements,
+                            takenIDs: viewModel.takenSupplementIDs,
+                            onToggle: { viewModel.toggleSupplement($0, context: modelContext) },
+                            onManage: { showingSupplementManagement = true },
+                            onAdd: { showingAddSupplement = true }
                         )
                         StreakDotsView(
                             weekDots: viewModel.weekDots,
@@ -73,6 +82,16 @@ struct HomeView: View {
         }) {
             LogWeightSheet()
                 .presentationDetents([.height(380)])
+        }
+        .sheet(isPresented: $showingSupplementManagement, onDismiss: {
+            viewModel.load(from: modelContext)
+        }) {
+            SupplementManagementView()
+        }
+        .sheet(isPresented: $showingAddSupplement, onDismiss: {
+            viewModel.load(from: modelContext)
+        }) {
+            SupplementEditView(supplement: nil)
         }
     }
 
