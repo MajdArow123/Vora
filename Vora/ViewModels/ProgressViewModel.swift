@@ -27,6 +27,13 @@ enum ChartRange: String, CaseIterable, Identifiable {
     }
 }
 
+/// A dated scalar sample for secondary trend charts (body fat, waist).
+struct MetricPoint: Identifiable {
+    let id: UUID
+    let date: Date
+    let value: Double
+}
+
 struct WeeklyAverage: Identifiable {
     let label: String
     let average: Double
@@ -43,6 +50,8 @@ final class ProgressViewModel {
     private(set) var rangeWeights: [WeightEntry] = []
     /// All weigh-ins newest first, for the log list.
     private(set) var allWeightsDescending: [WeightEntry] = []
+    /// All body measurements newest first.
+    private(set) var allMeasurementsDescending: [BodyMeasurement] = []
     private(set) var weekDots: [Bool] = []
     private(set) var streakDays = 0
     private(set) var daysTracked = 0
@@ -59,6 +68,7 @@ final class ProgressViewModel {
         allWeightsDescending = (try? context.fetch(FetchDescriptor<WeightEntry>(
             sortBy: [SortDescriptor(\.date, order: .reverse)]
         ))) ?? []
+        fetchMeasurements(from: context)
         applyRange(now: now, calendar: cal)
 
         loadTraining(from: context, now: now, calendar: cal)
@@ -137,6 +147,47 @@ final class ProgressViewModel {
             WeeklyAverage(label: "Carbs", average: sums.c / dayCount, target: profile?.carbsTargetG ?? 0, unit: "g"),
             WeeklyAverage(label: "Fat", average: sums.f / dayCount, target: profile?.fatTargetG ?? 0, unit: "g"),
         ]
+    }
+
+    // MARK: - Body measurements
+
+    var unitSystem: UnitSystem { profile?.preferredUnits ?? .metric }
+
+    var latestMeasurement: BodyMeasurement? { allMeasurementsDescending.first }
+
+    /// Waist samples oldest first, all time.
+    var waistPoints: [MetricPoint] {
+        allMeasurementsDescending.reversed().compactMap { measurement in
+            guard let waist = measurement.waistCm else { return nil }
+            return MetricPoint(id: measurement.id, date: measurement.date, value: waist)
+        }
+    }
+
+    func deleteMeasurement(_ measurement: BodyMeasurement, in context: ModelContext) {
+        context.delete(measurement)
+        try? context.save()
+        fetchMeasurements(from: context)
+    }
+
+    private func fetchMeasurements(from context: ModelContext) {
+        allMeasurementsDescending = (try? context.fetch(FetchDescriptor<BodyMeasurement>(
+            sortBy: [SortDescriptor(\.date, order: .reverse)]
+        ))) ?? []
+    }
+
+    // MARK: - Body fat
+
+    /// True once any weigh-in ever recorded a body fat percentage.
+    var hasAnyBodyFat: Bool {
+        allWeightsDescending.contains { ($0.bodyFatPercent ?? 0) > 0 }
+    }
+
+    /// Body fat samples within the selected range, oldest first.
+    var bodyFatPoints: [MetricPoint] {
+        rangeWeights.compactMap { entry in
+            guard let bodyFat = entry.bodyFatPercent, bodyFat > 0 else { return nil }
+            return MetricPoint(id: entry.id, date: entry.date, value: bodyFat)
+        }
     }
 
     // MARK: - Weight log

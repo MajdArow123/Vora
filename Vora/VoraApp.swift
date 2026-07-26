@@ -22,6 +22,7 @@ struct VoraApp: App {
             ExerciseLog.self,
             SetEntry.self,
             WeightEntry.self,
+            BodyMeasurement.self,
             WaterEntry.self,
             CardioEntry.self,
             SplitDay.self,

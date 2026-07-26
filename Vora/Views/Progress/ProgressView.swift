@@ -24,6 +24,7 @@ struct ProgressView: View {
     @State private var nutritionViewModel = NutritionProgressViewModel()
     @State private var segment: ProgressSegment = .weight
     @State private var showingLogWeight = false
+    @State private var showingLogMeasurement = false
 
     var body: some View {
         NavigationStack {
@@ -38,10 +39,12 @@ struct ProgressView: View {
                         switch segment {
                         case .weight:
                             weightChartCard
+                            bodyFatChartCard
                             statRow
                             goalProjectionCard
                             StreakDotsView(weekDots: viewModel.weekDots, streakDays: viewModel.streakDays)
                             weeklyAveragesCard
+                            measurementsCard
                             weightLogCard
                         case .strength:
                             StrengthProgressSection(viewModel: strengthViewModel)
@@ -74,7 +77,12 @@ struct ProgressView: View {
             loadActiveSegment()
         }) {
             LogWeightSheet()
-                .presentationDetents([.height(260)])
+                .presentationDetents([.height(340)])
+        }
+        .sheet(isPresented: $showingLogMeasurement, onDismiss: {
+            loadActiveSegment()
+        }) {
+            MeasurementLogView()
         }
     }
 
@@ -193,6 +201,75 @@ struct ProgressView: View {
         return String(format: "From %.1f to %.1f kilograms, %+.1f kilograms over this range", first.weightKg, last.weightKg, delta)
     }
 
+    // MARK: - Body fat chart
+
+    @ViewBuilder
+    private var bodyFatChartCard: some View {
+        if viewModel.hasAnyBodyFat {
+            VStack(alignment: .leading, spacing: DesignSystem.Spacing.md) {
+                HStack {
+                    Text("Body Fat")
+                        .font(DesignSystem.Typography.headline)
+                        .foregroundStyle(DesignSystem.Colors.textPrimary)
+                    Spacer()
+                    if let latest = viewModel.bodyFatPoints.last {
+                        Text(String(format: "%.1f%%", latest.value))
+                            .font(DesignSystem.Typography.headline)
+                            .foregroundStyle(DesignSystem.Colors.accent)
+                    }
+                }
+
+                if viewModel.bodyFatPoints.count >= 2 {
+                    Chart(viewModel.bodyFatPoints) { point in
+                        LineMark(
+                            x: .value("Date", point.date, unit: .day),
+                            y: .value("Body fat", point.value)
+                        )
+                        .foregroundStyle(DesignSystem.Colors.accent)
+                        .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                        .interpolationMethod(.monotone)
+                    }
+                    .chartYScale(domain: bodyFatDomain)
+                    .chartXAxis {
+                        AxisMarks(values: .automatic(desiredCount: 4)) {
+                            AxisValueLabel(format: .dateTime.day().month(.abbreviated))
+                                .foregroundStyle(DesignSystem.Colors.textSecondary)
+                        }
+                    }
+                    .chartYAxis {
+                        AxisMarks(values: .automatic(desiredCount: 4)) {
+                            AxisGridLine().foregroundStyle(DesignSystem.Colors.textSecondary.opacity(0.15))
+                            AxisValueLabel().foregroundStyle(DesignSystem.Colors.textSecondary)
+                        }
+                    }
+                    .frame(height: 120)
+                    .accessibilityLabel("Body fat trend chart")
+                    .accessibilityValue(bodyFatChartSummary)
+                } else {
+                    Text("Log body fat with a couple more weigh-ins to see a trend.")
+                        .font(DesignSystem.Typography.caption)
+                        .foregroundStyle(DesignSystem.Colors.textSecondary)
+                }
+            }
+            .padding(DesignSystem.Spacing.md)
+            .background(DesignSystem.Colors.card)
+            .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.large))
+        }
+    }
+
+    private var bodyFatDomain: ClosedRange<Double> {
+        let values = viewModel.bodyFatPoints.map(\.value)
+        guard let min = values.min(), let max = values.max() else { return 0...1 }
+        let pad = Swift.max((max - min) * 0.15, 0.5)
+        return (min - pad)...(max + pad)
+    }
+
+    private var bodyFatChartSummary: String {
+        guard let first = viewModel.bodyFatPoints.first, let last = viewModel.bodyFatPoints.last else { return "" }
+        let delta = last.value - first.value
+        return String(format: "From %.1f to %.1f percent, %+.1f percent over this range", first.value, last.value, delta)
+    }
+
     // MARK: - Stat row
 
     private var statRow: some View {
@@ -301,6 +378,63 @@ struct ProgressView: View {
         .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
     }
 
+    // MARK: - Body measurements
+
+    private var measurementsCard: some View {
+        VStack(alignment: .leading, spacing: DesignSystem.Spacing.sm) {
+            HStack {
+                Text("Body measurements")
+                    .font(DesignSystem.Typography.headline)
+                    .foregroundStyle(DesignSystem.Colors.textPrimary)
+                Spacer()
+                Button {
+                    showingLogMeasurement = true
+                } label: {
+                    Label("Log", systemImage: "plus")
+                        .font(DesignSystem.Typography.caption)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(DesignSystem.Colors.accent)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Log measurements")
+            }
+
+            if let latest = viewModel.latestMeasurement {
+                NavigationLink {
+                    MeasurementHistoryView(viewModel: viewModel)
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(latest.date.formatted(.dateTime.day().month(.abbreviated).year()))
+                                .font(DesignSystem.Typography.caption)
+                                .foregroundStyle(DesignSystem.Colors.textSecondary)
+                            Text(MeasurementField.summary(for: latest, units: viewModel.unitSystem, limit: 3))
+                                .font(DesignSystem.Typography.body)
+                                .foregroundStyle(DesignSystem.Colors.textPrimary)
+                                .lineLimit(1)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundStyle(DesignSystem.Colors.textSecondary)
+                            .accessibilityHidden(true)
+                    }
+                    .padding(.vertical, 2)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Shows measurement history")
+            } else {
+                Text("No measurements yet. Tap Log to record your first.")
+                    .font(DesignSystem.Typography.caption)
+                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+                    .padding(.vertical, DesignSystem.Spacing.sm)
+            }
+        }
+        .padding(DesignSystem.Spacing.md)
+        .background(DesignSystem.Colors.card)
+        .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
+    }
+
     // MARK: - Weight log
 
     private var weightLogCard: some View {
@@ -327,7 +461,7 @@ struct ProgressView: View {
                             .font(DesignSystem.Typography.caption)
                             .foregroundStyle(delta <= 0 ? DesignSystem.Colors.positive : DesignSystem.Colors.negative)
                     }
-                    Text(String(format: "%.1f kg", entry.weightKg))
+                    Text(weightRowText(entry))
                         .font(DesignSystem.Typography.body)
                         .foregroundStyle(DesignSystem.Colors.textPrimary)
                         .frame(minWidth: 70, alignment: .trailing)
@@ -339,6 +473,14 @@ struct ProgressView: View {
         .background(DesignSystem.Colors.card)
         .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
     }
+
+    /// "78.8 kg" or "78.8 kg · 12.4%" when body fat was recorded.
+    private func weightRowText(_ entry: WeightEntry) -> String {
+        if let bodyFat = entry.bodyFatPercent, bodyFat > 0 {
+            return String(format: "%.1f kg · %.1f%%", entry.weightKg, bodyFat)
+        }
+        return String(format: "%.1f kg", entry.weightKg)
+    }
 }
 
 // MARK: - Log weight sheet
@@ -347,12 +489,24 @@ private struct LogWeightSheet: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @State private var weightText = ""
+    @State private var bodyFatText = ""
     @FocusState private var focused: Bool
 
     private var parsedKg: Double? {
         guard let value = Double(weightText.replacingOccurrences(of: ",", with: ".")),
               (20...400).contains(value) else { return nil }
         return value
+    }
+
+    /// nil when the optional field is empty, unparseable, or out of range.
+    private var parsedBodyFat: Double? {
+        guard let value = Double(bodyFatText.replacingOccurrences(of: ",", with: ".")),
+              (2...80).contains(value) else { return nil }
+        return value
+    }
+
+    private var bodyFatIsValid: Bool {
+        bodyFatText.trimmingCharacters(in: .whitespaces).isEmpty || parsedBodyFat != nil
     }
 
     var body: some View {
@@ -376,13 +530,35 @@ private struct LogWeightSheet: View {
                             .foregroundStyle(DesignSystem.Colors.textSecondary)
                     }
 
+                    HStack(spacing: DesignSystem.Spacing.sm) {
+                        Text("Body fat %")
+                            .font(DesignSystem.Typography.body)
+                            .foregroundStyle(DesignSystem.Colors.textSecondary)
+                        Spacer()
+                        TextField("Optional", text: $bodyFatText)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(maxWidth: 100)
+                            .font(DesignSystem.Typography.body)
+                            .foregroundStyle(
+                                bodyFatIsValid
+                                    ? DesignSystem.Colors.textPrimary
+                                    : DesignSystem.Colors.negative
+                            )
+                            .accessibilityLabel("Body fat percentage, optional")
+                        Text("%")
+                            .font(DesignSystem.Typography.body)
+                            .foregroundStyle(DesignSystem.Colors.textSecondary)
+                    }
+                    .padding(.horizontal, DesignSystem.Spacing.lg)
+
                     PrimaryButton(title: "Save Weigh-In") {
                         guard let kg = parsedKg else { return }
-                        modelContext.insert(WeightEntry(date: .now, weightKg: kg))
+                        modelContext.insert(WeightEntry(date: .now, weightKg: kg, bodyFatPercent: parsedBodyFat))
                         try? modelContext.save()
                         dismiss()
                     }
-                    .disabled(parsedKg == nil)
+                    .disabled(parsedKg == nil || !bodyFatIsValid)
                     .padding(.horizontal, DesignSystem.Spacing.lg)
                 }
                 .padding(.top, DesignSystem.Spacing.lg)

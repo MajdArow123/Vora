@@ -28,6 +28,24 @@ enum UnitConversion {
         Double(feet * 12 + inches) * cmPerInch
     }
 
+    static func inches(fromCm cm: Double) -> Double {
+        cm / cmPerInch
+    }
+
+    static func cm(fromInches inches: Double) -> Double {
+        inches * cmPerInch
+    }
+
+    /// Body-measurement length with one decimal, e.g. "82.5 cm" / "32.5 in".
+    static func lengthText(cm: Double, units: UnitSystem) -> String {
+        switch units {
+        case .metric:
+            return String(format: "%.1f cm", cm)
+        case .imperial:
+            return String(format: "%.1f in", inches(fromCm: cm))
+        }
+    }
+
     static func heightText(cm: Double, units: UnitSystem) -> String {
         switch units {
         case .metric:
