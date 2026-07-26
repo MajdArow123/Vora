@@ -47,6 +47,7 @@ struct OpenFoodFactsDTOTests {
         let item = try #require(FoodItem(offProduct: product))
 
         #expect(item.id == "0025000058003")
+        #expect(item.barcode == "0025000058003")
         #expect(item.name == "Rolled Oats")
         // Only the first comma-separated brand is kept.
         #expect(item.brand == "Quaker")

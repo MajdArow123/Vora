@@ -6,19 +6,35 @@
 //
 
 import SwiftUI
+import SwiftData
 import AVFoundation
+
+/// Where a scanned product's data came from — the live database, or a
+/// previously saved food matched by barcode while offline.
+enum BarcodeLookupSource {
+    case online
+    case offlineFallback
+}
 
 /// Barcode scanning sheet: camera preview when available, with a manual
 /// entry fallback (also the only path on the simulator, which has no
 /// camera).
 struct BarcodeScannerView: View {
-    let onFound: (FoodItem) -> Void
+    let onFound: (FoodItem, BarcodeLookupSource) -> Void
 
+    @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @State private var manualCode = ""
     @State private var isLookingUp = false
-    @State private var errorMessage: String?
+    @State private var failure: LookupFailure?
+    @State private var lastScannedBarcode: String?
     @State private var cameraAuthorized: Bool?
+    @FocusState private var manualFieldFocused: Bool
+
+    private enum LookupFailure {
+        case network
+        case notFound(String)
+    }
 
     private let client = OpenFoodFactsClient()
 
@@ -31,11 +47,16 @@ struct BarcodeScannerView: View {
                 VStack(spacing: DesignSystem.Spacing.lg) {
                     cameraSection
                     manualEntrySection
-                    if let errorMessage {
-                        Text(errorMessage)
+                    switch failure {
+                    case .network:
+                        networkErrorCard
+                    case .notFound(let message):
+                        Text(message)
                             .font(DesignSystem.Typography.caption)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(DesignSystem.Colors.negative)
                             .multilineTextAlignment(.center)
+                    case nil:
+                        EmptyView()
                     }
                     Spacer()
                 }
@@ -69,6 +90,21 @@ struct BarcodeScannerView: View {
                 RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.large)
                     .strokeBorder(DesignSystem.Colors.accent.opacity(0.4), lineWidth: 2)
             )
+            .overlay {
+                if isLookingUp {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.large)
+                            .fill(.black.opacity(0.45))
+                        VStack(spacing: DesignSystem.Spacing.sm) {
+                            SwiftUI.ProgressView()
+                                .tint(.white)
+                            Text("Looking up…")
+                                .font(DesignSystem.Typography.caption)
+                                .foregroundStyle(.white)
+                        }
+                    }
+                }
+            }
         } else {
             VStack(spacing: DesignSystem.Spacing.sm) {
                 Image(systemName: "camera.fill")
@@ -103,6 +139,7 @@ struct BarcodeScannerView: View {
         HStack(spacing: DesignSystem.Spacing.sm) {
             TextField("Barcode number", text: $manualCode)
                 .keyboardType(.numberPad)
+                .focused($manualFieldFocused)
                 .padding(DesignSystem.Spacing.md)
                 .background(DesignSystem.Colors.card)
                 .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
@@ -128,18 +165,103 @@ struct BarcodeScannerView: View {
         }
     }
 
+    // MARK: - Errors & offline fallback
+
+    private var networkErrorCard: some View {
+        VStack(spacing: DesignSystem.Spacing.sm) {
+            Image(systemName: "wifi.slash")
+                .font(.title2)
+                .foregroundStyle(DesignSystem.Colors.warning)
+                .accessibilityHidden(true)
+            Text("Cannot reach food database")
+                .font(DesignSystem.Typography.headline)
+                .foregroundStyle(DesignSystem.Colors.textPrimary)
+            Text("Check your internet connection and try again, or enter the barcode number manually.")
+                .font(DesignSystem.Typography.caption)
+                .foregroundStyle(DesignSystem.Colors.textSecondary)
+                .multilineTextAlignment(.center)
+
+            HStack(spacing: DesignSystem.Spacing.sm) {
+                Button {
+                    Task { await lookUp(lastScannedBarcode ?? manualCode) }
+                } label: {
+                    Text("Retry")
+                        .font(DesignSystem.Typography.headline)
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, DesignSystem.Spacing.sm)
+                        .background(DesignSystem.Colors.accent)
+                        .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
+                }
+                .buttonStyle(.plain)
+                .disabled(isLookingUp)
+
+                Button {
+                    if manualCode.isEmpty, let lastScannedBarcode {
+                        manualCode = lastScannedBarcode
+                    }
+                    manualFieldFocused = true
+                } label: {
+                    Text("Enter manually")
+                        .font(DesignSystem.Typography.headline)
+                        .foregroundStyle(DesignSystem.Colors.accent)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, DesignSystem.Spacing.sm)
+                        .background(DesignSystem.Colors.accent.opacity(0.12))
+                        .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(DesignSystem.Spacing.md)
+        .frame(maxWidth: .infinity)
+        .background(DesignSystem.Colors.card)
+        .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
+    }
+
     private func lookUp(_ code: String) async {
         guard !isLookingUp else { return }
         isLookingUp = true
-        errorMessage = nil
+        failure = nil
+        lastScannedBarcode = code.trimmingCharacters(in: .whitespacesAndNewlines)
         defer { isLookingUp = false }
 
         do {
             let item = try await client.product(barcode: code)
-            onFound(item)
+            onFound(item, .online)
+        } catch OpenFoodFactsError.productNotFound {
+            failure = .notFound(OpenFoodFactsError.productNotFound.localizedDescription)
+        } catch OpenFoodFactsError.invalidURL {
+            failure = .notFound(OpenFoodFactsError.invalidURL.localizedDescription)
         } catch {
-            errorMessage = error.localizedDescription
+            // Connectivity-shaped failure (offline, timeout, bad response):
+            // fall back to foods this barcode was saved under before.
+            if let code = lastScannedBarcode, let item = offlineMatch(for: code) {
+                onFound(item, .offlineFallback)
+            } else {
+                failure = .network
+            }
         }
+    }
+
+    /// A previously saved food carrying this barcode: custom foods first,
+    /// then the most recent diary entry logged from a scan of it.
+    private func offlineMatch(for code: String) -> FoodItem? {
+        var customDescriptor = FetchDescriptor<CustomFood>(
+            predicate: #Predicate { $0.barcode == code }
+        )
+        customDescriptor.fetchLimit = 1
+        if let custom = (try? modelContext.fetch(customDescriptor))?.first {
+            return FoodItem(customFood: custom)
+        }
+
+        var entryDescriptor = FetchDescriptor<FoodEntry>(
+            predicate: #Predicate { $0.barcode == code },
+            sortBy: [SortDescriptor(\.date, order: .reverse)]
+        )
+        entryDescriptor.fetchLimit = 1
+        guard let entry = (try? modelContext.fetch(entryDescriptor))?.first else { return nil }
+        return FoodItem(entry: entry)
     }
 }
 
@@ -224,5 +346,5 @@ final class ScannerUIView: UIView, AVCaptureMetadataOutputObjectsDelegate {
 }
 
 #Preview {
-    BarcodeScannerView { _ in }
+    BarcodeScannerView { _, _ in }
 }

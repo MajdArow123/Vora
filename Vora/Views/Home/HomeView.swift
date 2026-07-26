@@ -13,6 +13,8 @@ struct HomeView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var viewModel = HomeViewModel()
     @State private var showingSession = false
+    @State private var quickLogSlot: MealSlot?
+    @State private var showingLogWeight = false
 
     var body: some View {
         NavigationStack {
@@ -23,8 +25,11 @@ struct HomeView: View {
                 ScrollView {
                     VStack(spacing: DesignSystem.Spacing.md) {
                         header
-                        calorieCard
-                        macroMiniCards
+                        VStack(spacing: DesignSystem.Spacing.xs) {
+                            calorieCard
+                            macroMiniCards
+                            quickLogFoodButton
+                        }
                         todayWorkoutCard
                         weightTrendCard
                         WaterTrackerCard(
@@ -34,7 +39,12 @@ struct HomeView: View {
                             onAdd: { viewModel.addGlass(context: modelContext) },
                             onRemove: { viewModel.removeGlass(context: modelContext) }
                         )
-                        StreakDotsView(weekDots: viewModel.weekDots, streakDays: viewModel.streakDays)
+                        StreakDotsView(
+                            weekDots: viewModel.weekDots,
+                            streakDays: viewModel.streakDays,
+                            foodDots: viewModel.foodWeekDots,
+                            foodStreakDays: viewModel.foodStreakDays
+                        )
                         if let insight = viewModel.insight {
                             InsightCard(insight: insight)
                         }
@@ -52,6 +62,17 @@ struct HomeView: View {
             viewModel.load(from: modelContext)
         }) {
             ActiveSessionView(sessionName: viewModel.todaySplitDay?.title ?? "Workout")
+        }
+        .sheet(item: $quickLogSlot, onDismiss: {
+            viewModel.load(from: modelContext)
+        }) { slot in
+            FoodSearchView(mealSlot: slot, logDate: .now)
+        }
+        .sheet(isPresented: $showingLogWeight, onDismiss: {
+            viewModel.load(from: modelContext)
+        }) {
+            LogWeightSheet()
+                .presentationDetents([.height(380)])
         }
     }
 
@@ -120,6 +141,25 @@ struct HomeView: View {
             macroMiniCard("Protein", viewModel.totalProtein, viewModel.profile?.proteinTargetG ?? 0, DesignSystem.Colors.macroProtein)
             macroMiniCard("Carbs", viewModel.totalCarbs, viewModel.profile?.carbsTargetG ?? 0, DesignSystem.Colors.macroCarbs)
             macroMiniCard("Fat", viewModel.totalFat, viewModel.profile?.fatTargetG ?? 0, DesignSystem.Colors.macroFat)
+        }
+    }
+
+    private var quickLogFoodButton: some View {
+        HStack {
+            Spacer()
+            Button {
+                quickLogSlot = MealSlot.suggested()
+            } label: {
+                Label("Log Food", systemImage: "plus")
+                    .font(DesignSystem.Typography.caption.weight(.semibold))
+                    .foregroundStyle(DesignSystem.Colors.accent)
+                    .padding(.horizontal, DesignSystem.Spacing.sm + 4)
+                    .padding(.vertical, 6)
+                    .background(DesignSystem.Colors.accent.opacity(0.12))
+                    .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Log food")
         }
     }
 
@@ -210,6 +250,14 @@ struct HomeView: View {
                     }
                     .foregroundStyle(delta <= 0 ? DesignSystem.Colors.accent : DesignSystem.Colors.macroFat)
                 }
+                Button {
+                    showingLogWeight = true
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .foregroundStyle(DesignSystem.Colors.accent)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Log weight")
             }
 
             if viewModel.weekWeights.count >= 2 {

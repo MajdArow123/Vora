@@ -30,6 +30,9 @@ struct FoodSearchView: View {
     @State private var newMealName = ""
     @State private var mealForDetail: SavedMeal?
     @State private var recipeForDetail: Recipe?
+    /// id of the item the scanner served from saved foods while offline;
+    /// its detail screen shows a provenance banner.
+    @State private var offlineItemID: String?
 
     init(mode: FoodSearchMode) {
         self.mode = mode
@@ -73,6 +76,9 @@ struct FoodSearchView: View {
                         item: item,
                         mealSlot: mealSlot,
                         logDate: logDate,
+                        sourceBanner: item.id == offlineItemID
+                            ? "Loaded from your saved foods (offline)"
+                            : nil,
                         onAdded: { dismiss() }
                     )
                 case .pick(let onPick):
@@ -99,7 +105,8 @@ struct FoodSearchView: View {
             viewModel.loadLocal(from: modelContext)
         }
         .sheet(isPresented: $showingScanner) {
-            BarcodeScannerView { item in
+            BarcodeScannerView { item, source in
+                offlineItemID = source == .offlineFallback ? item.id : nil
                 showingScanner = false
                 path.append(item)
             }

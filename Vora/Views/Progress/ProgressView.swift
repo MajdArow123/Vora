@@ -77,7 +77,7 @@ struct ProgressView: View {
             loadActiveSegment()
         }) {
             LogWeightSheet()
-                .presentationDetents([.height(340)])
+                .presentationDetents([.height(380)])
         }
         .sheet(isPresented: $showingLogMeasurement, onDismiss: {
             loadActiveSegment()
@@ -480,99 +480,6 @@ struct ProgressView: View {
             return String(format: "%.1f kg · %.1f%%", entry.weightKg, bodyFat)
         }
         return String(format: "%.1f kg", entry.weightKg)
-    }
-}
-
-// MARK: - Log weight sheet
-
-private struct LogWeightSheet: View {
-    @Environment(\.modelContext) private var modelContext
-    @Environment(\.dismiss) private var dismiss
-    @State private var weightText = ""
-    @State private var bodyFatText = ""
-    @FocusState private var focused: Bool
-
-    private var parsedKg: Double? {
-        guard let value = Double(weightText.replacingOccurrences(of: ",", with: ".")),
-              (20...400).contains(value) else { return nil }
-        return value
-    }
-
-    /// nil when the optional field is empty, unparseable, or out of range.
-    private var parsedBodyFat: Double? {
-        guard let value = Double(bodyFatText.replacingOccurrences(of: ",", with: ".")),
-              (2...80).contains(value) else { return nil }
-        return value
-    }
-
-    private var bodyFatIsValid: Bool {
-        bodyFatText.trimmingCharacters(in: .whitespaces).isEmpty || parsedBodyFat != nil
-    }
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                DesignSystem.Colors.background
-                    .ignoresSafeArea()
-
-                VStack(spacing: DesignSystem.Spacing.lg) {
-                    HStack {
-                        TextField("0.0", text: $weightText)
-                            .keyboardType(.decimalPad)
-                            .focused($focused)
-                            .accessibilityLabel("Weight in kilograms")
-                            .font(.system(size: 44, weight: .bold))
-                            .foregroundStyle(DesignSystem.Colors.textPrimary)
-                            .multilineTextAlignment(.trailing)
-                            .frame(maxWidth: 160)
-                        Text("kg")
-                            .font(DesignSystem.Typography.title)
-                            .foregroundStyle(DesignSystem.Colors.textSecondary)
-                    }
-
-                    HStack(spacing: DesignSystem.Spacing.sm) {
-                        Text("Body fat %")
-                            .font(DesignSystem.Typography.body)
-                            .foregroundStyle(DesignSystem.Colors.textSecondary)
-                        Spacer()
-                        TextField("Optional", text: $bodyFatText)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(maxWidth: 100)
-                            .font(DesignSystem.Typography.body)
-                            .foregroundStyle(
-                                bodyFatIsValid
-                                    ? DesignSystem.Colors.textPrimary
-                                    : DesignSystem.Colors.negative
-                            )
-                            .accessibilityLabel("Body fat percentage, optional")
-                        Text("%")
-                            .font(DesignSystem.Typography.body)
-                            .foregroundStyle(DesignSystem.Colors.textSecondary)
-                    }
-                    .padding(.horizontal, DesignSystem.Spacing.lg)
-
-                    PrimaryButton(title: "Save Weigh-In") {
-                        guard let kg = parsedKg else { return }
-                        modelContext.insert(WeightEntry(date: .now, weightKg: kg, bodyFatPercent: parsedBodyFat))
-                        try? modelContext.save()
-                        dismiss()
-                    }
-                    .disabled(parsedKg == nil || !bodyFatIsValid)
-                    .padding(.horizontal, DesignSystem.Spacing.lg)
-                }
-                .padding(.top, DesignSystem.Spacing.lg)
-            }
-            .navigationTitle("Log Weight")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") { dismiss() }
-                        .foregroundStyle(DesignSystem.Colors.textSecondary)
-                }
-            }
-            .onAppear { focused = true }
-        }
     }
 }
 

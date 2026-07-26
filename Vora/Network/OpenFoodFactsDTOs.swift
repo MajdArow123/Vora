@@ -118,7 +118,8 @@ extension FoodItem {
             fibrePer100g: n?.fiber100g?.value ?? 0,
             sugarPer100g: n?.sugars100g?.value ?? 0,
             sodiumMgPer100g: sodiumMg,
-            defaultServingGrams: (serving ?? 0) > 0 ? serving! : 100
+            defaultServingGrams: (serving ?? 0) > 0 ? serving! : 100,
+            barcode: p.code
         )
     }
 }

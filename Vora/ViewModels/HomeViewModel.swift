@@ -21,6 +21,9 @@ final class HomeViewModel {
     /// Trained flags for the trailing 7 days, oldest first.
     private(set) var weekDots: [Bool] = []
     private(set) var streakDays = 0
+    /// Fully-logged-food flags (3+ meal slots) for the trailing 7 days, oldest first.
+    private(set) var foodWeekDots: [Bool] = []
+    private(set) var foodStreakDays = 0
     private(set) var daysTracked = 0
     private(set) var insight: Insight?
 
@@ -60,6 +63,7 @@ final class HomeViewModel {
 
         loadWeights(from: context, todayStart: todayStart, calendar: cal)
         loadTraining(from: context, now: now, todayEnd: todayEnd, calendar: cal)
+        loadFoodStreak(from: context, now: now, todayEnd: todayEnd, calendar: cal)
         daysTracked = TrackingStats.daysTracked(in: context, calendar: cal)
         loadInsight(now: now, calendar: cal)
     }
@@ -98,6 +102,21 @@ final class HomeViewModel {
             today: now,
             calendar: calendar
         )
+    }
+
+    private func loadFoodStreak(from context: ModelContext, now: Date, todayEnd: Date, calendar: Calendar) {
+        // Same 40-day window tradeoff as loadTraining.
+        guard let windowStart = calendar.date(byAdding: .day, value: -40, to: todayEnd) else { return }
+        let descriptor = FetchDescriptor<FoodEntry>(
+            predicate: #Predicate { $0.date >= windowStart && $0.date < todayEnd }
+        )
+        let entries = (try? context.fetch(descriptor)) ?? []
+        let qualifying = StreakCalculator.qualifyingFoodDays(
+            entries: entries.map { (date: $0.date, slot: $0.mealSlot) },
+            calendar: calendar
+        )
+        foodWeekDots = StreakCalculator.trailingWeek(sessionDates: Array(qualifying), today: now, calendar: calendar)
+        foodStreakDays = StreakCalculator.foodStreak(qualifyingDays: qualifying, today: now, calendar: calendar)
     }
 
     // MARK: - Insight

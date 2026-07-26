@@ -22,6 +22,8 @@ struct FoodItem: Identifiable, Hashable {
     let sugarPer100g: Double
     let sodiumMgPer100g: Double
     let defaultServingGrams: Double
+    /// Product barcode, when the item came from (or was saved after) a scan.
+    var barcode: String? = nil
 
     struct Nutrition {
         let calories: Double
@@ -60,7 +62,8 @@ extension FoodItem {
             fibrePer100g: customFood.fibrePer100g,
             sugarPer100g: customFood.sugarPer100g,
             sodiumMgPer100g: customFood.sodiumMgPer100g,
-            defaultServingGrams: customFood.defaultServingGrams
+            defaultServingGrams: customFood.defaultServingGrams,
+            barcode: customFood.barcode
         )
     }
 
@@ -81,7 +84,8 @@ extension FoodItem {
             fibrePer100g: entry.fibreG * f,
             sugarPer100g: entry.sugarG * f,
             sodiumMgPer100g: entry.sodiumMg * f,
-            defaultServingGrams: entry.servingGrams
+            defaultServingGrams: entry.servingGrams,
+            barcode: entry.barcode
         )
     }
 }

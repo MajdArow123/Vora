@@ -23,6 +23,9 @@ final class CustomFood {
     var fibrePer100g: Double
     var sugarPer100g: Double
     var sodiumMgPer100g: Double
+    /// Product barcode, when known — lets the scanner fall back to this
+    /// food while offline.
+    var barcode: String?
     var createdAt: Date
 
     init(
@@ -37,6 +40,7 @@ final class CustomFood {
         fibrePer100g: Double = 0,
         sugarPer100g: Double = 0,
         sodiumMgPer100g: Double = 0,
+        barcode: String? = nil,
         createdAt: Date = .now
     ) {
         self.id = id
@@ -50,6 +54,7 @@ final class CustomFood {
         self.fibrePer100g = fibrePer100g
         self.sugarPer100g = sugarPer100g
         self.sodiumMgPer100g = sodiumMgPer100g
+        self.barcode = barcode
         self.createdAt = createdAt
     }
 }

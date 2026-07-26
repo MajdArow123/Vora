@@ -57,6 +57,72 @@ struct StreakAndProjectionTests {
         #expect(streak == 0)
     }
 
+    // MARK: - Food logging streak
+
+    private func entries(_ offset: Int, _ slots: [MealSlot]) -> [(date: Date, slot: MealSlot)] {
+        slots.map { (date: day(offset), slot: $0) }
+    }
+
+    @Test func threeDistinctSlotsQualify() {
+        let qualifying = StreakCalculator.qualifyingFoodDays(
+            entries: entries(-1, [.breakfast, .lunch, .dinner])
+        )
+        #expect(qualifying == [day(-1)])
+    }
+
+    @Test func twoSlotsDoNotQualify() {
+        let qualifying = StreakCalculator.qualifyingFoodDays(
+            entries: entries(-1, [.breakfast, .dinner])
+        )
+        #expect(qualifying.isEmpty)
+    }
+
+    @Test func duplicateEntriesInOneSlotCountOnce() {
+        let qualifying = StreakCalculator.qualifyingFoodDays(
+            entries: entries(-1, [.breakfast, .breakfast, .lunch])
+        )
+        #expect(qualifying.isEmpty)
+    }
+
+    @Test func foodStreakCountsConsecutiveDays() {
+        let streak = StreakCalculator.foodStreak(qualifyingDays: [day(-1), day(-2), day(-3)])
+        #expect(streak == 3)
+    }
+
+    @Test func incompleteTodayIsGraceNotBreakForFood() {
+        let withToday = StreakCalculator.foodStreak(qualifyingDays: [day(0), day(-1)])
+        let withoutToday = StreakCalculator.foodStreak(qualifyingDays: [day(-1)])
+        #expect(withToday == 2)
+        #expect(withoutToday == 1)
+    }
+
+    @Test func gapBreaksTheFoodStreak() {
+        let streak = StreakCalculator.foodStreak(qualifyingDays: [day(-2), day(-3)])
+        #expect(streak == 0)
+    }
+
+    @Test func emptyFoodDataMeansNoStreak() {
+        #expect(StreakCalculator.foodStreak(qualifyingDays: []) == 0)
+    }
+
+    // MARK: - Suggested meal slot
+
+    @Test func suggestedSlotFollowsTimeOfDay() {
+        func at(_ hour: Int, _ minute: Int = 0) -> Date {
+            cal.date(bySettingHour: hour, minute: minute, second: 0, of: cal.startOfDay(for: .now))!
+        }
+        #expect(MealSlot.suggested(for: at(0, 30)) == .breakfast)
+        #expect(MealSlot.suggested(for: at(9, 59)) == .breakfast)
+        #expect(MealSlot.suggested(for: at(10)) == .postWorkout)
+        #expect(MealSlot.suggested(for: at(12, 59)) == .postWorkout)
+        #expect(MealSlot.suggested(for: at(13)) == .lunch)
+        #expect(MealSlot.suggested(for: at(15, 59)) == .lunch)
+        #expect(MealSlot.suggested(for: at(16)) == .dinner)
+        #expect(MealSlot.suggested(for: at(19, 59)) == .dinner)
+        #expect(MealSlot.suggested(for: at(20)) == .snack)
+        #expect(MealSlot.suggested(for: at(23)) == .snack)
+    }
+
     // MARK: - Trailing week dots
 
     @Test func trailingWeekMarksTrainedDays() {

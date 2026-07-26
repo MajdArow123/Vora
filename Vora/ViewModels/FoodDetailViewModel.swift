@@ -48,7 +48,8 @@ final class FoodDetailViewModel {
             fatG: n.fatG,
             fibreG: n.fibreG,
             sugarG: n.sugarG,
-            sodiumMg: n.sodiumMg
+            sodiumMg: n.sodiumMg,
+            barcode: item.barcode
         ))
         do {
             try context.save()

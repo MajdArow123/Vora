@@ -13,6 +13,7 @@ import SwiftData
 final class CustomFoodViewModel {
     var name = ""
     var brand = ""
+    var barcodeText = ""
     var servingText = "100"
     var caloriesText = ""
     var proteinText = ""
@@ -50,6 +51,7 @@ final class CustomFoodViewModel {
               let serving = Double(servingText.trimmingCharacters(in: .whitespaces))
         else { return }
 
+        let barcode = barcodeText.trimmingCharacters(in: .whitespacesAndNewlines)
         context.insert(CustomFood(
             name: trimmedName,
             brand: brand.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -60,7 +62,8 @@ final class CustomFoodViewModel {
             fatPer100g: optionalValue(fatText) ?? 0,
             fibrePer100g: optionalValue(fibreText) ?? 0,
             sugarPer100g: optionalValue(sugarText) ?? 0,
-            sodiumMgPer100g: optionalValue(sodiumText) ?? 0
+            sodiumMgPer100g: optionalValue(sodiumText) ?? 0,
+            barcode: barcode.isEmpty ? nil : barcode
         ))
         do {
             try context.save()

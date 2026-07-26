@@ -47,7 +47,9 @@ struct OpenFoodFactsClient {
               let url = URL(string: "https://world.openfoodfacts.org/api/v2/product/\(code).json?fields=\(Self.nutrimentFields)")
         else { throw OpenFoodFactsError.invalidURL }
 
-        let response: OFFProductResponse = try await fetch(url)
+        // A tight timeout here: barcode lookups block a live scanning
+        // flow, so failing fast beats waiting out the default.
+        let response: OFFProductResponse = try await fetch(url, timeout: 8)
         guard response.status == 1,
               let product = response.product,
               let item = FoodItem(offProduct: product)
@@ -55,10 +57,10 @@ struct OpenFoodFactsClient {
         return item
     }
 
-    private func fetch<T: Decodable>(_ url: URL) async throws -> T {
+    private func fetch<T: Decodable>(_ url: URL, timeout: TimeInterval = 15) async throws -> T {
         var request = URLRequest(url: url)
         request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
-        request.timeoutInterval = 15
+        request.timeoutInterval = timeout
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {

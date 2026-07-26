@@ -30,6 +30,9 @@ final class FoodEntry {
     var fibreG: Double
     var sugarG: Double = 0
     var sodiumMg: Double
+    /// Barcode of the scanned product this entry came from, when known —
+    /// lets the scanner re-log it while offline.
+    var barcode: String?
 
     init(
         id: UUID = UUID(),
@@ -43,7 +46,8 @@ final class FoodEntry {
         fatG: Double,
         fibreG: Double = 0,
         sugarG: Double = 0,
-        sodiumMg: Double = 0
+        sodiumMg: Double = 0,
+        barcode: String? = nil
     ) {
         self.id = id
         self.date = date
@@ -57,6 +61,7 @@ final class FoodEntry {
         self.fibreG = fibreG
         self.sugarG = sugarG
         self.sodiumMg = sodiumMg
+        self.barcode = barcode
     }
 }
 
@@ -80,6 +85,17 @@ extension MealSlot: Identifiable {
         case .lunch: "sun.max.fill"
         case .dinner: "moon.fill"
         case .snack: "sparkles"
+        }
+    }
+
+    /// The slot a quick-log shortcut should pre-select at a given time of day.
+    static func suggested(for date: Date = .now, calendar: Calendar = .current) -> MealSlot {
+        switch calendar.component(.hour, from: date) {
+        case ..<10: .breakfast
+        case 10..<13: .postWorkout
+        case 13..<16: .lunch
+        case 16..<20: .dinner
+        default: .snack
         }
     }
 }

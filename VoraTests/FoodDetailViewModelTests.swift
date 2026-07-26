@@ -166,4 +166,30 @@ struct FoodDetailViewModelTests {
         expectApprox(saved.sugarG, 0.792, "sugar")
         expectApprox(saved.sodiumMg, 1.6, "sodium")
     }
+
+    @Test func logPersistsTheItemBarcode() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        var scanned = oats
+        scanned.barcode = "0025000058003"
+        let viewModel = FoodDetailViewModel(item: scanned)
+
+        viewModel.log(to: .breakfast, on: .now, context: context)
+
+        let saved = try #require(try context.fetch(FetchDescriptor<FoodEntry>()).first)
+        #expect(saved.barcode == "0025000058003")
+    }
+
+    @Test func barcodeRoundTripsThroughCustomFoodAndEntry() throws {
+        let custom = CustomFood(name: "Protein Bar", caloriesPer100g: 400, barcode: "7300400481588")
+        #expect(FoodItem(customFood: custom).barcode == "7300400481588")
+
+        let entry = FoodEntry(
+            date: .now, mealSlot: .snack, foodName: "Protein Bar",
+            servingGrams: 55, calories: 220, proteinG: 20, carbsG: 20, fatG: 7,
+            barcode: "7300400481588"
+        )
+        let item = try #require(FoodItem(entry: entry))
+        #expect(item.barcode == "7300400481588")
+    }
 }

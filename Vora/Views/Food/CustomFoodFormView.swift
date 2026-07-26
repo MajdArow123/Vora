@@ -26,6 +26,8 @@ struct CustomFoodFormView: View {
                             Divider()
                             textRow("Brand", text: $viewModel.brand, placeholder: "Optional", keyboard: .default)
                             Divider()
+                            textRow("Barcode", text: $viewModel.barcodeText, placeholder: "Optional", keyboard: .numberPad)
+                            Divider()
                             textRow("Default serving (g)", text: $viewModel.servingText, placeholder: "100", keyboard: .decimalPad)
                         }
 

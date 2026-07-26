@@ -30,6 +30,8 @@ enum DesignSystem {
         /// Semantic deltas: progress toward a goal vs away from it.
         static let positive = Color.adaptive(light: "4C8A5A", dark: "6FAF7D")
         static let negative = Color.adaptive(light: "B4574E", dark: "C97A72")
+        /// Amber — recoverable-problem states (offline, degraded lookups).
+        static let warning = Color.adaptive(light: "B07E3A", dark: "D0A05F")
     }
 
     enum Typography {

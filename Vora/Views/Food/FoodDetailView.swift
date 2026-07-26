@@ -18,18 +18,26 @@ enum FoodDetailMode {
 
 struct FoodDetailView: View {
     let mode: FoodDetailMode
+    /// Provenance note shown above the serving card, e.g. when the item
+    /// was served from saved foods while offline.
+    let sourceBanner: String?
 
     @Environment(\.modelContext) private var modelContext
     @State private var viewModel: FoodDetailViewModel
     @State private var justAdded = false
 
-    init(item: FoodItem, mode: FoodDetailMode) {
+    init(item: FoodItem, mode: FoodDetailMode, sourceBanner: String? = nil) {
         self.mode = mode
+        self.sourceBanner = sourceBanner
         _viewModel = State(initialValue: FoodDetailViewModel(item: item))
     }
 
-    init(item: FoodItem, mealSlot: MealSlot, logDate: Date, onAdded: @escaping () -> Void) {
-        self.init(item: item, mode: .log(mealSlot: mealSlot, logDate: logDate, onAdded: onAdded))
+    init(item: FoodItem, mealSlot: MealSlot, logDate: Date, sourceBanner: String? = nil, onAdded: @escaping () -> Void) {
+        self.init(
+            item: item,
+            mode: .log(mealSlot: mealSlot, logDate: logDate, onAdded: onAdded),
+            sourceBanner: sourceBanner
+        )
     }
 
     var body: some View {
@@ -40,6 +48,20 @@ struct FoodDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: DesignSystem.Spacing.lg) {
                     header
+                    if let sourceBanner {
+                        HStack(spacing: DesignSystem.Spacing.sm) {
+                            Image(systemName: "wifi.slash")
+                                .font(.caption)
+                                .accessibilityHidden(true)
+                            Text(sourceBanner)
+                                .font(DesignSystem.Typography.caption)
+                        }
+                        .foregroundStyle(DesignSystem.Colors.warning)
+                        .padding(DesignSystem.Spacing.sm + 4)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(DesignSystem.Colors.warning.opacity(0.12))
+                        .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
+                    }
                     servingCard
                     nutritionCard
                 }
