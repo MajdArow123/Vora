@@ -55,8 +55,39 @@ enum DemoSeeder {
         seedFoodAndWater(into: context, today: today, calendar: cal)
         seedWorkouts(into: context, today: today, calendar: cal)
         seedFoodLibrary(into: context)
+        seedSupplements(into: context, today: today, calendar: cal)
 
         try? context.save()
+    }
+
+    /// Three supplements with three weeks of full logs; today the evening
+    /// one is still untaken so the Home checklist reads 2 of 3.
+    private static func seedSupplements(into context: ModelContext, today: Date, calendar: Calendar) {
+        let createdAt = calendar.date(byAdding: .day, value: -21, to: today)!
+        let supplements = [
+            Supplement(name: "Creatine", dose: "5g", timing: .morning,
+                       reminderEnabled: true, reminderMinutes: 480, orderIndex: 0, createdAt: createdAt),
+            Supplement(name: "Vitamin D", dose: "2000IU", timing: .morning,
+                       orderIndex: 1, createdAt: createdAt),
+            Supplement(name: "Magnesium", dose: "400mg", timing: .evening,
+                       orderIndex: 2, createdAt: createdAt),
+        ]
+        supplements.forEach { context.insert($0) }
+
+        for dayOffset in 0...21 {
+            let day = calendar.date(byAdding: .day, value: -dayOffset, to: today)!
+            for supplement in supplements {
+                // Evening supplement not yet taken today.
+                if dayOffset == 0 && supplement.timing == .evening { continue }
+                context.insert(SupplementLog(
+                    supplementID: supplement.id,
+                    supplementName: supplement.name,
+                    dose: supplement.dose,
+                    date: day,
+                    takenAt: day.addingTimeInterval(supplement.timing == .evening ? 21 * 3600 : 8 * 3600)
+                ))
+            }
+        }
     }
 
     /// Custom foods, a saved meal, and a recipe so the food-search tabs

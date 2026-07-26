@@ -24,15 +24,20 @@ Vora is a premium iOS fitness tracking app that brings nutrition, training, and 
 - Nutrient breakdown (fibre, sugar, sodium) and one-tap copy of the previous day
 - Day-by-day navigation with swipe or arrows
 
-### Workout *(in development)*
+### Workout
 - Session logging built around your training split (Upper/Lower, Push Pull Legs, Full Body, Custom)
 - Exercise and set tracking: weight, reps, RPE, completion
 - Session volume and duration tracking
+- Per-day exercise templates with previous-session weight auto-fill
+- Personal records with per-exercise history and progression charts
+- Cardio logging across 10 machine types with MET-based calorie estimates
 
-### Progress *(in development)*
-- Weight logging with trend visualization
-- Body fat percentage tracking
-- Progress insights across nutrition and training
+### Progress
+- Weight logging with trend visualization and goal projection
+- Body fat percentage and body measurement tracking
+- Strength and nutrition analytics with Swift Charts
+- Workout, food, and supplement streaks
+- Daily insight engine across nutrition, training, and supplements
 
 ### Profile
 - Guided onboarding: units, biological sex, height, weight, goal, activity level, training split
@@ -50,6 +55,29 @@ Vora is a premium iOS fitness tracking app that brings nutrition, training, and 
 | 3 | Workout Module | ✅ Complete |
 | 4 | Progress & Analytics | ✅ Complete |
 | 5 | Polish, Testing & Launch | ✅ Complete |
+
+## Improvements
+
+Ten post-launch improvements shipped since the Phase 0–5 build:
+
+1. **Workout history** — tappable sessions with full detail view (exercises, sets, weights, reps per session)
+2. **Personal records** — premium cards showing sets × rep range, exercise history drill-down with Swift Charts progression chart
+3. **Exercise templates** — built-in exercises per split day with drag reorder, swipe delete, and previous session weight auto-fill
+4. **Cardio logging** — 10 machine types (Treadmill, Stair Climber, Elliptical, Stationary Bike, Rowing Machine, Running, Cycling, Walking, Swim, Other) with machine-specific inputs and precise MET calorie calculation
+5. **Food tabs** — My Foods, Recipes, and Meals tabs with real SwiftData content, recipe builder, meal templates with one-tap relog
+6. **Progress analytics** — Weight | Strength | Nutrition segments with Swift Charts, exercise picker, range selector, calorie and protein trends
+7. **Smart reminders** — configurable meal, water, and workout reminders with smart skip logic (only fires if condition not met)
+8. **Body measurements** — guided logging with how-to instructions per measurement, history, waist trend chart, body fat % tracking
+9. **Home shortcuts** — quick-log food button (time-aware meal slot), weight shortcut, food logging streak alongside workout streak, barcode scanner offline handling with retry and fallback
+10. **Supplement tracker** — daily checklist with circular checkboxes, quick-add common supplements, timing groups, per-supplement reminders, consistency streak on Progress
+
+## Tech Stack
+
+- **SwiftUI** — fully native UI with a custom design system (typography, adaptive colors, spacing tokens)
+- **SwiftData** — offline-first persistence across 17 models: `UserProfile`, `FoodEntry`, `CustomFood`, `WorkoutSession`, `ExerciseLog`, `SetEntry`, `WeightEntry`, `BodyMeasurement`, `WaterEntry`, `CardioEntry`, `SplitDay`, `SavedMeal`, `SavedMealItem`, `Recipe`, `RecipeIngredient`, `Supplement`, `SupplementLog`
+- **Swift Charts** — weight, strength progression, and nutrition trend charts
+- **HealthKit** — optional weight, active energy, steps, and workout sync
+- **UserNotifications** — one-shot smart reminders recomputed on every app activation
 
 ## Screenshots
 
