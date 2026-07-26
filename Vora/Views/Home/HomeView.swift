@@ -164,13 +164,38 @@ struct HomeView: View {
     }
 
     private func macroMiniCard(_ label: String, _ consumed: Double, _ target: Int, _ color: Color) -> some View {
-        MacroProgressBar(label: label, consumedG: consumed, targetG: target, color: color)
-            .padding(DesignSystem.Spacing.md)
-            .background(DesignSystem.Colors.card)
-            .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(label)
-            .accessibilityValue("\(Int(consumed.rounded())) of \(target) grams")
+        let progress = target > 0 ? min(consumed / Double(target), 1) : 0
+        return VStack(alignment: .leading, spacing: DesignSystem.Spacing.xs) {
+            Text(label)
+                .font(DesignSystem.Typography.caption)
+                .foregroundStyle(DesignSystem.Colors.textSecondary)
+
+            Text("\(Int(consumed.rounded())) / \(target) g")
+                .font(DesignSystem.Typography.body.weight(.bold))
+                .foregroundStyle(color)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .contentTransition(.numericText())
+
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(color.opacity(0.15))
+                    Capsule()
+                        .fill(color)
+                        .frame(width: max(geo.size.width * progress, progress > 0 ? 6 : 0))
+                        .animation(.easeOut(duration: 0.5), value: progress)
+                }
+            }
+            .frame(height: 6)
+        }
+        .padding(DesignSystem.Spacing.md)
+        .frame(maxWidth: .infinity, minHeight: 88, alignment: .topLeading)
+        .background(DesignSystem.Colors.card)
+        .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label)
+        .accessibilityValue("\(Int(consumed.rounded())) of \(target) grams")
     }
 
     // MARK: - Today's workout
