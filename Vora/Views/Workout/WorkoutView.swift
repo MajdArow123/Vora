@@ -280,17 +280,24 @@ struct WorkoutView: View {
                     .foregroundStyle(DesignSystem.Colors.textPrimary)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
-                Text("Est. 1RM \(String(format: "%.1f", record.estimatedOneRepMax)) kg")
-                    .font(DesignSystem.Typography.body)
+                // Wraps beside the fixed-size sets stat on 6.1-inch widths
+                // (minimumScaleFactor does not engage in this hierarchy);
+                // "228.0\u{00A0}kg" stays together when it does wrap.
+                Text("Peak strength · \(String(format: "%.1f", record.estimatedOneRepMax))\u{00A0}kg")
+                    .font(DesignSystem.Typography.caption)
                     .foregroundStyle(DesignSystem.Colors.textSecondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
                 Text(record.date.formatted(.dateTime.month(.abbreviated).day().year()))
                     .font(DesignSystem.Typography.caption)
                     .foregroundStyle(DesignSystem.Colors.textSecondary)
             }
+            // Claims all width left over by the fixed-size sets stat, so
+            // the peak-strength line scales instead of truncating.
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .layoutPriority(1)
 
-            Spacer()
+            Spacer(minLength: 0)
 
             HStack(alignment: .firstTextBaseline, spacing: DesignSystem.Spacing.xs) {
                 Text(StrengthProgression.setsPart(count: record.totalSets))
@@ -315,7 +322,7 @@ struct WorkoutView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(record.exerciseName)
         .accessibilityValue(
-            "Personal record \(record.spokenSetsSummary), estimated one rep max \(String(format: "%.1f", record.estimatedOneRepMax)) kilograms, \(record.date.formatted(.dateTime.month(.wide).day().year()))"
+            "Personal record \(record.spokenSetsSummary), peak strength \(String(format: "%.1f", record.estimatedOneRepMax)) kilograms, \(record.date.formatted(.dateTime.month(.wide).day().year()))"
         )
         .accessibilityHint("Shows history for this exercise")
     }

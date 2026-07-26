@@ -131,7 +131,7 @@ struct ProgressView: View {
 
             Picker("Range", selection: $viewModel.selectedRange) {
                 ForEach(ChartRange.allCases) { range in
-                    Text(range.rawValue).tag(range)
+                    Text(range.displayName).tag(range)
                 }
             }
             .pickerStyle(.segmented)

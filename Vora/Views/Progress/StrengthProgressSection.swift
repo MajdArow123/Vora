@@ -31,7 +31,7 @@ struct StrengthProgressSection: View {
                     exercisePicker
                     Spacer()
                     if let latest = viewModel.progression.last {
-                        Text("e1RM \(String(format: "%.1f", latest.estimatedOneRepMax)) kg")
+                        Text("Peak strength \(String(format: "%.1f", latest.estimatedOneRepMax)) kg")
                             .font(DesignSystem.Typography.headline)
                             .foregroundStyle(DesignSystem.Colors.accent)
                     }
@@ -40,7 +40,7 @@ struct StrengthProgressSection: View {
                 // This range picker drives all three cards in the section.
                 Picker("Range", selection: $viewModel.selectedRange) {
                     ForEach(ChartRange.allCases) { range in
-                        Text(range.rawValue).tag(range)
+                        Text(range.displayName).tag(range)
                     }
                 }
                 .pickerStyle(.segmented)

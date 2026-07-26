@@ -17,6 +17,16 @@ enum ChartRange: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// Picker label — days for the short ranges, months beyond that.
+    var displayName: String {
+        switch self {
+        case .month: "30D"
+        case .quarter: "90D"
+        case .halfYear: "6M"
+        case .all: "All"
+        }
+    }
+
     var days: Int? {
         switch self {
         case .month: 30
