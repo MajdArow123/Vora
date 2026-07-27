@@ -236,6 +236,10 @@ final class HomeViewModel {
     var totalCarbs: Double { todayFood.reduce(0) { $0 + $1.carbsG } }
     var totalFat: Double { todayFood.reduce(0) { $0 + $1.fatG } }
 
+    /// Meal slots with at least one entry today — feeds the AI meal-type
+    /// computation ("suggest a snack once lunch is logged").
+    var todayMealSlots: Set<MealSlot> { Set(todayFood.map(\.mealSlot)) }
+
     var remainingMacros: RemainingMacros {
         RemainingMacros(
             calories: (profile?.dailyCalorieTarget ?? 0) - Int(totalCalories.rounded()),

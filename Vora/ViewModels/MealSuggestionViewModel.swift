@@ -26,29 +26,41 @@ final class MealSuggestionViewModel {
 
     private let defaults: UserDefaults
     /// Injectable for tests; defaults to the live ProTracker backend call.
-    private let fetch: (RemainingMacros, GoalType, Int) async throws -> MealSuggestion
+    private let fetch: (RemainingMacros, GoalType, Int, MealSlot?, String?) async throws -> MealSuggestion
     private let cacheDateKey = "vora.mealSuggestion.date"
     private let cachePayloadKey = "vora.mealSuggestion.payload"
 
     init(
         defaults: UserDefaults = .standard,
-        fetch: @escaping (RemainingMacros, GoalType, Int) async throws -> MealSuggestion = { remaining, goal, hour in
-            try await MealSuggestionService().fetchSuggestion(remaining: remaining, goal: goal, hour: hour)
+        fetch: @escaping (RemainingMacros, GoalType, Int, MealSlot?, String?) async throws -> MealSuggestion = { remaining, goal, hour, mealType, preference in
+            try await MealSuggestionService().fetchSuggestion(
+                remaining: remaining,
+                goal: goal,
+                hour: hour,
+                mealType: mealType,
+                userPreference: preference
+            )
         }
     ) {
         self.defaults = defaults
         self.fetch = fetch
     }
 
-    /// Cache-first load. `force` (the Refresh button) skips the cache read
-    /// but still writes the fresh result back so all surfaces converge.
-    func load(remaining: RemainingMacros, goal: GoalType, force: Bool = false, now: Date = .now) async {
+    /// Cache-first load. `force` (the Refresh / Get suggestion buttons)
+    /// skips the cache read but still writes the fresh result back so all
+    /// surfaces converge. `mealType` and `preference` are always fresh
+    /// inputs — never cached.
+    func load(
+        remaining: RemainingMacros,
+        goal: GoalType,
+        mealType: MealSlot? = nil,
+        preference: String? = nil,
+        force: Bool = false,
+        now: Date = .now
+    ) async {
         let calendar = Calendar.current
         let todayKey = Self.dayKey(for: now, calendar: calendar)
-        if !force,
-           defaults.string(forKey: cacheDateKey) == todayKey,
-           let data = defaults.data(forKey: cachePayloadKey),
-           let cached = try? JSONDecoder().decode(MealSuggestion.self, from: data) {
+        if !force, let cached = cachedSuggestion(todayKey: todayKey) {
             state = .loaded(cached)
             return
         }
@@ -58,7 +70,9 @@ final class MealSuggestionViewModel {
             let suggestion = try await fetch(
                 remaining,
                 goal,
-                calendar.component(.hour, from: now)
+                calendar.component(.hour, from: now),
+                mealType,
+                preference
             )
             defaults.set(todayKey, forKey: cacheDateKey)
             defaults.set(try? JSONEncoder().encode(suggestion), forKey: cachePayloadKey)
@@ -66,6 +80,24 @@ final class MealSuggestionViewModel {
         } catch {
             state = .failed("Couldn't generate suggestion. Check your connection.")
         }
+    }
+
+    /// Reads the day cache without ever hitting the network: `.loaded` on a
+    /// hit, stays `.idle` on a miss. The suggestion sheet uses this on
+    /// appear so generation stays button-driven.
+    func loadCached(now: Date = .now) {
+        let todayKey = Self.dayKey(for: now, calendar: .current)
+        if let cached = cachedSuggestion(todayKey: todayKey) {
+            state = .loaded(cached)
+        }
+    }
+
+    private func cachedSuggestion(todayKey: String) -> MealSuggestion? {
+        guard defaults.string(forKey: cacheDateKey) == todayKey,
+              let data = defaults.data(forKey: cachePayloadKey) else { return nil }
+        // Pre-structured cache payloads (rawText format) fail to decode and
+        // fall through to a fresh fetch — the intended migration path.
+        return try? JSONDecoder().decode(MealSuggestion.self, from: data)
     }
 
     static func dayKey(for date: Date, calendar: Calendar) -> String {

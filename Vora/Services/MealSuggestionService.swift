@@ -31,20 +31,29 @@ struct MealSuggestionService {
     func fetchSuggestion(
         remaining: RemainingMacros,
         goal: GoalType,
-        hour: Int
+        hour: Int,
+        mealType: MealSlot? = nil,
+        userPreference: String? = nil
     ) async throws -> MealSuggestion {
+        // The backend rejects caloriesRemaining <= 0 with a 400.
+        guard remaining.calories > 0 else {
+            throw MealSuggestionError.badResponse
+        }
+
         var request = URLRequest(url: Self.endpoint)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = Self.timeout
         request.httpBody = try JSONEncoder().encode(
             SuggestionRequest(
-                caloriesRemaining: max(0, remaining.calories),
+                caloriesRemaining: remaining.calories,
                 proteinRemaining: max(0, remaining.proteinG),
                 carbsRemaining: max(0, remaining.carbsG),
                 fatRemaining: max(0, remaining.fatG),
                 goalType: goal.rawValue,
-                timeOfDay: MealSuggestionContext.timeOfDay(hour: hour)
+                timeOfDay: MealSuggestionContext.timeOfDay(hour: hour),
+                mealType: mealType?.rawValue,
+                userPreference: Self.normalizedPreference(userPreference)
             )
         )
 
@@ -57,12 +66,15 @@ struct MealSuggestionService {
             throw MealSuggestionError.badResponse
         }
         let mealName = decoded.mealName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !mealName.isEmpty else {
+        guard !mealName.isEmpty, !decoded.foods.isEmpty else {
             throw MealSuggestionError.emptyContent
         }
-        let detail = decoded.detail.trimmingCharacters(in: .whitespacesAndNewlines)
         return MealSuggestion(
-            rawText: detail.isEmpty ? mealName : "\(mealName)\n\(detail)",
+            mealName: mealName,
+            mealType: decoded.mealType,
+            description: decoded.description.trimmingCharacters(in: .whitespacesAndNewlines),
+            foods: decoded.foods,
+            cookingTip: decoded.cookingTip.trimmingCharacters(in: .whitespacesAndNewlines),
             generatedAt: Self.parseDate(decoded.generatedAt) ?? .now
         )
     }
@@ -72,6 +84,14 @@ struct MealSuggestionService {
         let fractional = ISO8601DateFormatter()
         fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return fractional.date(from: string) ?? ISO8601DateFormatter().date(from: string)
+    }
+
+    /// The backend caps userPreference at 100 characters; nil when empty
+    /// so the field is omitted from the request entirely.
+    static func normalizedPreference(_ preference: String?) -> String? {
+        guard let trimmed = preference?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else { return nil }
+        return String(trimmed.prefix(100))
     }
 }
 
@@ -84,10 +104,15 @@ private struct SuggestionRequest: Encodable {
     let fatRemaining: Int
     let goalType: String
     let timeOfDay: String
+    let mealType: String?
+    let userPreference: String?
 }
 
 private struct SuggestionResponse: Decodable {
     let mealName: String
-    let detail: String
+    let mealType: String
+    let description: String
+    let foods: [SuggestedFood]
+    let cookingTip: String
     let generatedAt: String
 }

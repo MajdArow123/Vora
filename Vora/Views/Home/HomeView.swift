@@ -67,6 +67,7 @@ struct HomeView: View {
                         if showsMealSuggestionCard {
                             MealSuggestionCard(
                                 state: suggestionViewModel.state,
+                                onViewAndLog: { showingAISuggestion = true },
                                 onRefresh: { refreshSuggestion(force: true) }
                             )
                             .task { await loadSuggestion() }
@@ -107,7 +108,12 @@ struct HomeView: View {
         }) {
             SupplementEditView(supplement: nil)
         }
-        .sheet(isPresented: $showingAISuggestion) {
+        .sheet(isPresented: $showingAISuggestion, onDismiss: {
+            // Foods can be logged inside the sheet, and the sheet may have
+            // refreshed the shared day cache — reconverge both.
+            viewModel.load(from: modelContext)
+            refreshSuggestion(force: false)
+        }) {
             AIMealSuggestionView(
                 remaining: viewModel.remainingMacros,
                 goal: viewModel.profile?.goalType ?? .maintain,
@@ -128,7 +134,8 @@ struct HomeView: View {
     private func loadSuggestion() async {
         await suggestionViewModel.load(
             remaining: viewModel.remainingMacros,
-            goal: viewModel.profile?.goalType ?? .maintain
+            goal: viewModel.profile?.goalType ?? .maintain,
+            mealType: suggestedMealType
         )
     }
 
@@ -137,9 +144,18 @@ struct HomeView: View {
             await suggestionViewModel.load(
                 remaining: viewModel.remainingMacros,
                 goal: viewModel.profile?.goalType ?? .maintain,
+                mealType: suggestedMealType,
                 force: force
             )
         }
+    }
+
+    private var suggestedMealType: MealSlot {
+        MealSuggestionContext.mealType(
+            hour: Calendar.current.component(.hour, from: .now),
+            hasTrainedToday: viewModel.hasTrainedToday,
+            loggedSlots: viewModel.todayMealSlots
+        )
     }
 
     // MARK: - Header

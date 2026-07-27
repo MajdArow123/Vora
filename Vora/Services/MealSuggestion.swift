@@ -15,63 +15,36 @@ struct RemainingMacros: Equatable, Sendable {
     let fatG: Int
 }
 
+/// One food line in a suggestion, directly searchable in OpenFoodFacts.
+struct SuggestedFood: Codable, Identifiable, Equatable, Sendable {
+    var id = UUID()
+    let name: String
+    let grams: Double
+    let unit: String
+
+    // The backend sends no id; regenerating one per decode is fine because
+    // equality and coding both ignore it.
+    private enum CodingKeys: String, CodingKey {
+        case name, grams, unit
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.name == rhs.name && lhs.grams == rhs.grams && lhs.unit == rhs.unit
+    }
+}
+
 /// One AI-generated meal suggestion, cached per day.
 struct MealSuggestion: Codable, Equatable, Sendable {
-    let rawText: String
+    let mealName: String
+    let mealType: String
+    let description: String
+    let foods: [SuggestedFood]
+    let cookingTip: String
     let generatedAt: Date
 
-    /// First non-empty line, stripped of surrounding whitespace and markdown asterisks.
-    var mealName: String {
-        Self.lines(of: rawText).first.map(Self.cleaned) ?? ""
-    }
-
-    /// Everything after the meal name line.
-    var detail: String {
-        Self.lines(of: rawText).dropFirst()
-            .joined(separator: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    /// Extracts the first food name from a suggestion for pre-filling food
-    /// search, e.g. "200g chicken breast + 1 cup rice" -> "chicken breast".
-    static func firstFoodName(in rawText: String) -> String? {
-        let allLines = lines(of: rawText)
-        guard let source = allLines.count > 1 ? allLines.dropFirst().first : allLines.first else {
-            return nil
-        }
-        var component = cleaned(String(source))
-        if let comma = component.firstIndex(of: ",") {
-            component = String(component[..<comma])
-        }
-        component = component.components(separatedBy: "+")[0]
-
-        let fillerWords: Set<String> = [
-            "of", "a", "an", "cup", "cups", "tbsp", "tsp",
-            "scoop", "scoops", "slice", "slices", "small", "medium", "large",
-        ]
-        var words = component.split(separator: " ").map(String.init)
-        while let first = words.first,
-              first.rangeOfCharacter(from: .decimalDigits) != nil
-                  || fillerWords.contains(first.lowercased()) {
-            words.removeFirst()
-        }
-        let name = words.joined(separator: " ")
-            .trimmingCharacters(in: CharacterSet(charactersIn: " ,.:;–-"))
-        if !name.isEmpty { return name }
-        let fallback = component.trimmingCharacters(in: .whitespacesAndNewlines)
-        return fallback.isEmpty ? nil : fallback
-    }
-
-    private static func lines(of text: String) -> [Substring] {
-        text.split(separator: "\n", omittingEmptySubsequences: true)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-    }
-
-    private static func cleaned(_ line: some StringProtocol) -> String {
-        line.trimmingCharacters(in: .whitespaces)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "*"))
-            .trimmingCharacters(in: .whitespaces)
-    }
+    /// The backend's mealType strings are exactly MealSlot rawValues;
+    /// anything unexpected degrades to a snack rather than crashing UI.
+    var slot: MealSlot { MealSlot(rawValue: mealType) ?? .snack }
 }
 
 /// Context fields sent to the ProTracker backend alongside the macros.
@@ -82,6 +55,19 @@ enum MealSuggestionContext {
         case 12..<17: "afternoon"
         case 17..<21: "evening"
         default: "night"
+        }
+    }
+
+    /// The meal the suggestion should target, from the clock plus what has
+    /// already happened today. Distinct from MealSlot.suggested(for:), which
+    /// pre-selects a quick-log slot without workout or logged-meal context.
+    static func mealType(hour: Int, hasTrainedToday: Bool, loggedSlots: Set<MealSlot>) -> MealSlot {
+        switch hour {
+        case ..<10: .breakfast
+        case 10..<13: hasTrainedToday ? .postWorkout : .lunch
+        case 13..<17: loggedSlots.contains(.lunch) ? .snack : .lunch
+        case 17..<21: .dinner
+        default: .snack
         }
     }
 }
