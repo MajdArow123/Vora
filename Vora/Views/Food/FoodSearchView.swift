@@ -17,6 +17,9 @@ enum FoodSearchMode {
 
 struct FoodSearchView: View {
     let mode: FoodSearchMode
+    /// Pre-fills the search field (used by AI meal suggestions to hand
+    /// off the first suggested food into search).
+    let initialQuery: String?
 
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
@@ -34,12 +37,13 @@ struct FoodSearchView: View {
     /// its detail screen shows a provenance banner.
     @State private var offlineItemID: String?
 
-    init(mode: FoodSearchMode) {
+    init(mode: FoodSearchMode, initialQuery: String? = nil) {
         self.mode = mode
+        self.initialQuery = initialQuery
     }
 
-    init(mealSlot: MealSlot, logDate: Date) {
-        self.init(mode: .log(mealSlot: mealSlot, logDate: logDate))
+    init(mealSlot: MealSlot, logDate: Date, initialQuery: String? = nil) {
+        self.init(mode: .log(mealSlot: mealSlot, logDate: logDate), initialQuery: initialQuery)
     }
 
     /// Slot and date when logging; nil in ingredient-picker mode.
@@ -103,6 +107,9 @@ struct FoodSearchView: View {
         }
         .onAppear {
             viewModel.loadLocal(from: modelContext)
+            if let initialQuery, viewModel.query.isEmpty {
+                viewModel.query = initialQuery
+            }
         }
         .sheet(isPresented: $showingScanner) {
             BarcodeScannerView { item, source in

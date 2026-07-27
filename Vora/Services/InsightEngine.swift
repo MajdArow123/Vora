@@ -15,6 +15,7 @@ enum InsightRule: String, CaseIterable, Codable {
     case calorieSurplus
     case supplementGap
     case supplementStreakMilestone
+    case aiProteinSuggestion
 }
 
 struct Insight: Equatable, Codable {
@@ -59,6 +60,7 @@ enum InsightEngine {
             .streakMilestone,
             .supplementStreakMilestone,
             .weightTrendPositive,
+            .aiProteinSuggestion,
             .proteinGap,
             .supplementGap,
             .missedWorkout,
@@ -94,6 +96,19 @@ enum InsightEngine {
                 title: "Weight trending down",
                 message: String(format: "Your weight has dropped 3 days in a row — down %.1f kg over the run. Keep doing what you are doing.", dropKg),
                 iconName: "chart.line.downtrend.xyaxis"
+            )
+
+        case .aiProteinSuggestion:
+            let remaining = Double(input.proteinTargetG) - input.proteinConsumedG
+            guard input.hour >= 18,
+                  input.proteinTargetG > 0,
+                  remaining > 40
+            else { return nil }
+            return Insight(
+                rule: rule,
+                title: "Protein gap tonight",
+                message: "You still need \(Int(remaining.rounded()))g of protein today. Tap for an AI meal suggestion.",
+                iconName: "sparkles"
             )
 
         case .proteinGap:

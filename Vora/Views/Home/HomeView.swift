@@ -17,6 +17,8 @@ struct HomeView: View {
     @State private var showingLogWeight = false
     @State private var showingSupplementManagement = false
     @State private var showingAddSupplement = false
+    @State private var suggestionViewModel = MealSuggestionViewModel()
+    @State private var showingAISuggestion = false
 
     var body: some View {
         NavigationStack {
@@ -55,7 +57,19 @@ struct HomeView: View {
                             foodStreakDays: viewModel.foodStreakDays
                         )
                         if let insight = viewModel.insight {
-                            InsightCard(insight: insight)
+                            InsightCard(
+                                insight: insight,
+                                onTap: insight.rule == .aiProteinSuggestion
+                                    ? { showingAISuggestion = true }
+                                    : nil
+                            )
+                        }
+                        if showsMealSuggestionCard {
+                            MealSuggestionCard(
+                                state: suggestionViewModel.state,
+                                onRefresh: { refreshSuggestion(force: true) }
+                            )
+                            .task { await loadSuggestion() }
                         }
                     }
                     .padding(.horizontal, DesignSystem.Spacing.md)
@@ -92,6 +106,39 @@ struct HomeView: View {
             viewModel.load(from: modelContext)
         }) {
             SupplementEditView(supplement: nil)
+        }
+        .sheet(isPresented: $showingAISuggestion) {
+            AIMealSuggestionView(
+                remaining: viewModel.remainingMacros,
+                goal: viewModel.profile?.goalType ?? .maintain,
+                logDate: .now
+            )
+        }
+    }
+
+    // MARK: - AI meal suggestion
+
+    /// Only worth showing once the day is under way and there is a real
+    /// calorie gap left to close.
+    private var showsMealSuggestionCard: Bool {
+        viewModel.remainingMacros.calories > 200
+            && Calendar.current.component(.hour, from: .now) >= 11
+    }
+
+    private func loadSuggestion() async {
+        await suggestionViewModel.load(
+            remaining: viewModel.remainingMacros,
+            goal: viewModel.profile?.goalType ?? .maintain
+        )
+    }
+
+    private func refreshSuggestion(force: Bool) {
+        Task {
+            await suggestionViewModel.load(
+                remaining: viewModel.remainingMacros,
+                goal: viewModel.profile?.goalType ?? .maintain,
+                force: force
+            )
         }
     }
 

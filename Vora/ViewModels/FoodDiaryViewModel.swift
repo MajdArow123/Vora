@@ -97,6 +97,15 @@ final class FoodDiaryViewModel {
 
     var remainingCalories: Int { calorieTarget - Int(totalCalories.rounded()) }
 
+    var remainingMacros: RemainingMacros {
+        RemainingMacros(
+            calories: remainingCalories,
+            proteinG: proteinTarget - Int(totalProtein.rounded()),
+            carbsG: carbsTarget - Int(totalCarbs.rounded()),
+            fatG: fatTarget - Int(totalFat.rounded())
+        )
+    }
+
     // MARK: - Water
 
     var waterTotalMl: Double { waterEntries.reduce(0) { $0 + $1.amountMl } }

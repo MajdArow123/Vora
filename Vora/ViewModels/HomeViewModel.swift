@@ -236,6 +236,15 @@ final class HomeViewModel {
     var totalCarbs: Double { todayFood.reduce(0) { $0 + $1.carbsG } }
     var totalFat: Double { todayFood.reduce(0) { $0 + $1.fatG } }
 
+    var remainingMacros: RemainingMacros {
+        RemainingMacros(
+            calories: (profile?.dailyCalorieTarget ?? 0) - Int(totalCalories.rounded()),
+            proteinG: (profile?.proteinTargetG ?? 0) - Int(totalProtein.rounded()),
+            carbsG: (profile?.carbsTargetG ?? 0) - Int(totalCarbs.rounded()),
+            fatG: (profile?.fatTargetG ?? 0) - Int(totalFat.rounded())
+        )
+    }
+
     var waterTotalMl: Double { todayWater.reduce(0) { $0 + $1.amountMl } }
     var waterTargetMl: Double { profile?.waterTargetMl ?? 3500 }
     var glassCount: Int { Int((waterTotalMl / FoodDiaryViewModel.glassMl).rounded(.down)) }

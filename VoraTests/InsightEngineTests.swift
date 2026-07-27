@@ -158,6 +158,44 @@ struct InsightEngineTests {
         #expect(InsightEngine.generate(from: input, excluding: .supplementGap).rule != .supplementGap)
     }
 
+    // MARK: - AI protein suggestion
+
+    @Test func aiProteinSuggestionFiresAfter6pmWithBigGap() {
+        var input = baseInput(hour: 18)
+        input.proteinConsumedG = 119 // remaining 41 > 40, but above half target
+        let insight = InsightEngine.generate(from: input)
+        #expect(insight.rule == .aiProteinSuggestion)
+        #expect(insight.message == "You still need 41g of protein today. Tap for an AI meal suggestion.")
+        #expect(insight.iconName == "sparkles")
+    }
+
+    @Test func aiProteinSuggestionSilentBefore6pm() {
+        var input = baseInput(hour: 17)
+        input.proteinConsumedG = 100
+        #expect(InsightEngine.generate(from: input).rule != .aiProteinSuggestion)
+    }
+
+    @Test func aiProteinSuggestionSilentAtFortyGramsRemaining() {
+        // baseInput leaves exactly 40 g remaining (120 of 160); the rule
+        // needs strictly more than 40.
+        let input = baseInput(hour: 18)
+        #expect(InsightEngine.generate(from: input).rule != .aiProteinSuggestion)
+    }
+
+    @Test func aiProteinSuggestionSilentWithoutTarget() {
+        var input = baseInput(hour: 18)
+        input.proteinTargetG = 0
+        input.proteinConsumedG = 0
+        #expect(InsightEngine.generate(from: input).rule != .aiProteinSuggestion)
+    }
+
+    @Test func aiProteinSuggestionOutranksProteinGap() {
+        var input = baseInput(hour: 18)
+        input.proteinConsumedG = 60 // matches both rules
+        #expect(InsightEngine.generate(from: input).rule == .aiProteinSuggestion)
+        #expect(InsightEngine.generate(from: input, excluding: .aiProteinSuggestion).rule == .proteinGap)
+    }
+
     // MARK: - Priority, exclusion, fallback
 
     @Test func streakMilestoneOutranksOtherMatches() {

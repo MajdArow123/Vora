@@ -11,6 +11,7 @@ import SwiftData
 struct FoodDiaryView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var viewModel = FoodDiaryViewModel()
+    @State private var showingAISuggestion = false
 
     var body: some View {
         ZStack {
@@ -86,6 +87,15 @@ struct FoodDiaryView: View {
                 logDate: viewModel.logTimestamp
             )
         }
+        .sheet(isPresented: $showingAISuggestion, onDismiss: {
+            viewModel.load(from: modelContext)
+        }) {
+            AIMealSuggestionView(
+                remaining: viewModel.remainingMacros,
+                goal: viewModel.profile?.goalType ?? .maintain,
+                logDate: viewModel.logTimestamp
+            )
+        }
     }
 
     // MARK: - Header
@@ -111,6 +121,17 @@ struct FoodDiaryView: View {
             Spacer()
 
             HStack(spacing: 0) {
+                Button {
+                    showingAISuggestion = true
+                } label: {
+                    Image(systemName: "sparkles")
+                        .font(.headline)
+                        .foregroundStyle(DesignSystem.Colors.accent)
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("AI meal suggestion")
+
                 Menu {
                     Button {
                         withAnimation(.easeInOut(duration: 0.3)) {
