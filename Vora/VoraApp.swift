@@ -13,6 +13,12 @@ struct VoraApp: App {
     @AppStorage(AppearanceSetting.storageKey) private var appearance: AppearanceSetting = .system
     @Environment(\.scenePhase) private var scenePhase
 
+    init() {
+        // Meal suggestions moved to the ProTracker backend; remove any
+        // Anthropic API key a pre-backend build left in UserDefaults.
+        UserDefaults.standard.removeObject(forKey: "vora.anthropic.apiKey")
+    }
+
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
             UserProfile.self,
