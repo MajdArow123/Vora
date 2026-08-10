@@ -38,6 +38,7 @@ struct VoraApp: App {
             RecipeIngredient.self,
             Supplement.self,
             SupplementLog.self,
+            GymProfile.self,
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
@@ -46,6 +47,7 @@ struct VoraApp: App {
             #if DEBUG
             DemoSeeder.seedIfRequested(container: container)
             #endif
+            GymProfileService.ensureDefaultProfile(context: ModelContext(container))
             return container
         } catch {
             fatalError("Could not create ModelContainer: \(error)")

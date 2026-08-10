@@ -132,6 +132,30 @@ final class ActiveSessionViewModel {
         exercises.removeAll { $0.id == id }
     }
 
+    /// Swaps an exercise for another in place, keeping its slot in the
+    /// session order. Entered sets on the old exercise are discarded; the
+    /// replacement starts like a freshly added exercise.
+    func replaceExercise(
+        _ id: DraftExercise.ID,
+        withName name: String,
+        muscleGroups: [String],
+        context: ModelContext
+    ) {
+        guard let index = exercises.firstIndex(where: { $0.id == id }) else { return }
+        let previous = Self.previousSets(for: name, context: context)
+        var firstSet = DraftSet()
+        if let first = previous.first {
+            firstSet.weightText = Self.weightString(first.weightKg)
+            firstSet.repsText = String(first.reps)
+        }
+        exercises[index] = DraftExercise(
+            name: name,
+            muscleGroups: muscleGroups,
+            sets: [firstSet],
+            previousSets: previous
+        )
+    }
+
     /// Matches SwiftUI's move(fromOffsets:toOffset:) semantics, where the
     /// destination is an index into the pre-removal array. Implemented by
     /// hand so this view model stays SwiftUI-free.

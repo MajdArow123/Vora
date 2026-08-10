@@ -13,7 +13,10 @@ struct ActiveSessionView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel: ActiveSessionViewModel
     @State private var showingExercisePicker = false
+    @State private var swappingExercise: ActiveSessionViewModel.DraftExercise?
     @State private var showingDiscardConfirm = false
+    @Query(filter: #Predicate<GymProfile> { $0.isActive })
+    private var activeProfiles: [GymProfile]
     @State private var didPrefill = false
     @State private var editMode: EditMode = .inactive
     @AppStorage("restTimerSeconds") private var restTimerSeconds = 90
@@ -46,8 +49,12 @@ struct ActiveSessionView: View {
                         ExerciseSessionCard(
                             exercise: exercise,
                             viewModel: viewModel,
+                            isUnavailable: isUnavailable(exercise.name),
                             onSetCompleted: {
                                 viewModel.startRest(duration: TimeInterval(restTimerSeconds))
+                            },
+                            onSwap: {
+                                swappingExercise = exercise
                             }
                         )
                         .listRowBackground(Color.clear)
@@ -109,6 +116,16 @@ struct ActiveSessionView: View {
                 viewModel.addExercise(name: name, muscleGroups: muscleGroups, context: modelContext)
             }
         }
+        .sheet(item: $swappingExercise) { exercise in
+            ExercisePickerView { name, muscleGroups in
+                viewModel.replaceExercise(
+                    exercise.id,
+                    withName: name,
+                    muscleGroups: muscleGroups,
+                    context: modelContext
+                )
+            }
+        }
         .sheet(item: $viewModel.summary, onDismiss: { dismiss() }) { summary in
             SessionSummaryView(summary: summary)
         }
@@ -125,6 +142,16 @@ struct ActiveSessionView: View {
             didPrefill = true
             viewModel.prefill(with: templateExercises, context: modelContext)
         }
+    }
+
+    // MARK: - Equipment availability
+
+    /// A template can carry exercises the active gym can't support; they
+    /// stay in the session (never auto-removed) but get flagged so the
+    /// user can skip or swap them.
+    private func isUnavailable(_ name: String) -> Bool {
+        guard let equipment = activeProfiles.first?.availableEquipment else { return false }
+        return !ExerciseLibrary.isAvailable(name: name, with: equipment)
     }
 
     // MARK: - Reorder
@@ -230,7 +257,9 @@ struct ActiveSessionView: View {
 struct ExerciseSessionCard: View {
     let exercise: ActiveSessionViewModel.DraftExercise
     let viewModel: ActiveSessionViewModel
+    var isUnavailable = false
     let onSetCompleted: () -> Void
+    var onSwap: () -> Void = {}
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignSystem.Spacing.sm) {
@@ -238,8 +267,28 @@ struct ExerciseSessionCard: View {
                 Text(exercise.name)
                     .font(DesignSystem.Typography.headline)
                     .foregroundStyle(DesignSystem.Colors.textPrimary)
+                if isUnavailable {
+                    HStack(spacing: DesignSystem.Spacing.xs) {
+                        Image(systemName: "circle.slash")
+                            .font(.caption2)
+                            .accessibilityHidden(true)
+                        Text("Unavailable")
+                            .font(DesignSystem.Typography.caption)
+                    }
+                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+                    .padding(.horizontal, DesignSystem.Spacing.sm)
+                    .padding(.vertical, 4)
+                    .background(DesignSystem.Colors.textSecondary.opacity(0.12))
+                    .clipShape(Capsule())
+                    .accessibilityLabel("Not available at your active gym")
+                }
                 Spacer()
                 Menu {
+                    Button {
+                        onSwap()
+                    } label: {
+                        Label("Swap Exercise", systemImage: "arrow.triangle.2.circlepath")
+                    }
                     Button(role: .destructive) {
                         withAnimation(.easeInOut(duration: 0.2)) {
                             viewModel.removeExercise(exercise.id)
@@ -406,5 +455,5 @@ private struct SetRow: View {
 
 #Preview {
     ActiveSessionView(sessionName: "Push")
-        .modelContainer(for: WorkoutSession.self, inMemory: true)
+        .modelContainer(for: [WorkoutSession.self, GymProfile.self], inMemory: true)
 }

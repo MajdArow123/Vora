@@ -6,18 +6,27 @@
 //
 
 import SwiftUI
+import SwiftData
 
 /// Edits the default exercise list for one split day. Changes apply to
 /// future sessions only; Close abandons edits, Save persists them via
-/// WorkoutTemplateStore.
+/// WorkoutTemplateStore. Exercises the active gym can't support stay in
+/// the template but are flagged as unavailable.
 struct TemplateEditorView: View {
     @Environment(\.dismiss) private var dismiss
     let split: TrainingSplit
     let dayIndex: Int
     let dayTitle: String
 
+    @Query(filter: #Predicate<GymProfile> { $0.isActive })
+    private var activeProfiles: [GymProfile]
     @State private var names: [String]
     @State private var showingExercisePicker = false
+
+    private func isAvailable(_ name: String) -> Bool {
+        guard let equipment = activeProfiles.first?.availableEquipment else { return true }
+        return ExerciseLibrary.isAvailable(name: name, with: equipment)
+    }
 
     init(split: TrainingSplit, dayIndex: Int, dayTitle: String) {
         self.split = split
@@ -129,11 +138,29 @@ struct TemplateEditorView: View {
     }
 
     private func exerciseRow(_ name: String) -> some View {
-        HStack(spacing: DesignSystem.Spacing.md) {
+        let available = isAvailable(name)
+        return HStack(spacing: DesignSystem.Spacing.md) {
             Text(name)
                 .font(DesignSystem.Typography.body)
-                .foregroundStyle(DesignSystem.Colors.textPrimary)
+                .foregroundStyle(available
+                                 ? DesignSystem.Colors.textPrimary
+                                 : DesignSystem.Colors.textSecondary)
             Spacer()
+            if !available {
+                HStack(spacing: DesignSystem.Spacing.xs) {
+                    Image(systemName: "circle.slash")
+                        .font(.caption2)
+                        .accessibilityHidden(true)
+                    Text("Unavailable")
+                        .font(DesignSystem.Typography.caption)
+                }
+                .foregroundStyle(DesignSystem.Colors.textSecondary)
+                .padding(.horizontal, DesignSystem.Spacing.sm)
+                .padding(.vertical, 4)
+                .background(DesignSystem.Colors.textSecondary.opacity(0.12))
+                .clipShape(Capsule())
+                .accessibilityLabel("Not available at your active gym")
+            }
             if let group = ExerciseLibrary.definition(named: name)?.muscleGroup {
                 Text(group.displayName)
                     .font(DesignSystem.Typography.caption)
@@ -152,4 +179,5 @@ struct TemplateEditorView: View {
 
 #Preview {
     TemplateEditorView(split: .ppl, dayIndex: 0, dayTitle: "Push")
+        .modelContainer(for: GymProfile.self, inMemory: true)
 }

@@ -14,6 +14,9 @@ struct ProfileView: View {
     @AppStorage(AppearanceSetting.storageKey) private var appearance: AppearanceSetting = .system
     @State private var showingAppearancePicker = false
     @State private var showingSupplements = false
+    @State private var showingGymProfiles = false
+    @Query(filter: #Predicate<GymProfile> { $0.isActive })
+    private var activeGymProfiles: [GymProfile]
 
     var body: some View {
         ZStack {
@@ -127,6 +130,10 @@ struct ProfileView: View {
             row("Split", profile.trainingSplit.displayName)
         }
 
+        card("My Gym") {
+            gymProfileRow
+        }
+
         card("Daily Targets") {
             row("Calories", "\(profile.dailyCalorieTarget) kcal")
             Divider()
@@ -148,6 +155,46 @@ struct ProfileView: View {
         }
 
         RemindersSection()
+    }
+
+    private var gymProfileRow: some View {
+        Button {
+            showingGymProfiles = true
+        } label: {
+            HStack {
+                Text("Active gym")
+                    .font(DesignSystem.Typography.body)
+                    .foregroundStyle(DesignSystem.Colors.textPrimary.opacity(0.6))
+                Spacer()
+                Image(systemName: "building.2")
+                    .font(.caption)
+                    .foregroundStyle(DesignSystem.Colors.accent)
+                    .accessibilityHidden(true)
+                VStack(alignment: .trailing, spacing: 0) {
+                    Text(activeGymProfiles.first?.name ?? "Not set")
+                        .font(DesignSystem.Typography.headline)
+                        .foregroundStyle(DesignSystem.Colors.textPrimary)
+                    if let active = activeGymProfiles.first {
+                        Text("\(active.availableEquipment.count) equipment")
+                            .font(DesignSystem.Typography.caption)
+                            .foregroundStyle(DesignSystem.Colors.textSecondary)
+                    }
+                }
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+                    .accessibilityHidden(true)
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("My gym")
+        .accessibilityValue(activeGymProfiles.first?.name ?? "Not set")
+        .accessibilityHint("Manage gym profiles and available equipment")
+        .sheet(isPresented: $showingGymProfiles) {
+            GymProfileView()
+        }
     }
 
     private var supplementsRow: some View {
@@ -482,5 +529,5 @@ private struct AppearancePickerSheet: View {
 
 #Preview {
     ProfileView()
-        .modelContainer(for: UserProfile.self, inMemory: true)
+        .modelContainer(for: [UserProfile.self, GymProfile.self], inMemory: true)
 }

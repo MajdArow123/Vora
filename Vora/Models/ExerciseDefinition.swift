@@ -29,30 +29,26 @@ enum MuscleGroup: String, CaseIterable, Identifiable {
     }
 }
 
-enum Equipment: String, CaseIterable, Identifiable {
-    case barbell, dumbbell, machine, cable, bodyweight, kettlebell
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .barbell: "Barbell"
-        case .dumbbell: "Dumbbell"
-        case .machine: "Machine"
-        case .cable: "Cable"
-        case .bodyweight: "Bodyweight"
-        case .kettlebell: "Kettlebell"
-        }
-    }
-}
-
 /// A library exercise. Not persisted — the bundled catalog lives in
 /// ExerciseLibrary; logged exercises store name + muscle groups on
 /// ExerciseLog.
 struct ExerciseDefinition: Identifiable, Hashable {
     let name: String
     let muscleGroup: MuscleGroup
-    let equipment: Equipment
+    let equipment: Set<EquipmentType>
 
     var id: String { name }
+
+    /// Everything the exercise needs must be on offer for it to count as
+    /// doable in a given gym.
+    func isAvailable(with availableEquipment: Set<EquipmentType>) -> Bool {
+        equipment.isSubset(of: availableEquipment)
+    }
+
+    var equipmentText: String {
+        equipment
+            .map(\.displayName)
+            .sorted()
+            .joined(separator: " · ")
+    }
 }
