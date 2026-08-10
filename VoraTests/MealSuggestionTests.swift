@@ -52,6 +52,78 @@ struct SuggestedFoodCodableTests {
         #expect(makeSuggestion(mealType: "dinner").slot == .dinner)
         #expect(makeSuggestion(mealType: "brunch").slot == .snack)
     }
+
+    @Test func mutatingGramsPreservesIDAndReencodes() throws {
+        var food = SuggestedFood(name: "rice", grams: 150, unit: "g")
+        let id = food.id
+        food.grams = 180
+        #expect(food.id == id)
+        #expect(food.grams == 180)
+
+        let data = try JSONEncoder().encode(food)
+        let decoded = try JSONDecoder().decode(SuggestedFood.self, from: data)
+        #expect(decoded.grams == 180)
+        #expect(decoded.name == "rice")
+    }
+}
+
+struct MealAllocationTests {
+    private let daily = MacroTargets(calories: 2600, proteinG: 180, carbsG: 280, fatG: 80)
+
+    @Test func sharesSumToOne() {
+        let total = MealSlot.allCases.reduce(0) { $0 + MealAllocation.share(for: $1) }
+        #expect(abs(total - 1.0) < 0.0001)
+    }
+
+    @Test func perSlotShares() {
+        #expect(MealAllocation.share(for: .breakfast) == 0.25)
+        #expect(MealAllocation.share(for: .postWorkout) == 0.20)
+        #expect(MealAllocation.share(for: .lunch) == 0.25)
+        #expect(MealAllocation.share(for: .dinner) == 0.25)
+        #expect(MealAllocation.share(for: .snack) == 0.05)
+    }
+
+    @Test func targetsScaleDailyPerSlot() {
+        let dinner = MealAllocation.targets(for: .dinner, daily: daily)
+        #expect(dinner == MacroTargets(calories: 650, proteinG: 45, carbsG: 70, fatG: 20))
+
+        let postWorkout = MealAllocation.targets(for: .postWorkout, daily: daily)
+        #expect(postWorkout == MacroTargets(calories: 520, proteinG: 36, carbsG: 56, fatG: 16))
+
+        let snack = MealAllocation.targets(for: .snack, daily: daily)
+        #expect(snack == MacroTargets(calories: 130, proteinG: 9, carbsG: 14, fatG: 4))
+    }
+
+    @Test func emptySlotConsumedEqualsFullShare() {
+        let remaining = MealAllocation.remaining(for: .dinner, daily: daily, slotConsumed: [])
+        #expect(remaining == RemainingMacros(calories: 650, proteinG: 45, carbsG: 70, fatG: 20))
+    }
+
+    @Test func remainingSubtractsSlotConsumed() {
+        let remaining = MealAllocation.remaining(
+            for: .dinner,
+            daily: daily,
+            slotConsumed: [
+                (calories: 250, proteinG: 20, carbsG: 30, fatG: 5),
+                (calories: 150, proteinG: 10, carbsG: 10, fatG: 5),
+            ]
+        )
+        #expect(remaining == RemainingMacros(calories: 250, proteinG: 15, carbsG: 30, fatG: 10))
+    }
+
+    @Test func remainingClampsAtZeroWhenSlotOvereaten() {
+        let remaining = MealAllocation.remaining(
+            for: .snack,
+            daily: daily,
+            slotConsumed: [(calories: 900, proteinG: 60, carbsG: 100, fatG: 40)]
+        )
+        #expect(remaining == RemainingMacros(calories: 0, proteinG: 0, carbsG: 0, fatG: 0))
+    }
+
+    @Test func slotHitThreshold() {
+        #expect(MealAllocation.isSlotHit(RemainingMacros(calories: 99, proteinG: 10, carbsG: 10, fatG: 5)))
+        #expect(!MealAllocation.isSlotHit(RemainingMacros(calories: 100, proteinG: 10, carbsG: 10, fatG: 5)))
+    }
 }
 
 struct MealSuggestionContextTests {
@@ -263,5 +335,329 @@ struct MealSuggestionViewModelTests {
         }
         await viewModel.load(remaining: remaining, goal: .maintain)
         #expect(viewModel.state == MealSuggestionViewModel.SuggestionState.failed("Couldn't generate suggestion. Check your connection."))
+    }
+}
+
+// MARK: - Enrichment
+
+private func makeItem(name: String, caloriesPer100g: Double = 120, proteinPer100g: Double = 22) -> FoodItem {
+    FoodItem(
+        id: "off-\(name)",
+        name: name,
+        brand: nil,
+        caloriesPer100g: caloriesPer100g,
+        proteinPer100g: proteinPer100g,
+        carbsPer100g: 1,
+        fatPer100g: 3,
+        fibrePer100g: 0,
+        sugarPer100g: 0,
+        sodiumMgPer100g: 0,
+        defaultServingGrams: 100
+    )
+}
+
+private actor CallCounter {
+    private(set) var count = 0
+    func increment() -> Int {
+        count += 1
+        return count
+    }
+}
+
+struct EnrichedFoodTests {
+    @Test func initCopiesTheSuggestedFood() {
+        let suggested = SuggestedFood(name: "brown rice", grams: 150, unit: "g")
+        let food = EnrichedFood(from: suggested)
+
+        #expect(food.id == suggested.id)
+        #expect(food.suggestedName == "brown rice")
+        #expect(food.originalGrams == 150)
+        #expect(food.editedGrams == 150)
+        #expect(food.isRemoved == false)
+        #expect(food.isLoading == true)
+        #expect(food.isApproximate == true)
+    }
+
+    @Test func displayNamePrefersTheRealItem() {
+        var food = EnrichedFood(from: SuggestedFood(name: "chicken breast", grams: 200, unit: "g"))
+        #expect(food.displayName == "Chicken Breast")
+
+        food.realFoodItem = makeItem(name: "Poulet Fermier")
+        #expect(food.displayName == "Poulet Fermier")
+    }
+
+    /// The "displayed == logged" contract: a food's nutrition and its
+    /// logged draft must agree exactly, on both the real and estimate path.
+    @Test func nutritionMatchesLoggedDraftOnBothPaths() {
+        var real = EnrichedFood(from: SuggestedFood(name: "chicken breast", grams: 180, unit: "g"))
+        real.realFoodItem = makeItem(name: "Chicken Breast")
+        var estimate = EnrichedFood(from: SuggestedFood(name: "mystery stew", grams: 130, unit: "g"))
+        estimate.editedGrams = 170
+
+        for food in [real, estimate] {
+            let n = food.nutrition
+            let draft = SuggestedFoodsLogger.draft(for: food)
+            #expect(draft.calories == n.calories)
+            #expect(draft.proteinG == n.proteinG)
+            #expect(draft.carbsG == n.carbsG)
+            #expect(draft.fatG == n.fatG)
+            #expect(draft.servingGrams == food.editedGrams)
+            #expect(draft.isEstimated == food.isApproximate)
+        }
+    }
+}
+
+@MainActor
+struct MealSuggestionEnrichmentTests {
+    private func makeDefaults() -> UserDefaults {
+        let suiteName = "MealSuggestionEnrichmentTests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        return defaults
+    }
+
+    /// A view model with a same-day cached suggestion already loaded, so
+    /// enrich() has something to work on without any fetch.
+    private func loadedViewModel(
+        foods: [SuggestedFood] = [SuggestedFood(name: "chicken breast", grams: 200, unit: "g")],
+        search: @escaping @Sendable (String) async throws -> [FoodItem]
+    ) -> MealSuggestionViewModel {
+        let defaults = makeDefaults()
+        let suggestion = makeSuggestion(foods: foods)
+        defaults.set(
+            MealSuggestionViewModel.dayKey(for: .now, calendar: .current),
+            forKey: "vora.mealSuggestion.date"
+        )
+        defaults.set(try? JSONEncoder().encode(suggestion), forKey: "vora.mealSuggestion.payload")
+
+        let viewModel = MealSuggestionViewModel(
+            defaults: defaults,
+            search: search,
+            enrichmentStagger: .zero
+        )
+        viewModel.loadCached()
+        return viewModel
+    }
+
+    @Test func enrichSeedsPlaceholdersImmediately() {
+        let viewModel = loadedViewModel(search: { _ in [] })
+        viewModel.enrich()
+
+        #expect(viewModel.enrichedFoods.count == 1)
+        #expect(viewModel.enrichedFoods.allSatisfy { $0.isLoading })
+        #expect(viewModel.isEnriching)
+        viewModel.cancelEnrichment()
+    }
+
+    @Test func enrichWithoutLoadedSuggestionIsANoOp() {
+        let viewModel = MealSuggestionViewModel(
+            defaults: makeDefaults(),
+            search: { _ in
+                Issue.record("enrich must not search without a suggestion")
+                return []
+            },
+            enrichmentStagger: .zero
+        )
+        viewModel.enrich()
+        #expect(viewModel.enrichedFoods.isEmpty)
+        #expect(viewModel.enrichmentTask == nil)
+    }
+
+    @Test func enrichResolvesRealItemsPerFood() async {
+        let viewModel = loadedViewModel(
+            foods: [
+                SuggestedFood(name: "rice", grams: 100, unit: "g"),
+                SuggestedFood(name: "chicken breast", grams: 200, unit: "g"),
+            ],
+            search: { name in [makeItem(name: name.capitalized)] }
+        )
+        viewModel.enrich()
+        await viewModel.enrichmentTask?.value
+
+        #expect(viewModel.enrichedFoods.count == 2)
+        #expect(viewModel.enrichedFoods.allSatisfy { !$0.isLoading && !$0.isApproximate })
+        #expect(viewModel.enrichedFoods[0].realFoodItem?.name == "Rice")
+        #expect(viewModel.enrichedFoods[1].realFoodItem?.name == "Chicken Breast")
+        #expect(!viewModel.isEnriching)
+    }
+
+    @Test func searchFailureLeavesTheFoodApproximate() async {
+        let viewModel = loadedViewModel(search: { _ in throw URLError(.notConnectedToInternet) })
+        viewModel.enrich()
+        await viewModel.enrichmentTask?.value
+
+        let food = viewModel.enrichedFoods[0]
+        #expect(food.isLoading == false)
+        #expect(food.isApproximate == true)
+    }
+
+    @Test func emptyResultsLeaveTheFoodApproximate() async {
+        let viewModel = loadedViewModel(search: { _ in [] })
+        viewModel.enrich()
+        await viewModel.enrichmentTask?.value
+
+        let food = viewModel.enrichedFoods[0]
+        #expect(food.isLoading == false)
+        #expect(food.isApproximate == true)
+    }
+
+    @Test func duplicateNamesResolveIndependently() async {
+        let counter = CallCounter()
+        let viewModel = loadedViewModel(
+            foods: [
+                SuggestedFood(name: "rice", grams: 100, unit: "g"),
+                SuggestedFood(name: "rice", grams: 50, unit: "g"),
+            ],
+            search: { name in
+                _ = await counter.increment()
+                return [makeItem(name: name.capitalized)]
+            }
+        )
+        viewModel.enrich()
+        await viewModel.enrichmentTask?.value
+
+        #expect(await counter.count == 2)
+        #expect(viewModel.enrichedFoods.allSatisfy { !$0.isLoading && !$0.isApproximate })
+        #expect(viewModel.enrichedFoods[0].editedGrams == 100)
+        #expect(viewModel.enrichedFoods[1].editedGrams == 50)
+    }
+
+    @Test func reEnrichCancelsTheInFlightRun() async {
+        let counter = CallCounter()
+        let (entered, enteredContinuation) = AsyncStream.makeStream(of: Void.self)
+        let (release, releaseContinuation) = AsyncStream.makeStream(of: Void.self)
+        let viewModel = loadedViewModel(search: { name in
+            if await counter.increment() == 1 {
+                // First run signals it's in flight, then blocks until the
+                // test releases it (or the run is cancelled) and reports
+                // "nothing found".
+                enteredContinuation.yield()
+                for await _ in release {}
+                return []
+            }
+            return [makeItem(name: name.capitalized)]
+        })
+
+        viewModel.enrich()
+        let firstRun = viewModel.enrichmentTask
+        // Without this wait, enrich() below can cancel the first run before
+        // its child ever searches — the second run's search would then be
+        // call #1, block forever, and deadlock the await beneath it.
+        var enteredIterator = entered.makeAsyncIterator()
+        _ = await enteredIterator.next()
+        viewModel.enrich()
+        await viewModel.enrichmentTask?.value
+
+        #expect(viewModel.enrichedFoods[0].realFoodItem != nil)
+
+        releaseContinuation.finish()
+        await firstRun?.value
+
+        // The stale first run must not have overwritten the fresh result.
+        #expect(viewModel.enrichedFoods[0].realFoodItem != nil)
+        #expect(viewModel.enrichedFoods[0].isLoading == false)
+    }
+
+    @Test func cancelEnrichmentStopsUpdates() async {
+        let (stream, continuation) = AsyncStream.makeStream(of: Void.self)
+        let viewModel = loadedViewModel(search: { _ in
+            for await _ in stream {}
+            return [makeItem(name: "Late Result")]
+        })
+
+        viewModel.enrich()
+        let run = viewModel.enrichmentTask
+        viewModel.cancelEnrichment()
+        continuation.finish()
+        await run?.value
+
+        #expect(viewModel.enrichedFoods.allSatisfy { $0.isLoading })
+        #expect(viewModel.enrichmentTask == nil)
+    }
+
+    @Test func adjustGramsClampsAtTheMinimum() async {
+        let viewModel = loadedViewModel(search: { _ in [] })
+        viewModel.enrich()
+        await viewModel.enrichmentTask?.value
+        let id = viewModel.enrichedFoods[0].id
+
+        viewModel.adjustGrams(id: id, by: 10)
+        #expect(viewModel.enrichedFoods[0].editedGrams == 210)
+
+        viewModel.adjustGrams(id: id, by: -1000)
+        #expect(viewModel.enrichedFoods[0].editedGrams == 10)
+    }
+
+    @Test func removeFoodFlagsWithoutDeleting() async {
+        let viewModel = loadedViewModel(
+            foods: [
+                SuggestedFood(name: "rice", grams: 100, unit: "g"),
+                SuggestedFood(name: "beans", grams: 80, unit: "g"),
+            ],
+            search: { _ in [] }
+        )
+        viewModel.enrich()
+        await viewModel.enrichmentTask?.value
+
+        viewModel.removeFood(id: viewModel.enrichedFoods[0].id)
+        #expect(viewModel.enrichedFoods.count == 2)
+        #expect(viewModel.activeFoods.count == 1)
+        #expect(viewModel.activeFoods[0].suggestedName == "beans")
+    }
+
+    @Test func hasEditsDetectsGramsAndRemovalAndReverts() async {
+        let viewModel = loadedViewModel(search: { _ in [] })
+        viewModel.enrich()
+        await viewModel.enrichmentTask?.value
+        let id = viewModel.enrichedFoods[0].id
+        #expect(viewModel.hasEdits == false)
+
+        viewModel.adjustGrams(id: id, by: 10)
+        #expect(viewModel.hasEdits == true)
+
+        viewModel.adjustGrams(id: id, by: -10)
+        #expect(viewModel.hasEdits == false)
+
+        viewModel.removeFood(id: id)
+        #expect(viewModel.hasEdits == true)
+    }
+
+    @Test func mealTotalsSumOnlyActiveFoods() async {
+        let viewModel = loadedViewModel(
+            foods: [
+                SuggestedFood(name: "rice", grams: 100, unit: "g"),
+                SuggestedFood(name: "chicken breast", grams: 100, unit: "g"),
+            ],
+            search: { name in [makeItem(name: name.capitalized)] }
+        )
+        viewModel.enrich()
+        await viewModel.enrichmentTask?.value
+
+        // Both items resolve to 120 kcal / 22 g protein at 100 g.
+        #expect(viewModel.mealTotals.calories == 240)
+        #expect(viewModel.mealTotals.proteinG == 44)
+
+        viewModel.removeFood(id: viewModel.enrichedFoods[0].id)
+        #expect(viewModel.mealTotals.calories == 120)
+        #expect(viewModel.mealTotals.proteinG == 22)
+    }
+
+    @Test func loadPathsNeverSearch() async {
+        let defaults = makeDefaults()
+        let viewModel = MealSuggestionViewModel(
+            defaults: defaults,
+            fetch: { _, _, _, _, _ in makeSuggestion(mealName: "Any") },
+            search: { _ in
+                Issue.record("load/loadCached must never trigger OpenFoodFacts lookups")
+                return []
+            },
+            enrichmentStagger: .zero
+        )
+        await viewModel.load(
+            remaining: RemainingMacros(calories: 700, proteinG: 50, carbsG: 70, fatG: 20),
+            goal: .maintain
+        )
+        viewModel.loadCached()
+        #expect(viewModel.enrichedFoods.isEmpty)
     }
 }

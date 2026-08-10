@@ -35,8 +35,10 @@ struct MealSuggestionService {
         mealType: MealSlot? = nil,
         userPreference: String? = nil
     ) async throws -> MealSuggestion {
-        // The backend rejects caloriesRemaining <= 0 with a 400.
+        // The backend rejects caloriesRemaining <= 0 with a 400; the UI's
+        // "targets hit" gate should make this unreachable.
         guard remaining.calories > 0 else {
+            Self.logFailure("skipped request: caloriesRemaining \(remaining.calories) <= 0", body: nil)
             throw MealSuggestionError.badResponse
         }
 
@@ -59,10 +61,13 @@ struct MealSuggestionService {
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            let status = (response as? HTTPURLResponse).map { "HTTP \($0.statusCode)" } ?? "non-HTTP response"
+            Self.logFailure(status, body: data)
             throw MealSuggestionError.badResponse
         }
 
         guard let decoded = try? JSONDecoder().decode(SuggestionResponse.self, from: data) else {
+            Self.logFailure("response decode failed", body: data)
             throw MealSuggestionError.badResponse
         }
         let mealName = decoded.mealName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -84,6 +89,16 @@ struct MealSuggestionService {
         let fractional = ISO8601DateFormatter()
         fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return fractional.date(from: string) ?? ISO8601DateFormatter().date(from: string)
+    }
+
+    /// Debug-only diagnostics for failed suggestion requests: the status
+    /// (or failure kind) plus the raw response body, so backend 400s are
+    /// distinguishable from network drops and contract drift.
+    private static func logFailure(_ context: String, body: Data?) {
+        #if DEBUG
+        let bodyText = body.flatMap { String(data: $0, encoding: .utf8) } ?? "<no body>"
+        print("[MealSuggestionService] \(context) — body: \(bodyText.prefix(500))")
+        #endif
     }
 
     /// The backend caps userPreference at 100 characters; nil when empty

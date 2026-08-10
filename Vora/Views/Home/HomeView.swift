@@ -108,32 +108,31 @@ struct HomeView: View {
         }) {
             SupplementEditView(supplement: nil)
         }
-        .sheet(isPresented: $showingAISuggestion, onDismiss: {
+        .fullScreenCover(isPresented: $showingAISuggestion, onDismiss: {
             // Foods can be logged inside the sheet, and the sheet may have
             // refreshed the shared day cache — reconverge both.
             viewModel.load(from: modelContext)
             refreshSuggestion(force: false)
         }) {
-            AIMealSuggestionView(
-                remaining: viewModel.remainingMacros,
-                goal: viewModel.profile?.goalType ?? .maintain,
-                logDate: .now
-            )
+            AIMealSuggestionView(logDate: .now)
         }
     }
 
     // MARK: - AI meal suggestion
 
-    /// Only worth showing once the day is under way and there is a real
-    /// calorie gap left to close.
+    /// Only worth showing once the day is under way, there is a real
+    /// calorie gap left to close, and the suggested slot still has room —
+    /// the card's auto-load must never fire a request the backend rejects.
     private var showsMealSuggestionCard: Bool {
         viewModel.remainingMacros.calories > 200
             && Calendar.current.component(.hour, from: .now) >= 11
+            && viewModel.mealRemaining(for: suggestedMealType).calories
+                >= MealAllocation.minimumMealCalories
     }
 
     private func loadSuggestion() async {
         await suggestionViewModel.load(
-            remaining: viewModel.remainingMacros,
+            remaining: viewModel.mealRemaining(for: suggestedMealType),
             goal: viewModel.profile?.goalType ?? .maintain,
             mealType: suggestedMealType
         )
@@ -142,7 +141,7 @@ struct HomeView: View {
     private func refreshSuggestion(force: Bool) {
         Task {
             await suggestionViewModel.load(
-                remaining: viewModel.remainingMacros,
+                remaining: viewModel.mealRemaining(for: suggestedMealType),
                 goal: viewModel.profile?.goalType ?? .maintain,
                 mealType: suggestedMealType,
                 force: force

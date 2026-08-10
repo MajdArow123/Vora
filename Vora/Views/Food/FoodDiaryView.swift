@@ -87,14 +87,10 @@ struct FoodDiaryView: View {
                 logDate: viewModel.logTimestamp
             )
         }
-        .sheet(isPresented: $showingAISuggestion, onDismiss: {
+        .fullScreenCover(isPresented: $showingAISuggestion, onDismiss: {
             viewModel.load(from: modelContext)
         }) {
-            AIMealSuggestionView(
-                remaining: viewModel.remainingMacros,
-                goal: viewModel.profile?.goalType ?? .maintain,
-                logDate: viewModel.logTimestamp
-            )
+            AIMealSuggestionView(logDate: viewModel.logTimestamp)
         }
     }
 

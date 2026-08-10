@@ -10,8 +10,6 @@ import Testing
 @testable import Vora
 
 struct SuggestedFoodsLoggerTests {
-    private let food = SuggestedFood(name: "chicken breast", grams: 200, unit: "g")
-
     private let matchedItem = FoodItem(
         id: "off-123",
         name: "Chicken Breast",
@@ -27,10 +25,15 @@ struct SuggestedFoodsLoggerTests {
         barcode: "5000112637922"
     )
 
-    @Test func matchedFoodUsesScaledOpenFoodFactsNutrition() async {
-        let item = matchedItem
-        let logger = SuggestedFoodsLogger(search: { _ in [item] })
-        let draft = await logger.draft(for: food)
+    private func enrichedFood(grams: Double = 200, item: FoodItem? = nil) -> EnrichedFood {
+        var food = EnrichedFood(from: SuggestedFood(name: "chicken breast", grams: grams, unit: "g"))
+        food.realFoodItem = item
+        food.isLoading = false
+        return food
+    }
+
+    @Test func matchedFoodUsesScaledOpenFoodFactsNutrition() {
+        let draft = SuggestedFoodsLogger.draft(for: enrichedFood(item: matchedItem))
 
         #expect(draft.isEstimated == false)
         #expect(draft.foodName == "Chicken Breast")
@@ -44,27 +47,39 @@ struct SuggestedFoodsLoggerTests {
         #expect(draft.barcode == "5000112637922")
     }
 
-    @Test func searchFailureFallsBackToEstimates() async {
-        let logger = SuggestedFoodsLogger(search: { _ in throw URLError(.notConnectedToInternet) })
-        let draft = await logger.draft(for: food)
+    @Test func editedGramsDriveTheDraft() {
+        var food = enrichedFood(item: matchedItem)
+        food.editedGrams = 100
+
+        let draft = SuggestedFoodsLogger.draft(for: food)
+        #expect(draft.servingGrams == 100)
+        #expect(draft.calories == 120)
+        #expect(draft.proteinG == 22)
+    }
+
+    @Test func missingItemFallsBackToEstimates() {
+        let draft = SuggestedFoodsLogger.draft(for: enrichedFood(item: nil))
 
         #expect(draft.isEstimated == true)
+        #expect(draft.foodName == "Chicken Breast")
+        #expect(draft.servingGrams == 200)
         #expect(draft.proteinG == 50)
         #expect(draft.carbsG == 90)
         #expect(draft.fatG == 16)
         #expect(draft.calories == 704)
+        #expect(draft.fibreG == 0)
+        #expect(draft.sodiumMg == 0)
         #expect(draft.barcode == nil)
     }
 
-    @Test func emptyResultsFallBackToEstimates() async {
-        let logger = SuggestedFoodsLogger(search: { _ in [] })
-        let draft = await logger.draft(for: food)
-        #expect(draft.isEstimated == true)
-    }
-
-    @Test func estimatedDraftCapitalizesTheName() {
-        let draft = SuggestedFoodsLogger.estimatedDraft(for: food)
-        #expect(draft.foodName == "Chicken Breast")
-        #expect(draft.servingGrams == 200)
+    @Test func estimatedNutritionFormula() {
+        let n = SuggestedFoodsLogger.estimatedNutrition(for: 100)
+        #expect(n.proteinG == 25)
+        #expect(n.carbsG == 45)
+        #expect(n.fatG == 8)
+        #expect(n.calories == 352)
+        #expect(n.fibreG == 0)
+        #expect(n.sugarG == 0)
+        #expect(n.sodiumMg == 0)
     }
 }

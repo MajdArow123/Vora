@@ -249,6 +249,27 @@ final class HomeViewModel {
         )
     }
 
+    var dailyTargets: MacroTargets {
+        MacroTargets(
+            calories: profile?.dailyCalorieTarget ?? 0,
+            proteinG: profile?.proteinTargetG ?? 0,
+            carbsG: profile?.carbsTargetG ?? 0,
+            fatG: profile?.fatTargetG ?? 0
+        )
+    }
+
+    /// What's left of one slot's share of the daily targets — what the AI
+    /// suggestion should fill for that meal.
+    func mealRemaining(for slot: MealSlot) -> RemainingMacros {
+        MealAllocation.remaining(
+            for: slot,
+            daily: dailyTargets,
+            slotConsumed: todayFood
+                .filter { $0.mealSlot == slot }
+                .map { ($0.calories, $0.proteinG, $0.carbsG, $0.fatG) }
+        )
+    }
+
     var waterTotalMl: Double { todayWater.reduce(0) { $0 + $1.amountMl } }
     var waterTargetMl: Double { profile?.waterTargetMl ?? 3500 }
     var glassCount: Int { Int((waterTotalMl / FoodDiaryViewModel.glassMl).rounded(.down)) }

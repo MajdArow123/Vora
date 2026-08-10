@@ -8,13 +8,11 @@
 import SwiftUI
 import SwiftData
 
-/// Full AI meal suggestion sheet: remaining-macro summary, meal-type
-/// override, preference input, the generated meal with its foods, and
+/// Full AI meal suggestion sheet: per-meal budget summary, meal-type
+/// override, preference input, the generated meal with editable foods, and
 /// one-tap logging of everything. Opened from the Food diary header, the
 /// Home suggestion card, and the evening protein insight on Home.
 struct AIMealSuggestionView: View {
-    let remaining: RemainingMacros
-    let goal: GoalType
     let logDate: Date
 
     @Environment(\.dismiss) private var dismiss
@@ -23,14 +21,16 @@ struct AIMealSuggestionView: View {
     @State private var computedMealType: MealSlot = .snack
     @State private var mealTypeOverride: MealSlot?
     @State private var preferenceText = ""
-    @State private var searchFood: SuggestedFood?
+    @State private var searchFood: EnrichedFood?
     @State private var showingSlotPicker = false
     @State private var selectedSlot: MealSlot = .dinner
     @State private var logAllState: LogAllState = .idle
+    @State private var profile: UserProfile?
+    @State private var dayEntries: [FoodEntry] = []
+    @State private var trainedToday = false
 
     private enum LogAllState: Equatable {
         case idle
-        case logging(completed: Int, total: Int)
         case success(count: Int, slot: MealSlot, usedEstimates: Bool)
     }
 
@@ -39,12 +39,44 @@ struct AIMealSuggestionView: View {
         "Quick meal", "High protein", "Pasta", "Salad",
     ]
 
-    /// Within this many kcal of the daily target the day counts as done.
-    private static let doneThreshold = 50
+    /// Within this many kcal of the daily target the day counts as done —
+    /// no meaningful meal fits, so never call the API below this.
+    private static let doneThreshold = 200
+
+    private static let gramStep: Double = 10
+    private static let minimumGrams: Double = 10
 
     private var effectiveMealType: MealSlot { mealTypeOverride ?? computedMealType }
     private var isLoading: Bool { viewModel.state == .loading }
-    private var targetsHit: Bool { remaining.calories < Self.doneThreshold }
+    private var goal: GoalType { profile?.goalType ?? .maintain }
+
+    private var dailyTargets: MacroTargets {
+        MacroTargets(
+            calories: profile?.dailyCalorieTarget ?? 0,
+            proteinG: profile?.proteinTargetG ?? 0,
+            carbsG: profile?.carbsTargetG ?? 0,
+            fatG: profile?.fatTargetG ?? 0
+        )
+    }
+
+    private var targetsHit: Bool {
+        let consumed = Int(dayEntries.reduce(0) { $0 + $1.calories }.rounded())
+        return dailyTargets.calories - consumed <= Self.doneThreshold
+    }
+
+    /// What's left of this slot's share of the daily targets — the numbers
+    /// the backend is asked to fill.
+    private var mealRemaining: RemainingMacros {
+        MealAllocation.remaining(
+            for: effectiveMealType,
+            daily: dailyTargets,
+            slotConsumed: dayEntries
+                .filter { $0.mealSlot == effectiveMealType }
+                .map { ($0.calories, $0.proteinG, $0.carbsG, $0.fatG) }
+        )
+    }
+
+    private var slotHit: Bool { MealAllocation.isSlotHit(mealRemaining) }
 
     var body: some View {
         NavigationStack {
@@ -57,11 +89,20 @@ struct AIMealSuggestionView: View {
                         if targetsHit {
                             targetsHitCard
                         } else {
-                            remainingRow
                             mealTypeIndicator
-                            preferenceSection
-                            generateButton
-                            resultSection
+                            // The success card outranks the slot-hit gate:
+                            // logging can fill the slot moments before the
+                            // sheet auto-dismisses.
+                            if case .success = logAllState {
+                                successCard
+                            } else if slotHit {
+                                slotHitCard
+                            } else {
+                                mealBudgetRow
+                                preferenceSection
+                                generateButton
+                                resultSection
+                            }
                         }
                     }
                     .padding(.horizontal, DesignSystem.Spacing.lg)
@@ -78,19 +119,39 @@ struct AIMealSuggestionView: View {
                 }
             }
         }
+        // Presented via fullScreenCover: an opaque cover stops the
+        // presenting tab's content bleeding through during re-renders.
+        .background(DesignSystem.Colors.background)
         .onAppear {
+            loadDayContext()
             computedMealType = MealSuggestionContext.mealType(
                 hour: Calendar.current.component(.hour, from: logDate),
-                hasTrainedToday: hasTrainedToday(),
-                loggedSlots: loggedSlotsToday()
+                hasTrainedToday: trainedToday,
+                loggedSlots: Set(dayEntries.map(\.mealSlot))
             )
             viewModel.loadCached()
         }
-        .sheet(item: $searchFood) { food in
+        // Fresh suggestions only arrive while the card is visible, so this
+        // never enriches behind a hidden card.
+        .onChange(of: viewModel.state) { _, newState in
+            if case .loaded = newState {
+                viewModel.enrich()
+            }
+        }
+        .onDisappear {
+            viewModel.cancelEnrichment()
+        }
+        .sheet(item: $searchFood, onDismiss: {
+            // A food may have been logged in the search sheet, changing
+            // this slot's remaining budget.
+            loadDayContext()
+        }) { food in
             FoodSearchView(
                 mealSlot: effectiveMealType,
                 logDate: logDate,
-                initialQuery: food.name
+                // The AI's clean generic name seeds better searches than a
+                // brand-noisy OpenFoodFacts product name.
+                initialQuery: food.suggestedName
             )
         }
         .sheet(isPresented: $showingSlotPicker) {
@@ -121,31 +182,42 @@ struct AIMealSuggestionView: View {
         .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
     }
 
-    private var remainingRow: some View {
-        HStack(spacing: 0) {
-            remainingColumn("\(max(0, remaining.calories))", "kcal")
-            remainingColumn("\(max(0, remaining.proteinG))g", "protein")
-            remainingColumn("\(max(0, remaining.carbsG))g", "carbs")
-            remainingColumn("\(max(0, remaining.fatG))g", "fat")
+    private var slotHitCard: some View {
+        VStack(spacing: DesignSystem.Spacing.sm) {
+            Image(systemName: "checkmark.seal.fill")
+                .font(.largeTitle)
+                .foregroundStyle(DesignSystem.Colors.accent)
+                .accessibilityHidden(true)
+            Text("You've already hit your \(effectiveMealType.displayName.lowercased()) target.\nPick another meal above.")
+                .font(DesignSystem.Typography.body)
+                .foregroundStyle(DesignSystem.Colors.textSecondary)
+                .multilineTextAlignment(.center)
         }
-        .padding(.vertical, DesignSystem.Spacing.sm)
+        .frame(maxWidth: .infinity)
+        .padding(DesignSystem.Spacing.lg)
         .background(DesignSystem.Colors.card)
         .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Remaining today")
-        .accessibilityValue("\(max(0, remaining.calories)) kilocalories, \(max(0, remaining.proteinG)) grams protein, \(max(0, remaining.carbsG)) grams carbs, \(max(0, remaining.fatG)) grams fat")
     }
 
-    private func remainingColumn(_ value: String, _ label: String) -> some View {
-        VStack(spacing: 2) {
-            Text(value)
+    private var mealBudgetRow: some View {
+        VStack(alignment: .leading, spacing: DesignSystem.Spacing.xs) {
+            Text("\(Text("~\(mealRemaining.calories) kcal").foregroundStyle(DesignSystem.Colors.accent)) suggested for \(effectiveMealType.displayName.lowercased())")
                 .font(DesignSystem.Typography.headline)
-                .foregroundStyle(DesignSystem.Colors.accent)
-            Text(label)
+                .foregroundStyle(DesignSystem.Colors.textPrimary)
+            Text("\(mealRemaining.proteinG)g protein · \(mealRemaining.carbsG)g carbs · \(mealRemaining.fatG)g fat for this meal")
+                .font(DesignSystem.Typography.caption)
+                .foregroundStyle(DesignSystem.Colors.textSecondary)
+            Text("(based on your daily targets)")
                 .font(DesignSystem.Typography.caption)
                 .foregroundStyle(DesignSystem.Colors.textSecondary)
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(DesignSystem.Spacing.md)
+        .background(DesignSystem.Colors.card)
+        .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Meal budget")
+        .accessibilityValue("\(mealRemaining.calories) kilocalories, \(mealRemaining.proteinG) grams protein, \(mealRemaining.carbsG) grams carbs, \(mealRemaining.fatG) grams fat suggested for \(effectiveMealType.displayName), based on your daily targets")
     }
 
     private var mealTypeIndicator: some View {
@@ -252,11 +324,7 @@ struct AIMealSuggestionView: View {
             EmptyView()
 
         case .loaded(let suggestion):
-            if case .success = logAllState {
-                successCard
-            } else {
-                suggestionCard(suggestion)
-            }
+            suggestionCard(suggestion)
 
         case .failed(let message):
             VStack(alignment: .leading, spacing: DesignSystem.Spacing.sm) {
@@ -287,13 +355,25 @@ struct AIMealSuggestionView: View {
 
             Divider()
 
+            if !viewModel.activeFoods.isEmpty {
+                mealTotalLine
+            }
+
             Text("What you'll need:")
                 .font(DesignSystem.Typography.caption)
                 .foregroundStyle(DesignSystem.Colors.textSecondary)
                 .textCase(.uppercase)
 
-            ForEach(suggestion.foods) { food in
-                foodRow(food)
+            if viewModel.activeFoods.isEmpty {
+                Text("All foods removed — refresh for a new suggestion")
+                    .font(DesignSystem.Typography.caption)
+                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, DesignSystem.Spacing.sm)
+            } else {
+                ForEach(viewModel.activeFoods) { food in
+                    foodRow(food)
+                }
             }
 
             if !suggestion.cookingTip.isEmpty {
@@ -302,7 +382,9 @@ struct AIMealSuggestionView: View {
 
             Divider()
 
-            logAllButton(total: suggestion.foods.count)
+            if !viewModel.activeFoods.isEmpty {
+                logAllButton
+            }
             GhostButton(title: "Refresh suggestion") {
                 Task { await generate() }
             }
@@ -312,39 +394,139 @@ struct AIMealSuggestionView: View {
         .padding(DesignSystem.Spacing.md)
         .background(DesignSystem.Colors.card)
         .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
-    }
-
-    private func foodRow(_ food: SuggestedFood) -> some View {
-        HStack(spacing: DesignSystem.Spacing.sm) {
-            Text(food.name.capitalized)
-                .font(DesignSystem.Typography.body)
-                .foregroundStyle(DesignSystem.Colors.textPrimary)
-            Spacer()
-            Text("\(Int(food.grams.rounded()))g")
-                .font(DesignSystem.Typography.headline)
-                .foregroundStyle(DesignSystem.Colors.accent)
-            Button {
-                searchFood = food
-            } label: {
-                Image(systemName: "magnifyingglass")
-                    .font(.caption)
-                    .foregroundStyle(DesignSystem.Colors.textSecondary)
-                    .frame(width: 32, height: 32)
-                    .contentShape(Rectangle())
+        // Covers a cached suggestion revealed after appear (or after a
+        // slot switch away from a hit slot) — a hidden card never enriches.
+        .onAppear {
+            if viewModel.enrichedFoods.isEmpty {
+                viewModel.enrich()
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Search for \(food.name)")
         }
     }
 
+    /// Live total over the non-removed foods; turns amber once the user
+    /// has edited grams or removed a food, so what changed is obvious.
+    private var mealTotalLine: some View {
+        let totals = viewModel.mealTotals
+        let macros = "\(Int(totals.proteinG.rounded()))g P · \(Int(totals.carbsG.rounded()))g C · \(Int(totals.fatG.rounded()))g F"
+        return Group {
+            if viewModel.hasEdits {
+                Text("Edited: ~\(Int(totals.calories.rounded())) kcal · \(macros)")
+                    .font(DesignSystem.Typography.caption.weight(.semibold))
+                    .foregroundStyle(DesignSystem.Colors.warning)
+            } else {
+                Text("This meal: \(Text("~\(Int(totals.calories.rounded())) kcal").foregroundStyle(DesignSystem.Colors.accent)) · \(macros)")
+                    .font(DesignSystem.Typography.caption.weight(.semibold))
+                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(viewModel.hasEdits ? "Edited meal total" : "Meal total")
+        .accessibilityValue("\(Int(totals.calories.rounded())) kilocalories, \(Int(totals.proteinG.rounded())) grams protein, \(Int(totals.carbsG.rounded())) grams carbs, \(Int(totals.fatG.rounded())) grams fat")
+    }
+
+    private func foodRow(_ food: EnrichedFood) -> some View {
+        SwipeToRemoveRow(removeLabel: "Remove \(food.suggestedName)", onRemove: {
+            viewModel.removeFood(id: food.id)
+        }) {
+            HStack(spacing: DesignSystem.Spacing.xs) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: DesignSystem.Spacing.xs) {
+                        Text(food.displayName)
+                            .font(DesignSystem.Typography.body)
+                            .foregroundStyle(DesignSystem.Colors.textPrimary)
+                            .lineLimit(1)
+                        if food.isLoading {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                    }
+                    Text(macroLine(for: food))
+                        .font(DesignSystem.Typography.caption)
+                        .foregroundStyle(DesignSystem.Colors.textSecondary)
+                        .monospacedDigit()
+                }
+                Spacer(minLength: DesignSystem.Spacing.sm)
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        viewModel.adjustGrams(id: food.id, by: -Self.gramStep, minimum: Self.minimumGrams)
+                    }
+                } label: {
+                    Image(systemName: "minus.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(food.editedGrams > Self.minimumGrams
+                                         ? DesignSystem.Colors.accent
+                                         : DesignSystem.Colors.textSecondary.opacity(0.3))
+                        .frame(width: 36, height: 36)
+                }
+                .buttonStyle(.plain)
+                .disabled(food.editedGrams <= Self.minimumGrams)
+                .accessibilityLabel("Decrease \(food.suggestedName) amount")
+                Text("\(Int(food.editedGrams.rounded()))g")
+                    .font(DesignSystem.Typography.headline)
+                    .foregroundStyle(DesignSystem.Colors.accent)
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+                    .accessibilityLabel("\(food.suggestedName) amount")
+                    .accessibilityValue(foodAccessibilityValue(for: food))
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        viewModel.adjustGrams(id: food.id, by: Self.gramStep, minimum: Self.minimumGrams)
+                    }
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(DesignSystem.Colors.accent)
+                        .frame(width: 36, height: 36)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Increase \(food.suggestedName) amount")
+                Button {
+                    searchFood = food
+                } label: {
+                    Image(systemName: "magnifyingglass")
+                        .font(.caption)
+                        .foregroundStyle(DesignSystem.Colors.textSecondary)
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Search for \(food.suggestedName)")
+            }
+        }
+    }
+
+    /// "~" marks every value that comes from the generic estimate rather
+    /// than real OpenFoodFacts data (including while the lookup runs).
+    private func macroLine(for food: EnrichedFood) -> String {
+        let n = food.nutrition
+        let mark = food.isApproximate ? "~" : ""
+        return "\(mark)\(Int(n.proteinG.rounded()))g P · \(mark)\(Int(n.carbsG.rounded()))g C · \(mark)\(Int(n.fatG.rounded()))g F"
+    }
+
+    private func foodAccessibilityValue(for food: EnrichedFood) -> String {
+        let n = food.nutrition
+        let quality = food.isLoading
+            ? "loading nutrition"
+            : (food.isApproximate ? "estimated" : "")
+        return [
+            "\(Int(food.editedGrams.rounded())) grams",
+            "\(Int(n.proteinG.rounded())) grams protein",
+            "\(Int(n.carbsG.rounded())) grams carbs",
+            "\(Int(n.fatG.rounded())) grams fat",
+            quality,
+        ].filter { !$0.isEmpty }.joined(separator: ", ")
+    }
+
     @ViewBuilder
-    private func logAllButton(total: Int) -> some View {
-        if case .logging(let completed, let loggingTotal) = logAllState {
+    private var logAllButton: some View {
+        if viewModel.isEnriching {
+            // Logging uses the enrichment results, so it waits for them —
+            // the numbers logged are exactly the numbers shown.
             Button {} label: {
                 HStack(spacing: DesignSystem.Spacing.sm) {
                     ProgressView()
                         .tint(.white)
-                    Text("Adding \(min(completed + 1, loggingTotal)) of \(loggingTotal)...")
+                    Text("Loading nutrition...")
                 }
                 .font(DesignSystem.Typography.headline)
                 .frame(maxWidth: .infinity)
@@ -395,9 +577,12 @@ struct AIMealSuggestionView: View {
     // MARK: - Actions
 
     private func generate() async {
+        // The button isn't rendered when the slot is hit; this guard
+        // documents the <100 kcal contract above the service's <=0 guard.
+        guard !slotHit else { return }
         logAllState = .idle
         await viewModel.load(
-            remaining: remaining,
+            remaining: mealRemaining,
             goal: goal,
             mealType: effectiveMealType,
             preference: MealSuggestionService.normalizedPreference(preferenceText),
@@ -406,16 +591,10 @@ struct AIMealSuggestionView: View {
     }
 
     private func logAll(to slot: MealSlot) async {
-        guard case .loaded(let suggestion) = viewModel.state, !suggestion.foods.isEmpty else { return }
-
-        let logger = SuggestedFoodsLogger()
-        var drafts: [LoggedFoodDraft] = []
-        // Sequential on purpose: OpenFoodFacts search is rate-limited, and
-        // one request at a time gives natural per-food progress.
-        for (index, food) in suggestion.foods.enumerated() {
-            logAllState = .logging(completed: index, total: suggestion.foods.count)
-            drafts.append(await logger.draft(for: food))
-        }
+        // Pure local mapping of the enrichment results — no network, so
+        // the logged entries are exactly what the sheet displayed.
+        let drafts = viewModel.activeFoods.map { SuggestedFoodsLogger.draft(for: $0) }
+        guard !drafts.isEmpty else { return }
 
         for draft in drafts {
             modelContext.insert(FoodEntry(
@@ -452,24 +631,25 @@ struct AIMealSuggestionView: View {
 
     // MARK: - Today's context
 
-    private func hasTrainedToday() -> Bool {
-        let cal = Calendar.current
-        let dayStart = cal.startOfDay(for: logDate)
-        guard let dayEnd = cal.date(byAdding: .day, value: 1, to: dayStart) else { return false }
-        let descriptor = FetchDescriptor<WorkoutSession>(
-            predicate: #Predicate { $0.date >= dayStart && $0.date < dayEnd }
-        )
-        return ((try? modelContext.fetch(descriptor)) ?? []).isEmpty == false
-    }
+    /// One pass over the store for everything the sheet derives from the
+    /// day: profile targets, the day's food entries (logged slots, daily
+    /// gate, per-slot budget), and whether a workout happened.
+    private func loadDayContext() {
+        profile = (try? modelContext.fetch(FetchDescriptor<UserProfile>()))?.first
 
-    private func loggedSlotsToday() -> Set<MealSlot> {
         let cal = Calendar.current
         let dayStart = cal.startOfDay(for: logDate)
-        guard let dayEnd = cal.date(byAdding: .day, value: 1, to: dayStart) else { return [] }
-        let descriptor = FetchDescriptor<FoodEntry>(
+        guard let dayEnd = cal.date(byAdding: .day, value: 1, to: dayStart) else { return }
+
+        let foodDescriptor = FetchDescriptor<FoodEntry>(
             predicate: #Predicate { $0.date >= dayStart && $0.date < dayEnd }
         )
-        return Set(((try? modelContext.fetch(descriptor)) ?? []).map(\.mealSlot))
+        dayEntries = (try? modelContext.fetch(foodDescriptor)) ?? []
+
+        let workoutDescriptor = FetchDescriptor<WorkoutSession>(
+            predicate: #Predicate { $0.date >= dayStart && $0.date < dayEnd }
+        )
+        trainedToday = ((try? modelContext.fetch(workoutDescriptor)) ?? []).isEmpty == false
     }
 }
 
@@ -529,10 +709,23 @@ private struct MealSlotPickerSheet: View {
 }
 
 #Preview {
-    AIMealSuggestionView(
-        remaining: RemainingMacros(calories: 700, proteinG: 55, carbsG: 60, fatG: 20),
-        goal: .muscleGain,
-        logDate: .now
+    let container = try! ModelContainer(
+        for: UserProfile.self, FoodEntry.self, WorkoutSession.self,
+        configurations: ModelConfiguration(isStoredInMemoryOnly: true)
     )
-    .modelContainer(for: FoodEntry.self, inMemory: true)
+    container.mainContext.insert(UserProfile(
+        name: "Preview",
+        dateOfBirth: .now,
+        heightCm: 180,
+        biologicalSex: .male,
+        goalType: .muscleGain,
+        activityLevel: .moderatelyActive,
+        trainingSplit: .fullBody,
+        dailyCalorieTarget: 2600,
+        proteinTargetG: 180,
+        carbsTargetG: 280,
+        fatTargetG: 80
+    ))
+    return AIMealSuggestionView(logDate: .now)
+        .modelContainer(container)
 }
