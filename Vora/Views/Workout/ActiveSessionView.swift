@@ -14,6 +14,7 @@ struct ActiveSessionView: View {
     @State private var viewModel: ActiveSessionViewModel
     @State private var showingExercisePicker = false
     @State private var swappingExercise: ActiveSessionViewModel.DraftExercise?
+    @State private var infoExercise: ActiveSessionViewModel.DraftExercise?
     @State private var showingDiscardConfirm = false
     @Query(filter: #Predicate<GymProfile> { $0.isActive })
     private var activeProfiles: [GymProfile]
@@ -55,6 +56,9 @@ struct ActiveSessionView: View {
                             },
                             onSwap: {
                                 swappingExercise = exercise
+                            },
+                            onInfo: {
+                                infoExercise = exercise
                             }
                         )
                         .listRowBackground(Color.clear)
@@ -125,6 +129,9 @@ struct ActiveSessionView: View {
                     context: modelContext
                 )
             }
+        }
+        .sheet(item: $infoExercise) { exercise in
+            ExerciseDetailSheet(exerciseName: exercise.name)
         }
         .sheet(item: $viewModel.summary, onDismiss: { dismiss() }) { summary in
             SessionSummaryView(summary: summary)
@@ -260,6 +267,7 @@ struct ExerciseSessionCard: View {
     var isUnavailable = false
     let onSetCompleted: () -> Void
     var onSwap: () -> Void = {}
+    var onInfo: () -> Void = {}
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignSystem.Spacing.sm) {
@@ -283,6 +291,14 @@ struct ExerciseSessionCard: View {
                     .accessibilityLabel("Not available at your active gym")
                 }
                 Spacer()
+                Button(action: onInfo) {
+                    Image(systemName: "info.circle")
+                        .foregroundStyle(DesignSystem.Colors.textSecondary)
+                        .frame(width: 36, height: 36)
+                        .contentShape(Rectangle().inset(by: -4))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Exercise technique and muscles")
                 Menu {
                     Button {
                         onSwap()

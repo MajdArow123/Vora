@@ -36,6 +36,13 @@ struct ExerciseDefinition: Identifiable, Hashable {
     let name: String
     let muscleGroup: MuscleGroup
     let equipment: Set<EquipmentType>
+    /// Muscles the exercise is programmed to train.
+    let primaryMuscles: Set<Muscle>
+    /// Muscles that assist without being the target; never overlaps
+    /// `primaryMuscles`.
+    let secondaryMuscles: Set<Muscle>
+    /// Short imperative form pointers, shown in the exercise detail view.
+    let techniqueCues: [String]
 
     var id: String { name }
 

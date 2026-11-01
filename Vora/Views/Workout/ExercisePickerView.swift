@@ -18,6 +18,7 @@ struct ExercisePickerView: View {
     @State private var muscleFilter: MuscleGroup?
     @State private var equipmentFilter: EquipmentType?
     @State private var showUnavailable = false
+    @State private var detailExercise: ExerciseDefinition?
 
     /// Nil when no gym profile exists yet (fresh installs before seeding
     /// runs); everything counts as available in that case.
@@ -63,6 +64,9 @@ struct ExercisePickerView: View {
             }
             .navigationTitle("Add Exercise")
             .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(item: $detailExercise) { exercise in
+                ExerciseDetailView(exerciseName: exercise.name)
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Close") { dismiss() }
@@ -183,7 +187,8 @@ struct ExercisePickerView: View {
             title: exercise.name,
             subtitle: "\(exercise.muscleGroup.displayName) · \(exercise.equipmentText)",
             icon: isAvailable ? "dumbbell" : "circle.slash",
-            isAvailable: isAvailable
+            isAvailable: isAvailable,
+            onInfo: { detailExercise = exercise }
         ) {
             select(name: exercise.name, muscleGroups: [exercise.muscleGroup.rawValue])
         }
@@ -194,41 +199,58 @@ struct ExercisePickerView: View {
         dismiss()
     }
 
+    /// A tap on the row selects the exercise; the trailing info button
+    /// (library rows only) navigates to the detail view instead.
     private func row(
         title: String,
         subtitle: String,
         icon: String,
         isAvailable: Bool,
+        onInfo: (() -> Void)? = nil,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
-            HStack(spacing: DesignSystem.Spacing.md) {
-                Image(systemName: icon)
-                    .foregroundStyle(isAvailable
-                                     ? DesignSystem.Colors.accent
-                                     : DesignSystem.Colors.textSecondary)
-                    .frame(width: 28)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title)
-                        .font(DesignSystem.Typography.body)
+        HStack(spacing: 0) {
+            Button(action: action) {
+                HStack(spacing: DesignSystem.Spacing.md) {
+                    Image(systemName: icon)
                         .foregroundStyle(isAvailable
-                                         ? DesignSystem.Colors.textPrimary
+                                         ? DesignSystem.Colors.accent
                                          : DesignSystem.Colors.textSecondary)
-                    Text(subtitle)
-                        .font(DesignSystem.Typography.caption)
-                        .foregroundStyle(DesignSystem.Colors.textSecondary)
+                        .frame(width: 28)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(title)
+                            .font(DesignSystem.Typography.body)
+                            .foregroundStyle(isAvailable
+                                             ? DesignSystem.Colors.textPrimary
+                                             : DesignSystem.Colors.textSecondary)
+                        Text(subtitle)
+                            .font(DesignSystem.Typography.caption)
+                            .foregroundStyle(DesignSystem.Colors.textSecondary)
+                    }
+                    Spacer()
                 }
-                Spacer()
+                .padding(DesignSystem.Spacing.md)
+                .contentShape(Rectangle())
             }
-            .padding(DesignSystem.Spacing.md)
-            .background(DesignSystem.Colors.card)
-            .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
-            .contentShape(Rectangle())
-            .opacity(isAvailable ? 1 : 0.55)
+            .buttonStyle(.plain)
+            .accessibilityHint(isAvailable ? "" : "Not available at your active gym")
+
+            if let onInfo {
+                Button(action: onInfo) {
+                    Image(systemName: "info.circle")
+                        .foregroundStyle(DesignSystem.Colors.textSecondary)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(title) details")
+                .padding(.trailing, DesignSystem.Spacing.xs)
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityHint(isAvailable ? "" : "Not available at your active gym")
+        .background(DesignSystem.Colors.card)
+        .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
+        .opacity(isAvailable ? 1 : 0.55)
     }
 }
 
