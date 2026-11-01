@@ -469,7 +469,7 @@ struct MealSuggestionEnrichmentTests {
                 SuggestedFood(name: "rice", grams: 100, unit: "g"),
                 SuggestedFood(name: "chicken breast", grams: 200, unit: "g"),
             ],
-            search: { name in [makeItem(name: name.capitalized)] }
+            search: { name in [await makeItem(name: name.capitalized)] }
         )
         viewModel.enrich()
         await viewModel.enrichmentTask?.value
@@ -510,7 +510,7 @@ struct MealSuggestionEnrichmentTests {
             ],
             search: { name in
                 _ = await counter.increment()
-                return [makeItem(name: name.capitalized)]
+                return [await makeItem(name: name.capitalized)]
             }
         )
         viewModel.enrich()
@@ -535,7 +535,7 @@ struct MealSuggestionEnrichmentTests {
                 for await _ in release {}
                 return []
             }
-            return [makeItem(name: name.capitalized)]
+            return [await makeItem(name: name.capitalized)]
         })
 
         viewModel.enrich()
@@ -562,7 +562,7 @@ struct MealSuggestionEnrichmentTests {
         let (stream, continuation) = AsyncStream.makeStream(of: Void.self)
         let viewModel = loadedViewModel(search: { _ in
             for await _ in stream {}
-            return [makeItem(name: "Late Result")]
+            return [await makeItem(name: "Late Result")]
         })
 
         viewModel.enrich()
@@ -628,7 +628,7 @@ struct MealSuggestionEnrichmentTests {
                 SuggestedFood(name: "rice", grams: 100, unit: "g"),
                 SuggestedFood(name: "chicken breast", grams: 100, unit: "g"),
             ],
-            search: { name in [makeItem(name: name.capitalized)] }
+            search: { name in [await makeItem(name: name.capitalized)] }
         )
         viewModel.enrich()
         await viewModel.enrichmentTask?.value

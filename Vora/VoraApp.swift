@@ -12,6 +12,7 @@ import SwiftData
 struct VoraApp: App {
     @AppStorage(AppearanceSetting.storageKey) private var appearance: AppearanceSetting = .system
     @Environment(\.scenePhase) private var scenePhase
+    @State private var dataStore = AppDataStore()
 
     init() {
         // Meal suggestions moved to the ProTracker backend; remove any
@@ -19,50 +20,26 @@ struct VoraApp: App {
         UserDefaults.standard.removeObject(forKey: "vora.anthropic.apiKey")
     }
 
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            UserProfile.self,
-            FoodEntry.self,
-            CustomFood.self,
-            WorkoutSession.self,
-            ExerciseLog.self,
-            SetEntry.self,
-            WeightEntry.self,
-            BodyMeasurement.self,
-            WaterEntry.self,
-            CardioEntry.self,
-            SplitDay.self,
-            SavedMeal.self,
-            SavedMealItem.self,
-            Recipe.self,
-            RecipeIngredient.self,
-            Supplement.self,
-            SupplementLog.self,
-            GymProfile.self,
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-
-        do {
-            let container = try ModelContainer(for: schema, configurations: [modelConfiguration])
-            #if DEBUG
-            DemoSeeder.seedIfRequested(container: container)
-            #endif
-            GymProfileService.ensureDefaultProfile(context: ModelContext(container))
-            return container
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
-        }
-    }()
-
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .preferredColorScheme(appearance.colorScheme)
-                .onChange(of: scenePhase, initial: true) { _, phase in
-                    guard phase == .active else { return }
-                    NotificationService.shared.refreshAll(context: sharedModelContainer.mainContext)
+            Group {
+                switch dataStore.state {
+                case .loading:
+                    DesignSystem.Colors.background
+                        .ignoresSafeArea()
+                case .ready(let container):
+                    ContentView()
+                        .modelContainer(container)
+                        .onChange(of: scenePhase, initial: true) { _, phase in
+                            guard phase == .active else { return }
+                            NotificationService.shared.refreshAll(context: container.mainContext)
+                        }
+                case .failed(let details):
+                    DataStoreErrorView(details: details, onRetry: dataStore.retry)
                 }
+            }
+            .preferredColorScheme(appearance.colorScheme)
+            .task { dataStore.load() }
         }
-        .modelContainer(sharedModelContainer)
     }
 }

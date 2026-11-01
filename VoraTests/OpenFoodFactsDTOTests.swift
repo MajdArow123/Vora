@@ -275,7 +275,7 @@ struct OpenFoodFactsDTOTests {
         let response = try JSONDecoder().decode(OFFSearchResponse.self, from: Data(json.utf8))
         #expect(response.products.count == 3)
 
-        let usable = response.products.compactMap(FoodItem.init(offProduct:))
+        let usable = response.products.compactMap { FoodItem(offProduct: $0) }
         #expect(usable.map(\.name) == ["Good Product"])
     }
 
