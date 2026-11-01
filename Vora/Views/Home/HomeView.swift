@@ -85,7 +85,10 @@ struct HomeView: View {
         .fullScreenCover(isPresented: $showingSession, onDismiss: {
             viewModel.load(from: modelContext)
         }) {
-            ActiveSessionView(sessionName: viewModel.todaySplitDay?.title ?? "Workout")
+            ActiveSessionView(
+                sessionName: viewModel.todaySplitDay?.title ?? "Workout",
+                units: viewModel.profile?.preferredUnits ?? .metric
+            )
         }
         .sheet(item: $quickLogSlot, onDismiss: {
             viewModel.load(from: modelContext)

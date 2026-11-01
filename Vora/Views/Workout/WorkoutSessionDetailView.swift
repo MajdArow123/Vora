@@ -11,6 +11,7 @@ import SwiftData
 struct WorkoutSessionDetailView: View {
     @Environment(\.modelContext) private var modelContext
     let session: WorkoutSession
+    @Query private var profiles: [UserProfile]
 
     @State private var cardioEntries: [CardioEntry] = []
 
@@ -49,10 +50,14 @@ struct WorkoutSessionDetailView: View {
 
     // MARK: - Stats
 
+    private var units: UnitSystem {
+        profiles.first?.preferredUnits ?? .metric
+    }
+
     private var statsRow: some View {
         HStack(spacing: DesignSystem.Spacing.sm) {
             stat(value: Self.durationString(session.durationSeconds), label: "Duration")
-            stat(value: "\(Int(session.totalVolumeKg.rounded())) kg", label: "Volume")
+            stat(value: UnitConversion.volumeText(kg: session.totalVolumeKg, units: units), label: "Volume")
             stat(value: "\(completedSetCount)", label: "Sets Done")
         }
     }
@@ -90,7 +95,7 @@ struct WorkoutSessionDetailView: View {
             HStack {
                 Text("SET")
                     .frame(width: 34, alignment: .leading)
-                Text("KG")
+                Text(UnitConversion.weightUnitSymbol(units).uppercased())
                     .frame(maxWidth: .infinity, alignment: .center)
                 Text("REPS")
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -115,7 +120,7 @@ struct WorkoutSessionDetailView: View {
                 .foregroundStyle(DesignSystem.Colors.textSecondary)
                 .frame(width: 34, alignment: .leading)
 
-            Text(ActiveSessionViewModel.weightString(set.weightKg))
+            Text(UnitConversion.weightNumberText(kg: set.weightKg, units: units))
                 .font(DesignSystem.Typography.headline)
                 .foregroundStyle(DesignSystem.Colors.textPrimary)
                 .frame(maxWidth: .infinity, alignment: .center)
@@ -141,7 +146,7 @@ struct WorkoutSessionDetailView: View {
         )
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
-            "Set \(set.setNumber), \(ActiveSessionViewModel.weightString(set.weightKg)) kilograms, \(set.reps) reps\(set.isCompleted ? ", completed" : "")"
+            "Set \(set.setNumber), \(UnitConversion.weightNumberText(kg: set.weightKg, units: units)) \(UnitConversion.spokenWeightUnit(units)), \(set.reps) reps\(set.isCompleted ? ", completed" : "")"
         )
     }
 

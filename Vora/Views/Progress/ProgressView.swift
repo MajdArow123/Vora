@@ -54,7 +54,7 @@ struct ProgressView: View {
                             }
                             weightLogCard
                         case .strength:
-                            StrengthProgressSection(viewModel: strengthViewModel)
+                            StrengthProgressSection(viewModel: strengthViewModel, units: viewModel.unitSystem)
                         case .nutrition:
                             NutritionProgressSection(viewModel: nutritionViewModel)
                         }

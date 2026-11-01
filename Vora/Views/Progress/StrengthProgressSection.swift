@@ -10,6 +10,7 @@ import Charts
 
 struct StrengthProgressSection: View {
     @Bindable var viewModel: StrengthProgressViewModel
+    let units: UnitSystem
 
     var body: some View {
         progressionCard
@@ -31,7 +32,7 @@ struct StrengthProgressSection: View {
                     exercisePicker
                     Spacer()
                     if let latest = viewModel.progression.last {
-                        Text("Peak strength \(String(format: "%.1f", latest.estimatedOneRepMax)) kg")
+                        Text("Peak strength \(UnitConversion.liftWeightText(kg: latest.estimatedOneRepMax, units: units))")
                             .font(DesignSystem.Typography.headline)
                             .foregroundStyle(DesignSystem.Colors.accent)
                     }
@@ -90,7 +91,7 @@ struct StrengthProgressSection: View {
         Chart(viewModel.progression) { entry in
             AreaMark(
                 x: .value("Date", entry.date, unit: .day),
-                y: .value("Weight", entry.bestWeightKg)
+                y: .value("Weight", UnitConversion.displayWeight(kg: entry.bestWeightKg, units: units))
             )
             .foregroundStyle(
                 LinearGradient(
@@ -102,7 +103,7 @@ struct StrengthProgressSection: View {
 
             LineMark(
                 x: .value("Date", entry.date, unit: .day),
-                y: .value("Weight", entry.bestWeightKg)
+                y: .value("Weight", UnitConversion.displayWeight(kg: entry.bestWeightKg, units: units))
             )
             .foregroundStyle(DesignSystem.Colors.accent)
             .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round))
@@ -127,7 +128,7 @@ struct StrengthProgressSection: View {
     }
 
     private var progressionDomain: ClosedRange<Double> {
-        let weights = viewModel.progression.map(\.bestWeightKg)
+        let weights = viewModel.progression.map { UnitConversion.displayWeight(kg: $0.bestWeightKg, units: units) }
         guard let min = weights.min(), let max = weights.max() else { return 0...1 }
         let pad = Swift.max((max - min) * 0.15, 0.5)
         return (min - pad)...(max + pad)
@@ -136,7 +137,7 @@ struct StrengthProgressSection: View {
     private var progressionSummary: String {
         guard let first = viewModel.progression.first,
               let last = viewModel.progression.last else { return "" }
-        return "From \(ActiveSessionViewModel.weightString(first.bestWeightKg)) to \(ActiveSessionViewModel.weightString(last.bestWeightKg)) kilograms across \(viewModel.progression.count) sessions"
+        return "From \(UnitConversion.weightNumberText(kg: first.bestWeightKg, units: units)) to \(UnitConversion.weightNumberText(kg: last.bestWeightKg, units: units)) \(UnitConversion.spokenWeightUnit(units)) across \(viewModel.progression.count) sessions"
     }
 
     // MARK: - Weekly volume
@@ -151,7 +152,7 @@ struct StrengthProgressSection: View {
                 Chart(viewModel.weeklyVolume) { point in
                     BarMark(
                         x: .value("Week", point.weekStart, unit: .weekOfYear),
-                        y: .value("Volume", point.volumeKg)
+                        y: .value("Volume", UnitConversion.displayWeight(kg: point.volumeKg, units: units))
                     )
                     .foregroundStyle(DesignSystem.Colors.accent)
                     .cornerRadius(4)
@@ -187,7 +188,8 @@ struct StrengthProgressSection: View {
         let points = viewModel.weeklyVolume
         guard !points.isEmpty else { return "" }
         let average = points.map(\.volumeKg).reduce(0, +) / Double(points.count)
-        return "Averaging \(Int(average.rounded())) kilograms per week over \(points.count) weeks"
+        let display = UnitConversion.displayWeight(kg: average, units: units)
+        return "Averaging \(Int(display.rounded())) \(UnitConversion.spokenWeightUnit(units)) per week over \(points.count) weeks"
     }
 
     // MARK: - Cardio
@@ -269,7 +271,7 @@ struct StrengthProgressSection: View {
 #Preview {
     ScrollView {
         VStack(spacing: DesignSystem.Spacing.md) {
-            StrengthProgressSection(viewModel: StrengthProgressViewModel())
+            StrengthProgressSection(viewModel: StrengthProgressViewModel(), units: .metric)
         }
         .padding()
     }

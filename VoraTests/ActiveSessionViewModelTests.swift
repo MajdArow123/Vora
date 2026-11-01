@@ -65,14 +65,66 @@ struct ActiveSessionViewModelTests {
 
     @Test func previousSetTextDropsTrailingZeroForWholeWeights() {
         let whole = ActiveSessionViewModel.PreviousSet(weightKg: 100, reps: 8)
-        #expect(whole.text == "100×8")
+        #expect(whole.text(units: .metric) == "100×8")
         let fractional = ActiveSessionViewModel.PreviousSet(weightKg: 82.5, reps: 5)
-        #expect(fractional.text == "82.5×5")
+        #expect(fractional.text(units: .metric) == "82.5×5")
+        let microplate = ActiveSessionViewModel.PreviousSet(weightKg: 101.25, reps: 3)
+        #expect(microplate.text(units: .metric) == "101.25×3")
     }
 
-    @Test func weightStringFormatsWholeAndFractionalValues() {
-        #expect(ActiveSessionViewModel.weightString(100) == "100")
-        #expect(ActiveSessionViewModel.weightString(82.5) == "82.5")
+    @Test func previousSetTextUsesPoundsForImperial() {
+        let set = ActiveSessionViewModel.PreviousSet(weightKg: UnitConversion.kg(fromPounds: 225), reps: 5)
+        #expect(set.text(units: .imperial) == "225×5")
+    }
+
+    // MARK: - Units
+
+    @Test func imperialDraftSetParsesPoundsIntoKilograms() throws {
+        var set = ActiveSessionViewModel.DraftSet(units: .imperial)
+        set.weightText = "225"
+        let kg = try #require(set.weightKg)
+        #expect(abs(kg - 225 / UnitConversion.poundsPerKg) < 1e-9)
+        #expect(UnitConversion.weightNumberText(kg: kg, units: .imperial) == "225")
+    }
+
+    @Test func prefilledWeightKeepsExactKilogramsUntilEdited() throws {
+        var set = ActiveSessionViewModel.DraftSet(units: .imperial)
+        set.setWeight(kg: 100)
+        // 100 kg shows as 220.46 lb, but the untouched value stays 100 kg.
+        #expect(set.weightText == "220.46")
+        #expect(set.weightKg == 100)
+
+        set.weightText = "225"
+        let edited = try #require(set.weightKg)
+        #expect(abs(edited - UnitConversion.kg(fromPounds: 225)) < 1e-9)
+    }
+
+    @Test func imperialSessionPrefillsInPoundsAndSavesKilograms() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        insertSession(
+            context,
+            date: try #require(Calendar.current.date(byAdding: .day, value: -2, to: .now)),
+            exercise: "Bench Press",
+            sets: [(UnitConversion.kg(fromPounds: 225), 5, true)]
+        )
+        try context.save()
+
+        let viewModel = ActiveSessionViewModel(sessionName: "Push", units: .imperial)
+        viewModel.addExercise(name: "Bench Press", muscleGroups: ["chest"], context: context)
+        #expect(viewModel.exercises[0].sets[0].weightText == "225")
+        #expect(viewModel.exercises[0].previousSets.map { $0.text(units: .imperial) } == ["225×5"])
+
+        let exercise = viewModel.exercises[0]
+        #expect(viewModel.toggleCompletion(setID: exercise.sets[0].id, in: exercise.id))
+        let expectedVolume = UnitConversion.kg(fromPounds: 225) * 5
+        #expect(abs(viewModel.totalVolumeKg - expectedVolume) < 1e-9)
+
+        viewModel.finish(context: context)
+
+        let sessions = try context.fetch(FetchDescriptor<WorkoutSession>(sortBy: [SortDescriptor(\.date, order: .reverse)]))
+        let saved = try #require(sessions.first?.exercises.first?.sets.first)
+        #expect(abs(saved.weightKg - UnitConversion.kg(fromPounds: 225)) < 1e-9)
     }
 
     // MARK: - Exercise management
@@ -109,7 +161,7 @@ struct ActiveSessionViewModelTests {
 
         let exercise = try #require(viewModel.exercises.first)
         #expect(exercise.previousSets.count == 2)
-        #expect(exercise.previousSets.map(\.text) == ["60×10", "62.5×8"])
+        #expect(exercise.previousSets.map { $0.text(units: .metric) } == ["60×10", "62.5×8"])
         #expect(exercise.sets[0].weightText == "60")
         #expect(exercise.sets[0].repsText == "10")
     }

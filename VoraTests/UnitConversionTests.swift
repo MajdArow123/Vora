@@ -29,6 +29,57 @@ struct UnitConversionTests {
         #expect(abs(roundTripped - kg) < 1e-9)
     }
 
+    // MARK: - Lifted weight
+
+    @Test(arguments: [
+        (82.5, "82.5"), (102.25, "102.25"), (225.0, "225"), (100.0, "100"),
+        (1.25, "1.25"), (0.125, "0.13"), (0.0, "0"), (1000.0, "1000"),
+    ])
+    func weightNumberTextTrimsToTwoDecimals(kg: Double, expected: String) {
+        #expect(UnitConversion.weightNumberText(kg: kg, units: .metric) == expected)
+    }
+
+    @Test(arguments: [45.0, 135.0, 185.5, 225.0, 315.0, 102.25])
+    func poundsInputRoundTripsWithoutDrift(pounds: Double) throws {
+        let kg = try #require(UnitConversion.parseWeight(String(pounds), units: .imperial))
+        #expect(abs(UnitConversion.displayWeight(kg: kg, units: .imperial) - pounds) < 1e-9)
+        #expect(UnitConversion.weightNumberText(kg: kg, units: .imperial)
+                == pounds.formatted(.number.precision(.fractionLength(0...2)).grouping(.never).locale(Locale(identifier: "en_US_POSIX"))))
+    }
+
+    @Test func twoTwentyFivePoundsShowsAsTwoTwentyFive() throws {
+        let kg = try #require(UnitConversion.parseWeight("225", units: .imperial))
+        #expect(UnitConversion.liftWeightText(kg: kg, units: .imperial) == "225 lb")
+        #expect(UnitConversion.liftWeightText(kg: kg, units: .metric) == "102.06 kg")
+    }
+
+    @Test func kilogramMicroplateStepsStayExact() {
+        for step in 0...40 {
+            let kg = 20 + Double(step) * 1.25
+            #expect(UnitConversion.parseWeight(UnitConversion.weightNumberText(kg: kg, units: .metric), units: .metric) == kg)
+        }
+    }
+
+    @Test func parseWeightAcceptsCommaAndDotDecimals() {
+        #expect(UnitConversion.parseWeight("82,5", units: .metric) == 82.5)
+        #expect(UnitConversion.parseWeight("82.5", units: .metric) == 82.5)
+        #expect(UnitConversion.parseWeight(" 60 ", units: .metric) == 60)
+    }
+
+    @Test func parseWeightRejectsBlankAndNonNumericInput() {
+        #expect(UnitConversion.parseWeight("", units: .metric) == nil)
+        #expect(UnitConversion.parseWeight("abc", units: .imperial) == nil)
+        #expect(UnitConversion.parseWeight("inf", units: .metric) == nil)
+    }
+
+    @Test func weightLabelsFollowUnits() {
+        #expect(UnitConversion.weightUnitSymbol(.metric) == "kg")
+        #expect(UnitConversion.weightUnitSymbol(.imperial) == "lb")
+        #expect(UnitConversion.spokenWeightUnit(.imperial) == "pounds")
+        #expect(UnitConversion.volumeText(kg: 1000, units: .metric) == "1000 kg")
+        #expect(UnitConversion.volumeText(kg: 1000, units: .imperial) == "2205 lb")
+    }
+
     // MARK: - Height
 
     @Test func cmToFeetAndInches() {

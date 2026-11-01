@@ -15,8 +15,13 @@ struct ExerciseHistoryView: View {
 
     @Environment(\.modelContext) private var modelContext
     let record: PersonalRecord
+    @Query private var profiles: [UserProfile]
 
     @State private var entries: [ExerciseSessionStat] = []
+
+    private var units: UnitSystem {
+        profiles.first?.preferredUnits ?? .metric
+    }
 
     var body: some View {
         ZStack {
@@ -56,7 +61,7 @@ struct ExerciseHistoryView: View {
             Chart(entries) { entry in
                 AreaMark(
                     x: .value("Date", entry.date, unit: .day),
-                    y: .value("Weight", entry.bestWeightKg)
+                    y: .value("Weight", UnitConversion.displayWeight(kg: entry.bestWeightKg, units: units))
                 )
                 .foregroundStyle(
                     LinearGradient(
@@ -68,7 +73,7 @@ struct ExerciseHistoryView: View {
 
                 LineMark(
                     x: .value("Date", entry.date, unit: .day),
-                    y: .value("Weight", entry.bestWeightKg)
+                    y: .value("Weight", UnitConversion.displayWeight(kg: entry.bestWeightKg, units: units))
                 )
                 .foregroundStyle(DesignSystem.Colors.accent)
                 .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round))
@@ -97,7 +102,7 @@ struct ExerciseHistoryView: View {
     }
 
     private var weightDomain: ClosedRange<Double> {
-        let weights = entries.map(\.bestWeightKg)
+        let weights = entries.map { UnitConversion.displayWeight(kg: $0.bestWeightKg, units: units) }
         guard let min = weights.min(), let max = weights.max() else { return 0...1 }
         let pad = Swift.max((max - min) * 0.15, 0.5)
         return (min - pad)...(max + pad)
@@ -105,7 +110,7 @@ struct ExerciseHistoryView: View {
 
     private var chartSummary: String {
         guard let first = entries.first, let last = entries.last else { return "" }
-        return "From \(ActiveSessionViewModel.weightString(first.bestWeightKg)) to \(ActiveSessionViewModel.weightString(last.bestWeightKg)) kilograms across \(entries.count) sessions"
+        return "From \(UnitConversion.weightNumberText(kg: first.bestWeightKg, units: units)) to \(UnitConversion.weightNumberText(kg: last.bestWeightKg, units: units)) \(UnitConversion.spokenWeightUnit(units)) across \(entries.count) sessions"
     }
 
     // MARK: - Session rows
@@ -146,7 +151,7 @@ struct ExerciseHistoryView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(entry.date.formatted(.dateTime.month(.wide).day().year()))
         .accessibilityValue(
-            "\(entry.spokenSetsSummary), best \(ActiveSessionViewModel.weightString(entry.bestWeightKg)) kilograms\(entry.isPR ? ", personal record" : "")"
+            "\(entry.spokenSetsSummary), best \(UnitConversion.weightNumberText(kg: entry.bestWeightKg, units: units)) \(UnitConversion.spokenWeightUnit(units))\(entry.isPR ? ", personal record" : "")"
         )
     }
 
@@ -157,7 +162,7 @@ struct ExerciseHistoryView: View {
                 .foregroundStyle(DesignSystem.Colors.textSecondary)
                 .frame(width: 52, alignment: .leading)
 
-            Text("\(ActiveSessionViewModel.weightString(set.weightKg)) kg")
+            Text(UnitConversion.liftWeightText(kg: set.weightKg, units: units))
                 .font(DesignSystem.Typography.headline)
                 .foregroundStyle(DesignSystem.Colors.textPrimary)
 

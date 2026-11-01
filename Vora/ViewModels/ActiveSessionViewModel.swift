@@ -23,23 +23,47 @@ struct SessionSummary: Identifiable {
 final class ActiveSessionViewModel {
     struct DraftSet: Identifiable {
         let id = UUID()
+        /// Typed weight in `units`.
         var weightText = ""
         var repsText = ""
         var isCompleted = false
+        let units: UnitSystem
+        /// Exact kilograms behind a prefilled `weightText`. Used while the
+        /// text is untouched, so display rounding never drifts the value.
+        private var source: (text: String, kg: Double)?
 
-        var weightKg: Double? { Double(weightText.replacingOccurrences(of: ",", with: ".")) }
+        init(units: UnitSystem = .metric) {
+            self.units = units
+        }
+
+        var weightKg: Double? {
+            if let source, source.text == weightText { return source.kg }
+            return UnitConversion.parseWeight(weightText, units: units)
+        }
+
         var reps: Int? { Int(repsText) }
+
+        /// A fresh, incomplete set with this set's weight and reps.
+        func copyingValues() -> DraftSet {
+            var copy = DraftSet(units: units)
+            copy.weightText = weightText
+            copy.repsText = repsText
+            copy.source = source
+            return copy
+        }
+
+        mutating func setWeight(kg: Double) {
+            weightText = UnitConversion.weightNumberText(kg: kg, units: units)
+            source = (weightText, kg)
+        }
     }
 
     struct PreviousSet {
         let weightKg: Double
         let reps: Int
 
-        var text: String {
-            let weight = weightKg.truncatingRemainder(dividingBy: 1) == 0
-                ? String(Int(weightKg))
-                : String(format: "%.1f", weightKg)
-            return "\(weight)×\(reps)"
+        func text(units: UnitSystem) -> String {
+            "\(UnitConversion.weightNumberText(kg: weightKg, units: units))×\(reps)"
         }
     }
 
@@ -53,8 +77,10 @@ final class ActiveSessionViewModel {
         let previousSets: [PreviousSet]
         /// Rest started after completing one of this exercise's sets.
         let restSeconds: Int
-        /// Target reps from the template; nil for exercises added mid-session.
-        let repRange: ClosedRange<Int>?
+        /// Template targets; nil for exercises added mid-session.
+        let targets: TemplateTargets?
+
+        var repRange: ClosedRange<Int>? { targets?.repRange }
     }
 
     private static let logger = Logger(subsystem: "com.majdarow.Vora", category: "Workout")
@@ -62,20 +88,51 @@ final class ActiveSessionViewModel {
     /// Sessions fetched per page when looking for an exercise's history.
     static let historyPageSize = 5
 
-    let sessionName: String
-    let startDate = Date.now
-    var exercises: [DraftExercise] = []
-    var restEndDate: Date?
-    var summary: SessionSummary?
+    /// An app kill longer than this is left out of the session duration;
+    /// shorter ones count as continuous training.
+    static let interruptionThreshold: TimeInterval = 5 * 60
 
-    init(sessionName: String) {
+    let sessionName: String
+    let units: UnitSystem
+    private(set) var startDate: Date
+    /// Interruption time left out of the duration (see `restore`).
+    private(set) var excludedSeconds: TimeInterval = 0
+    var exercises: [DraftExercise] = [] {
+        didSet { scheduleDraftSave() }
+    }
+    var restEndDate: Date? {
+        didSet { scheduleDraftSave() }
+    }
+    var summary: SessionSummary?
+    /// Start and active-duration end of the saved workout, for HealthKit.
+    private(set) var workoutInterval: DateInterval?
+
+    @ObservationIgnored private var draftStore: SessionDraftStore?
+    @ObservationIgnored private let draftDebounce: Duration
+    @ObservationIgnored private let now: () -> Date
+    @ObservationIgnored private var pendingDraftSave: Task<Void, Never>?
+
+    init(
+        sessionName: String,
+        units: UnitSystem = .metric,
+        draftStore: SessionDraftStore? = nil,
+        draftDebounce: Duration = .milliseconds(500),
+        now: @escaping () -> Date = Date.init
+    ) {
         self.sessionName = sessionName
+        self.units = units
+        self.draftStore = draftStore
+        self.draftDebounce = draftDebounce
+        self.now = now
+        self.startDate = now()
     }
 
     // MARK: - Live stats
 
+    /// Active training time: wall time since start minus excluded
+    /// interruptions.
     var elapsedSeconds: Int {
-        max(Int(Date.now.timeIntervalSince(startDate)), 0)
+        max(Int(now().timeIntervalSince(startDate) - excludedSeconds), 0)
     }
 
     var totalVolumeKg: Double {
@@ -113,9 +170,9 @@ final class ActiveSessionViewModel {
                 ? spec.targetSets
                 : TemplateExerciseSpec.defaultTargetSets
             let sets = (0..<targetSets).map { index in
-                var set = DraftSet()
+                var set = DraftSet(units: units)
                 if let reference = index < previous.count ? previous[index] : previous.last {
-                    set.weightText = Self.weightString(reference.weightKg)
+                    set.setWeight(kg: reference.weightKg)
                 }
                 return set
             }
@@ -127,7 +184,12 @@ final class ActiveSessionViewModel {
                 sets: sets,
                 previousSets: previous,
                 restSeconds: spec.restSeconds,
-                repRange: spec.repRange
+                targets: TemplateTargets(
+                    targetSets: targetSets,
+                    repRangeMin: spec.repRangeMin,
+                    repRangeMax: spec.repRangeMax,
+                    targetRIR: spec.targetRIR
+                )
             )
         }
     }
@@ -137,9 +199,9 @@ final class ActiveSessionViewModel {
     func addExercise(name: String, muscleGroups: [String], context: ModelContext) {
         let exerciseId = ExerciseIdentity.libraryID(forName: name)
         let previous = Self.previousSets(exerciseId: exerciseId, name: name, context: context)
-        var firstSet = DraftSet()
+        var firstSet = DraftSet(units: units)
         if let first = previous.first {
-            firstSet.weightText = Self.weightString(first.weightKg)
+            firstSet.setWeight(kg: first.weightKg)
             firstSet.repsText = String(first.reps)
         }
         exercises.append(DraftExercise(
@@ -149,7 +211,7 @@ final class ActiveSessionViewModel {
             sets: [firstSet],
             previousSets: previous,
             restSeconds: ExerciseLibrary.defaultRestSeconds(exerciseId: exerciseId),
-            repRange: nil
+            targets: nil
         ))
     }
 
@@ -170,9 +232,9 @@ final class ActiveSessionViewModel {
         guard let index = exercises.firstIndex(where: { $0.id == id }) else { return }
         let exerciseId = ExerciseIdentity.libraryID(forName: name)
         let previous = Self.previousSets(exerciseId: exerciseId, name: name, context: context)
-        var firstSet = DraftSet()
+        var firstSet = DraftSet(units: units)
         if let first = previous.first {
-            firstSet.weightText = Self.weightString(first.weightKg)
+            firstSet.setWeight(kg: first.weightKg)
             firstSet.repsText = String(first.reps)
         }
         let replaced = exercises[index]
@@ -183,7 +245,7 @@ final class ActiveSessionViewModel {
             sets: [firstSet],
             previousSets: previous,
             restSeconds: replaced.restSeconds,
-            repRange: replaced.repRange
+            targets: replaced.targets
         )
     }
 
@@ -200,10 +262,10 @@ final class ActiveSessionViewModel {
 
     func addSet(to exerciseID: DraftExercise.ID) {
         guard let index = exercises.firstIndex(where: { $0.id == exerciseID }) else { return }
-        var newSet = DraftSet()
+        var newSet = DraftSet(units: units)
         if let last = exercises[index].sets.last {
-            newSet.weightText = last.weightText
-            newSet.repsText = last.repsText
+            // Copies the exact kg too, so an untouched prefill stays exact.
+            newSet = last.copyingValues()
         }
         exercises[index].sets.append(newSet)
     }
@@ -235,7 +297,7 @@ final class ActiveSessionViewModel {
     // MARK: - Rest timer
 
     func startRest(duration: TimeInterval) {
-        restEndDate = Date.now.addingTimeInterval(duration)
+        restEndDate = now().addingTimeInterval(duration)
     }
 
     func cancelRest() {
@@ -246,8 +308,13 @@ final class ActiveSessionViewModel {
 
     /// Persists completed work, detects new PRs against prior history,
     /// and produces the summary. Exercises with no completed sets are
-    /// dropped; incomplete sets are not saved.
-    func finish(context: ModelContext) {
+    /// dropped; incomplete sets are not saved. `save` is injectable so
+    /// tests can simulate a failed save.
+    func finish(
+        context: ModelContext,
+        save: (ModelContext) throws -> Void = { try $0.save() }
+    ) {
+        let durationSeconds = elapsedSeconds
         let priorRecords = Dictionary(
             uniqueKeysWithValues: WorkoutHomeViewModel.computePersonalRecords(from: context)
                 .map { ($0.id, $0.weightKg) }
@@ -256,7 +323,7 @@ final class ActiveSessionViewModel {
         let session = WorkoutSession(
             date: startDate,
             sessionName: sessionName,
-            durationSeconds: elapsedSeconds,
+            durationSeconds: durationSeconds,
             totalVolumeKg: totalVolumeKg
         )
         context.insert(session)
@@ -310,13 +377,17 @@ final class ActiveSessionViewModel {
         }
 
         do {
-            try context.save()
+            try save(context)
+            // Only a saved workout may drop the draft; on failure it stays
+            // on disk so the work can still be resumed.
+            discardDraft()
         } catch {
             Self.logger.error("Failed to save workout session: \(String(describing: error), privacy: .public)")
         }
 
+        workoutInterval = DateInterval(start: startDate, duration: TimeInterval(durationSeconds))
         summary = SessionSummary(
-            durationSeconds: elapsedSeconds,
+            durationSeconds: durationSeconds,
             totalVolumeKg: totalVolumeKg,
             exerciseCount: savedExerciseCount,
             setCount: savedSetCount,
@@ -357,9 +428,103 @@ final class ActiveSessionViewModel {
         }
     }
 
-    static func weightString(_ value: Double) -> String {
-        value.truncatingRemainder(dividingBy: 1) == 0
-            ? String(Int(value))
-            : String(format: "%.1f", value)
+    // MARK: - Draft persistence
+
+    /// The session as a Codable snapshot, weights in kilograms.
+    func snapshot() -> ActiveSessionDraft {
+        ActiveSessionDraft(
+            sessionName: sessionName,
+            startDate: startDate,
+            savedAt: now(),
+            restEndDate: restEndDate,
+            excludedSeconds: excludedSeconds,
+            exercises: exercises.map { exercise in
+                ActiveSessionDraft.Exercise(
+                    exerciseId: exercise.exerciseId,
+                    customName: exercise.exerciseId == nil ? exercise.name : nil,
+                    muscleGroups: exercise.muscleGroups,
+                    restSeconds: exercise.restSeconds,
+                    targets: exercise.targets,
+                    sets: exercise.sets.map {
+                        ActiveSessionDraft.Set(weightKg: $0.weightKg, reps: $0.reps, isCompleted: $0.isCompleted)
+                    }
+                )
+            }
+        )
+    }
+
+    /// Rebuilds a killed session from its draft. Weights show in the
+    /// current units and previous sets come from history again. A rest
+    /// that ended while the app was gone is dropped. A gap longer than
+    /// `interruptionThreshold` between the last save and now is excluded
+    /// from the duration; a shorter one counts as continuous.
+    func restore(from draft: ActiveSessionDraft, context: ModelContext) {
+        let resumedAt = now()
+        startDate = draft.startDate
+        let gap = resumedAt.timeIntervalSince(draft.savedAt)
+        excludedSeconds = draft.excludedSeconds + (gap > Self.interruptionThreshold ? gap : 0)
+
+        exercises = draft.exercises.map { saved in
+            let name = TemplateExerciseSpec.displayName(exerciseId: saved.exerciseId, customName: saved.customName)
+            let sets = saved.sets.map { savedSet in
+                var set = DraftSet(units: units)
+                if let weightKg = savedSet.weightKg {
+                    set.setWeight(kg: weightKg)
+                }
+                set.repsText = savedSet.reps.map(String.init) ?? ""
+                set.isCompleted = savedSet.isCompleted
+                return set
+            }
+            return DraftExercise(
+                name: name,
+                exerciseId: saved.exerciseId,
+                muscleGroups: saved.muscleGroups,
+                sets: sets,
+                previousSets: Self.previousSets(exerciseId: saved.exerciseId, name: name, context: context),
+                restSeconds: saved.restSeconds,
+                targets: saved.targets
+            )
+        }
+        restEndDate = draft.restEndDate.flatMap { $0 > resumedAt ? $0 : nil }
+    }
+
+    /// Writes the draft now, skipping the debounce (e.g. when the app
+    /// moves to the background).
+    func flushDraft() {
+        pendingDraftSave?.cancel()
+        pendingDraftSave = nil
+        writeDraft()
+    }
+
+    /// Stops autosaving and deletes the draft (finished or discarded).
+    func discardDraft() {
+        pendingDraftSave?.cancel()
+        pendingDraftSave = nil
+        draftStore?.clear()
+        draftStore = nil
+    }
+
+    private func scheduleDraftSave() {
+        guard draftStore != nil else { return }
+        pendingDraftSave?.cancel()
+        let delay = draftDebounce
+        pendingDraftSave = Task { [weak self] in
+            do {
+                try await Task.sleep(for: delay)
+            } catch {
+                return  // Cancelled by a newer change.
+            }
+            self?.pendingDraftSave = nil
+            self?.writeDraft()
+        }
+    }
+
+    private func writeDraft() {
+        guard let draftStore else { return }
+        do {
+            try draftStore.save(snapshot())
+        } catch {
+            Self.logger.error("Failed to save session draft: \(String(describing: error), privacy: .public)")
+        }
     }
 }

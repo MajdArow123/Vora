@@ -56,6 +56,72 @@ enum UnitConversion {
         }
     }
 
+    // MARK: - Lifted weight
+
+    /// A lifted weight in the user's unit, unrounded so lb input converts
+    /// to kg and back without drift.
+    static func displayWeight(kg: Double, units: UnitSystem) -> Double {
+        switch units {
+        case .metric: kg
+        case .imperial: pounds(fromKg: kg)
+        }
+    }
+
+    static func kg(fromDisplayWeight value: Double, units: UnitSystem) -> Double {
+        switch units {
+        case .metric: value
+        case .imperial: kg(fromPounds: value)
+        }
+    }
+
+    /// Parses typed weight in the user's unit (dot or comma decimal) and
+    /// returns kilograms; nil for blank or non-numeric input.
+    static func parseWeight(_ text: String, units: UnitSystem) -> Double? {
+        let normalized = text
+            .trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: ",", with: ".")
+        guard let value = Double(normalized), value.isFinite else { return nil }
+        return kg(fromDisplayWeight: value, units: units)
+    }
+
+    /// The number alone in the user's unit, up to two decimals with
+    /// trailing zeros trimmed: "82.5", "102.25", "225".
+    static func weightNumberText(kg: Double, units: UnitSystem) -> String {
+        displayWeight(kg: kg, units: units).formatted(weightNumberStyle)
+    }
+
+    /// Lifted weight with its unit, e.g. "82.5 kg" / "225 lb".
+    static func liftWeightText(kg: Double, units: UnitSystem) -> String {
+        "\(weightNumberText(kg: kg, units: units)) \(weightUnitSymbol(units))"
+    }
+
+    /// Training volume rounded to a whole number, e.g. "4520 kg".
+    static func volumeText(kg: Double, units: UnitSystem) -> String {
+        "\(Int(displayWeight(kg: kg, units: units).rounded())) \(weightUnitSymbol(units))"
+    }
+
+    static func weightUnitSymbol(_ units: UnitSystem) -> String {
+        switch units {
+        case .metric: "kg"
+        case .imperial: "lb"
+        }
+    }
+
+    /// Unit name for VoiceOver, e.g. "kilograms".
+    static func spokenWeightUnit(_ units: UnitSystem) -> String {
+        switch units {
+        case .metric: "kilograms"
+        case .imperial: "pounds"
+        }
+    }
+
+    private static let weightNumberStyle = FloatingPointFormatStyle<Double>(locale: Locale(identifier: "en_US_POSIX"))
+        .precision(.fractionLength(0...2))
+        .rounded(rule: .toNearestOrAwayFromZero)
+        .grouping(.never)
+
+    // MARK: - Body weight
+
     static func weightText(kg: Double, units: UnitSystem) -> String {
         switch units {
         case .metric:

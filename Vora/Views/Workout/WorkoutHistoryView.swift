@@ -11,6 +11,7 @@ import SwiftData
 struct WorkoutHistoryView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var viewModel = WorkoutHistoryViewModel()
+    @Query private var profiles: [UserProfile]
 
     var body: some View {
         ZStack {
@@ -78,7 +79,7 @@ struct WorkoutHistoryView: View {
             Spacer()
 
             VStack(alignment: .trailing, spacing: 2) {
-                Text("\(Int(session.totalVolumeKg.rounded())) kg")
+                Text(UnitConversion.volumeText(kg: session.totalVolumeKg, units: units))
                     .font(DesignSystem.Typography.headline)
                     .foregroundStyle(DesignSystem.Colors.textPrimary)
                 Text("\(session.exercises.count) exercises · \(ActiveSessionView.timeString(session.durationSeconds))")
@@ -89,6 +90,10 @@ struct WorkoutHistoryView: View {
         .padding(DesignSystem.Spacing.md)
         .background(DesignSystem.Colors.card)
         .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
+    }
+
+    private var units: UnitSystem {
+        profiles.first?.preferredUnits ?? .metric
     }
 
     private func cardioRow(_ entry: CardioEntry) -> some View {

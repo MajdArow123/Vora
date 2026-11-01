@@ -9,6 +9,7 @@ import SwiftUI
 
 struct SessionSummaryView: View {
     let summary: SessionSummary
+    let units: UnitSystem
 
     @Environment(\.dismiss) private var dismiss
 
@@ -36,7 +37,7 @@ struct SessionSummaryView: View {
 
                 HStack(spacing: DesignSystem.Spacing.md) {
                     stat(value: ActiveSessionView.timeString(summary.durationSeconds), label: "Duration")
-                    stat(value: "\(Int(summary.totalVolumeKg.rounded())) kg", label: "Volume")
+                    stat(value: UnitConversion.volumeText(kg: summary.totalVolumeKg, units: units), label: "Volume")
                     stat(value: "\(summary.exerciseCount)", label: "Exercises")
                     stat(value: "\(summary.setCount)", label: "Sets")
                 }
@@ -58,7 +59,7 @@ struct SessionSummaryView: View {
                                         .font(DesignSystem.Typography.body)
                                         .foregroundStyle(DesignSystem.Colors.textPrimary)
                                     Spacer()
-                                    Text("\(ActiveSessionViewModel.weightString(pr.weightKg)) kg × \(pr.reps)")
+                                    Text("\(UnitConversion.liftWeightText(kg: pr.weightKg, units: units)) × \(pr.reps)")
                                         .font(DesignSystem.Typography.headline)
                                         .foregroundStyle(DesignSystem.Colors.textPrimary)
                                 }
@@ -105,5 +106,5 @@ struct SessionSummaryView: View {
         exerciseCount: 6,
         setCount: 18,
         newPRs: [PersonalRecord(exerciseName: "Back Squat", weightKg: 120, reps: 5, date: .now)]
-    ))
+    ), units: .metric)
 }

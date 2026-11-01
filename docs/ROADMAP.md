@@ -2,7 +2,7 @@
 
 Nov 1, 2026 · @majd arow
 
-> **Status (updated 2026-11-01):** Prompt 0 (git) done. Prompt 1 (versioned schema) committed in `0cafae8`. Prompt 2 (stable exercise IDs) committed in `712aea5`. Prompt 3 (templates as SwiftData) done: SchemaV3 adds `WorkoutTemplate` / `TemplateExercise` (matched by `exerciseId`, custom exercises by `customName`), lightweight stage + post-open UserDefaults move, per-exercise sets / rep range / target RIR / rest (compound 120 s, isolation 90 s via the new `mechanics` field), generic "Leg Curl" hidden from the picker as legacy-only, V2 fixture from `712aea5`, 580 tests passing. **Next: Prompt 4.**
+> **Status (updated 2026-11-01):** Prompt 0 (git) done. Prompt 1 (versioned schema) committed in `0cafae8`. Prompt 2 (stable exercise IDs) committed in `712aea5`. Prompt 3 (templates as SwiftData) done: SchemaV3 adds `WorkoutTemplate` / `TemplateExercise` (matched by `exerciseId`, custom exercises by `customName`), lightweight stage + post-open UserDefaults move, per-exercise sets / rep range / target RIR / rest (compound 120 s, isolation 90 s via the new `mechanics` field), generic "Leg Curl" hidden from the picker as legacy-only, V2 fixture from `712aea5`, 580 tests passing. Prompt 4 (units in sessions + draft recovery) done, no schema change: sessions, history, PRs, exercise history, summary and strength analytics show and take weights in `preferredUnits` (stored as kg, up to 2 decimals, lb input round-trips exactly); the active session autosaves a debounced Codable draft to Application Support and launch offers "Resume workout" / "Discard" for drafts under 12 hours, dropping finished rests and excluding interruptions over 5 minutes from the duration and HealthKit workout; unreadable drafts are logged and set aside. 612 tests passing, zero warnings in both targets. **Next: Prompt 5.**
 >
 > Lessons applied so far (see docs/MIGRATIONS.md): freeze every model in a relationship cluster, not just the one that changes; prefer `.lightweight` stages plus an idempotent post-open backfill in `AppDataStore.load()` over custom stages; test migrations against a real fixture store generated from the previous commit; always match exercises by `exerciseId`, never by name.
 
@@ -11,7 +11,7 @@ Nov 1, 2026 · @majd arow
 The biggest gap is still **Smart Progression**, but the 2026-11-01 code audit shows Vora isn't ready for it yet. Sets store only weight and reps, templates are name lists in UserDefaults, exercises are linked by name string, and there's no versioned schema. A bad migration would crash the app with `fatalError`. Fix those foundations first (Phase 0), then build progression.
 
 - **Put Vora in git before anything else.** The audit found no git repository in the project folder.
-- **Already done:** muscle diagrams and technique cues exist (66 exercises with primary/secondary muscles and cues), so the old Improvement 13 is mostly finished. Tests: 487 passing; the app target has zero warnings and the test target has 6 warnings.
+- **Already done:** muscle diagrams and technique cues exist (66 exercises with primary/secondary muscles and cues), so the old Improvement 13 is mostly finished. Tests: 487 passing at the audit; both targets now build with zero warnings.
 - **Vora's real edge is that it's one app.** MacroFactor sells nutrition and workouts as two separate apps, with no shared coaching between them at launch. Training-aware nutrition is something they don't offer.
 - **Skip for now:** AI program generation, spreadsheet import and licensed program imports.
 
@@ -38,13 +38,13 @@ Vora already covers gym profiles, swaps, muscle diagrams, cues and a broad nutri
 | Template targets (sets, rep range, RIR) | Yes | Exercise names only in UserDefaults; fixed 4 sets | Large (foundation) |
 | Stable exercise identity | Yes | Matched by `exerciseName.lowercased()` | Medium (foundation) |
 | RIR / effort logging | Yes, also feeds progression | `rpe` field exists but is never set | Small |
-| Units in workouts | kg/lb | kg only in session; `%.1f` rounding | Small |
+| Units in workouts | kg/lb | Done (Prompt 4) | None |
 | Plate calculator | Per gym profile's plates and bars | None; GymProfile holds equipment only | Small |
 | Gym profiles + equipment filtering | Yes | Done | None |
 | Muscle diagrams + technique cues | 900+ exercises, videos | Done for 66 exercises | Small (add more exercises) |
 | Weekly sets per muscle ("Levels") | Body map, with contributing lifts | Total kg per week only | Medium |
 | Rest timer | Customizable, Live Activity | Fixed 90 s, foreground only | Small |
-| Session crash recovery | Not documented | Drafts in memory only; lost if app killed | Medium |
+| Session crash recovery | Not documented | Done (Prompt 4): draft autosaved, resume on launch | None |
 | Smart warm-ups | Yes | None | Small |
 | Advanced set types | Drop, myo, failure, partials, supersets, L/R | None | Medium |
 | PRs | Weight, reps, e1RM | Heaviest weight only | Small |
@@ -88,7 +88,13 @@ Later or never: auto-generated programs, spreadsheet import.
 
 **Small fixes** (any time)
 
-- The 6 test warnings and the README (iOS 26.5, not 17+; RPE not recorded).
+- The README (iOS 26.5, not 17+; RPE not recorded).
+- Body-weight displays (HomeView weight card, Progress weight tab) still show kg only; route them through `preferredUnits` like workout weights.
+- Cardio speed and distance ignore `preferredUnits` (km/h and km even in imperial mode).
+- The PR card's "Peak strength" is an estimated 1RM (Epley), not the weight lifted; label it clearly (e.g. "Est. 1RM"). Revisit in Prompt 7.
+- Pluralization: "1 exercises" in History and elsewhere.
+- Duration format "1:48" is ambiguous; show "1m 48s" / "1h 12m".
+- No way to delete a test or accidental session: History and the session detail have no delete action for workouts or cardio, and nothing in the app deletes a `WorkoutSession`.
 - Long exercise names wrap ("Barbell / Bench Press") when the muscle tag sits beside them in TemplateEditorView.
 - Free provisioning: the app expires on the iPhone after 7 days until I join the Apple Developer Program.
 

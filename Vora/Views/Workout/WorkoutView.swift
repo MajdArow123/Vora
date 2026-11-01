@@ -10,11 +10,22 @@ import SwiftData
 
 struct WorkoutView: View {
     @Environment(\.modelContext) private var modelContext
+    @Binding var resumeDraft: ActiveSessionDraft?
     @State private var viewModel = WorkoutHomeViewModel()
+    @Query private var profiles: [UserProfile]
+    @State private var restoringDraft: ActiveSessionDraft?
     @State private var showingSession = false
     @State private var showingCardio = false
     @State private var showingSplitBuilder = false
     @State private var showingTemplateEditor = false
+
+    init(resumeDraft: Binding<ActiveSessionDraft?> = .constant(nil)) {
+        _resumeDraft = resumeDraft
+    }
+
+    private var units: UnitSystem {
+        profiles.first?.preferredUnits ?? .metric
+    }
 
     var body: some View {
         NavigationStack {
@@ -41,16 +52,26 @@ struct WorkoutView: View {
         }
         .onAppear {
             viewModel.load(from: modelContext)
+            presentResumedSession()
+        }
+        .onChange(of: resumeDraft) {
+            presentResumedSession()
         }
         .fullScreenCover(isPresented: $showingSession, onDismiss: {
+            restoringDraft = nil
             viewModel.load(from: modelContext)
         }) {
-            ActiveSessionView(
-                sessionName: viewModel.todaySplitDay.map {
-                    $0.isRest ? "Extra Session" : $0.title
-                } ?? "Session",
-                templatePlan: viewModel.templatePlan(context: modelContext)
-            )
+            if let restoringDraft {
+                ActiveSessionView(restoring: restoringDraft, units: units)
+            } else {
+                ActiveSessionView(
+                    sessionName: viewModel.todaySplitDay.map {
+                        $0.isRest ? "Extra Session" : $0.title
+                    } ?? "Session",
+                    templatePlan: viewModel.templatePlan(context: modelContext),
+                    units: units
+                )
+            }
         }
         .sheet(isPresented: $showingTemplateEditor) {
             TemplateEditorView(
@@ -69,6 +90,14 @@ struct WorkoutView: View {
         }) {
             SplitBuilderView()
         }
+    }
+
+    /// Opens a session the launch prompt chose to resume.
+    private func presentResumedSession() {
+        guard let draft = resumeDraft, !showingSession else { return }
+        resumeDraft = nil
+        restoringDraft = draft
+        showingSession = true
     }
 
     // MARK: - Today card
@@ -277,8 +306,8 @@ struct WorkoutView: View {
                     .fixedSize(horizontal: false, vertical: true)
                 // Wraps beside the fixed-size sets stat on 6.1-inch widths
                 // (minimumScaleFactor does not engage in this hierarchy);
-                // "228.0\u{00A0}kg" stays together when it does wrap.
-                Text("Peak strength · \(String(format: "%.1f", record.estimatedOneRepMax))\u{00A0}kg")
+                // "228.33\u{00A0}kg" stays together when it does wrap.
+                Text("Peak strength · \(UnitConversion.weightNumberText(kg: record.estimatedOneRepMax, units: units))\u{00A0}\(UnitConversion.weightUnitSymbol(units))")
                     .font(DesignSystem.Typography.caption)
                     .foregroundStyle(DesignSystem.Colors.textSecondary)
                     .lineLimit(2)
@@ -317,7 +346,7 @@ struct WorkoutView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(record.exerciseName)
         .accessibilityValue(
-            "Personal record \(record.spokenSetsSummary), peak strength \(String(format: "%.1f", record.estimatedOneRepMax)) kilograms, \(record.date.formatted(.dateTime.month(.wide).day().year()))"
+            "Personal record \(record.spokenSetsSummary), peak strength \(UnitConversion.weightNumberText(kg: record.estimatedOneRepMax, units: units)) \(UnitConversion.spokenWeightUnit(units)), \(record.date.formatted(.dateTime.month(.wide).day().year()))"
         )
         .accessibilityHint("Shows history for this exercise")
     }

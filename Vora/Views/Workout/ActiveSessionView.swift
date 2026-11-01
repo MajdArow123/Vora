@@ -11,6 +11,7 @@ import SwiftData
 struct ActiveSessionView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @State private var viewModel: ActiveSessionViewModel
     @State private var showingExercisePicker = false
     @State private var swappingExercise: ActiveSessionViewModel.DraftExercise?
@@ -23,10 +24,32 @@ struct ActiveSessionView: View {
 
     private let healthKitService = HealthKitService()
     private let templatePlan: [TemplateExerciseSpec]
+    private let restoredDraft: ActiveSessionDraft?
 
-    init(sessionName: String, templatePlan: [TemplateExerciseSpec] = []) {
-        _viewModel = State(initialValue: ActiveSessionViewModel(sessionName: sessionName))
+    init(
+        sessionName: String,
+        templatePlan: [TemplateExerciseSpec] = [],
+        units: UnitSystem,
+        draftStore: SessionDraftStore? = SessionDraftStore()
+    ) {
+        _viewModel = State(initialValue: ActiveSessionViewModel(
+            sessionName: sessionName,
+            units: units,
+            draftStore: draftStore
+        ))
         self.templatePlan = templatePlan
+        self.restoredDraft = nil
+    }
+
+    /// Resumes a session saved before the app was killed.
+    init(restoring draft: ActiveSessionDraft, units: UnitSystem, draftStore: SessionDraftStore = SessionDraftStore()) {
+        _viewModel = State(initialValue: ActiveSessionViewModel(
+            sessionName: draft.sessionName,
+            units: units,
+            draftStore: draftStore
+        ))
+        self.templatePlan = []
+        self.restoredDraft = draft
     }
 
     var body: some View {
@@ -133,20 +156,33 @@ struct ActiveSessionView: View {
             ExerciseDetailSheet(exerciseName: exercise.name)
         }
         .sheet(item: $viewModel.summary, onDismiss: { dismiss() }) { summary in
-            SessionSummaryView(summary: summary)
+            SessionSummaryView(summary: summary, units: viewModel.units)
         }
         .confirmationDialog(
             "Discard this session?",
             isPresented: $showingDiscardConfirm,
             titleVisibility: .visible
         ) {
-            Button("Discard Session", role: .destructive) { dismiss() }
+            Button("Discard Session", role: .destructive) {
+                viewModel.discardDraft()
+                dismiss()
+            }
             Button("Keep Training", role: .cancel) {}
         }
         .onAppear {
             guard !didPrefill else { return }
             didPrefill = true
-            viewModel.prefill(with: templatePlan, context: modelContext)
+            if let restoredDraft {
+                viewModel.restore(from: restoredDraft, context: modelContext)
+            } else {
+                viewModel.prefill(with: templatePlan, context: modelContext)
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            // A kill in the background must not lose the debounce window.
+            if phase != .active {
+                viewModel.flushDraft()
+            }
         }
     }
 
@@ -202,6 +238,7 @@ struct ActiveSessionView: View {
                 if viewModel.completedSetCount > 0 {
                     showingDiscardConfirm = true
                 } else {
+                    viewModel.discardDraft()
                     dismiss()
                 }
             } label: {
@@ -222,7 +259,7 @@ struct ActiveSessionView: View {
                     Text(Self.timeString(viewModel.elapsedSeconds))
                         .font(.system(.headline, design: .monospaced))
                         .foregroundStyle(DesignSystem.Colors.textPrimary)
-                    Text("\(Int(viewModel.totalVolumeKg.rounded())) kg volume")
+                    Text("\(UnitConversion.volumeText(kg: viewModel.totalVolumeKg, units: viewModel.units)) volume")
                         .font(DesignSystem.Typography.caption)
                         .foregroundStyle(DesignSystem.Colors.textSecondary)
                 }
@@ -232,10 +269,10 @@ struct ActiveSessionView: View {
 
             Button {
                 viewModel.finish(context: modelContext)
-                let start = viewModel.startDate
+                guard let interval = viewModel.workoutInterval else { return }
                 let service = healthKitService
                 Task {
-                    await service.saveStrengthWorkout(start: start, end: .now)
+                    await service.saveStrengthWorkout(start: interval.start, end: interval.end)
                 }
             } label: {
                 Text("Finish")
@@ -332,7 +369,7 @@ struct ExerciseSessionCard: View {
                     .frame(width: 34, alignment: .leading)
                 Text("PREVIOUS")
                     .frame(width: 76, alignment: .leading)
-                Text("KG")
+                Text(UnitConversion.weightUnitSymbol(viewModel.units).uppercased())
                     .frame(maxWidth: .infinity, alignment: .center)
                 Text("REPS")
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -346,7 +383,7 @@ struct ExerciseSessionCard: View {
                     setNumber: index + 1,
                     set: set,
                     previousText: index < exercise.previousSets.count
-                        ? exercise.previousSets[index].text
+                        ? exercise.previousSets[index].text(units: viewModel.units)
                         : "—",
                     repsPlaceholder: exercise.repRange.map { Self.repRangeText($0) } ?? "0",
                     exerciseID: exercise.id,
@@ -404,7 +441,7 @@ private struct SetRow: View {
                 .lineLimit(1)
 
             field(binding(\.weightText), placeholder: "0")
-                .accessibilityLabel("Weight in kilograms")
+                .accessibilityLabel("Weight in \(UnitConversion.spokenWeightUnit(set.units))")
             field(binding(\.repsText), placeholder: repsPlaceholder)
                 .accessibilityLabel("Reps")
 
@@ -478,6 +515,6 @@ private struct SetRow: View {
 }
 
 #Preview {
-    ActiveSessionView(sessionName: "Push")
+    ActiveSessionView(sessionName: "Push", units: .metric, draftStore: nil)
         .modelContainer(for: [WorkoutSession.self, GymProfile.self], inMemory: true)
 }
