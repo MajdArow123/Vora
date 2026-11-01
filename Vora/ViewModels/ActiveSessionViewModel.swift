@@ -51,6 +51,10 @@ final class ActiveSessionViewModel {
         let muscleGroups: [String]
         var sets: [DraftSet]
         let previousSets: [PreviousSet]
+        /// Rest started after completing one of this exercise's sets.
+        let restSeconds: Int
+        /// Target reps from the template; nil for exercises added mid-session.
+        let repRange: ClosedRange<Int>?
     }
 
     private static let logger = Logger(subsystem: "com.majdarow.Vora", category: "Workout")
@@ -94,16 +98,21 @@ final class ActiveSessionViewModel {
     // MARK: - Template pre-population
 
     /// Loads the split day's template into a fresh session: one exercise
-    /// per name with 4 empty sets. Weights are pre-filled from the most
-    /// recent session containing the exercise; reps are left empty so the
-    /// user consciously enters them. No-op once exercises exist.
-    func prefill(with names: [String], context: ModelContext) {
-        guard exercises.isEmpty, !names.isEmpty else { return }
+    /// per entry with its target number of empty sets, rest and rep range.
+    /// Weights are pre-filled from the most recent session containing the
+    /// exercise; reps are left empty so the user consciously enters them.
+    /// No-op once exercises exist.
+    func prefill(with plan: [TemplateExerciseSpec], context: ModelContext) {
+        guard exercises.isEmpty, !plan.isEmpty else { return }
 
-        exercises = names.map { name in
-            let exerciseId = ExerciseIdentity.libraryID(forName: name)
+        exercises = plan.map { spec in
+            let name = spec.displayName
+            let exerciseId = spec.exerciseId
             let previous = Self.previousSets(exerciseId: exerciseId, name: name, context: context)
-            let sets = (0..<4).map { index in
+            let targetSets = TemplateExerciseSpec.Limits.sets.contains(spec.targetSets)
+                ? spec.targetSets
+                : TemplateExerciseSpec.defaultTargetSets
+            let sets = (0..<targetSets).map { index in
                 var set = DraftSet()
                 if let reference = index < previous.count ? previous[index] : previous.last {
                     set.weightText = Self.weightString(reference.weightKg)
@@ -113,10 +122,12 @@ final class ActiveSessionViewModel {
             return DraftExercise(
                 name: name,
                 exerciseId: exerciseId,
-                muscleGroups: ExerciseLibrary.definition(named: name)
+                muscleGroups: exerciseId.flatMap { ExerciseLibrary.definition(id: $0) }
                     .map { [$0.muscleGroup.rawValue] } ?? [],
                 sets: sets,
-                previousSets: previous
+                previousSets: previous,
+                restSeconds: spec.restSeconds,
+                repRange: spec.repRange
             )
         }
     }
@@ -136,7 +147,9 @@ final class ActiveSessionViewModel {
             exerciseId: exerciseId,
             muscleGroups: muscleGroups,
             sets: [firstSet],
-            previousSets: previous
+            previousSets: previous,
+            restSeconds: ExerciseLibrary.defaultRestSeconds(exerciseId: exerciseId),
+            repRange: nil
         ))
     }
 
@@ -146,7 +159,8 @@ final class ActiveSessionViewModel {
 
     /// Swaps an exercise for another in place, keeping its slot in the
     /// session order. Entered sets on the old exercise are discarded; the
-    /// replacement starts like a freshly added exercise.
+    /// replacement starts with one set like a freshly added exercise but
+    /// keeps the slot's rest and rep range.
     func replaceExercise(
         _ id: DraftExercise.ID,
         withName name: String,
@@ -161,12 +175,15 @@ final class ActiveSessionViewModel {
             firstSet.weightText = Self.weightString(first.weightKg)
             firstSet.repsText = String(first.reps)
         }
+        let replaced = exercises[index]
         exercises[index] = DraftExercise(
             name: name,
             exerciseId: exerciseId,
             muscleGroups: muscleGroups,
             sets: [firstSet],
-            previousSets: previous
+            previousSets: previous,
+            restSeconds: replaced.restSeconds,
+            repRange: replaced.repRange
         )
     }
 

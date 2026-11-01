@@ -69,6 +69,19 @@ final class WorkoutHomeViewModel {
         profile?.trainingSplit ?? .fullBody
     }
 
+    /// Today's template for a new session; empty on rest days. Falls back
+    /// to the built-in default when the saved template can't be read, so
+    /// a session can always start.
+    func templatePlan(context: ModelContext) -> [TemplateExerciseSpec] {
+        guard let day = todaySplitDay, !day.isRest else { return [] }
+        do {
+            return try WorkoutTemplateService.plan(for: trainingSplit, dayIndex: todayIndex, context: context)
+        } catch {
+            Self.logger.error("Failed to load today's template: \(String(describing: error), privacy: .public)")
+            return WorkoutTemplateService.defaultPlan(for: trainingSplit, dayIndex: todayIndex)
+        }
+    }
+
     var hasTrainedToday: Bool {
         weekSessions.contains { Calendar.current.isDateInToday($0.date) }
     }

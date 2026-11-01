@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>vora.workoutTemplates</key>
+	<dict>
+		<key>ppl.0</key>
+		<array>
+			<string>Barbell Bench Press</string>
+			<string>Overhead Press</string>
+			<string>Sled Push</string>
+		</array>
+		<key>ppl.1</key>
+		<array>
+			<string>Pull-Up</string>
+			<string>Leg Curl</string>
+			<string>bench press</string>
+		</array>
+		<key>ppl.2</key>
+		<array/>
+		<key>upperLower.0</key>
+		<array>
+			<string>Back Squat</string>
+			<string>Lateral Raise</string>
+		</array>
+	</dict>
+</dict>
+</plist>

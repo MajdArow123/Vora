@@ -49,12 +49,7 @@ struct WorkoutView: View {
                 sessionName: viewModel.todaySplitDay.map {
                     $0.isRest ? "Extra Session" : $0.title
                 } ?? "Session",
-                templateExercises: viewModel.todaySplitDay?.isRest == false
-                    ? WorkoutTemplateStore.template(
-                        for: viewModel.trainingSplit,
-                        dayIndex: viewModel.todayIndex
-                    )
-                    : []
+                templatePlan: viewModel.templatePlan(context: modelContext)
             )
         }
         .sheet(isPresented: $showingTemplateEditor) {

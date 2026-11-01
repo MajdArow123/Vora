@@ -29,6 +29,13 @@ enum MuscleGroup: String, CaseIterable, Identifiable {
     }
 }
 
+/// Whether an exercise works several joints at once. Drives the default
+/// rest between sets.
+enum ExerciseMechanics: String, CaseIterable {
+    case compound
+    case isolation
+}
+
 /// A library exercise. Not persisted — the bundled catalog lives in
 /// ExerciseLibrary; logged exercises store name + muscle groups on
 /// ExerciseLog.
@@ -39,6 +46,7 @@ struct ExerciseDefinition: Identifiable, Hashable {
     let id: String
     let name: String
     let muscleGroup: MuscleGroup
+    let mechanics: ExerciseMechanics
     let equipment: Set<EquipmentType>
     /// Muscles the exercise is programmed to train.
     let primaryMuscles: Set<Muscle>
@@ -47,6 +55,9 @@ struct ExerciseDefinition: Identifiable, Hashable {
     let secondaryMuscles: Set<Muscle>
     /// Short imperative form pointers, shown in the exercise detail view.
     let techniqueCues: [String]
+    /// Kept only so logged history and old templates still resolve; never
+    /// offered in the exercise picker.
+    var isLegacyOnly = false
 
     /// Everything the exercise needs must be on offer for it to count as
     /// doable in a given gym.

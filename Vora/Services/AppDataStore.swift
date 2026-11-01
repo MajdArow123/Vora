@@ -26,13 +26,18 @@ final class AppDataStore {
 
     private let open: () throws -> ModelContainer
     private let backfillExerciseIDs: (ModelContext) throws -> Int
+    private let migrateTemplates: (ModelContext) throws -> TemplateDefaultsMigration.Outcome
 
     init(
         open: @escaping () throws -> ModelContainer = { try PersistenceController.makeContainer() },
-        backfillExerciseIDs: @escaping (ModelContext) throws -> Int = { try ExerciseIDBackfill.run(in: $0) }
+        backfillExerciseIDs: @escaping (ModelContext) throws -> Int = { try ExerciseIDBackfill.run(in: $0) },
+        migrateTemplates: @escaping (ModelContext) throws -> TemplateDefaultsMigration.Outcome = {
+            try TemplateDefaultsMigration.run(in: $0, defaults: .standard)
+        }
     ) {
         self.open = open
         self.backfillExerciseIDs = backfillExerciseIDs
+        self.migrateTemplates = migrateTemplates
     }
 
     var container: ModelContainer? {
@@ -53,6 +58,7 @@ final class AppDataStore {
             #endif
             GymProfileService.ensureDefaultProfile(context: ModelContext(container))
             runExerciseIDBackfill(in: container)
+            runTemplateMigration(in: container)
             state = .ready(container)
         } catch {
             PersistenceController.logger.error(
@@ -73,6 +79,28 @@ final class AppDataStore {
         } catch {
             PersistenceController.logger.error(
                 "Exercise ID backfill failed: \(String(describing: error), privacy: .public)"
+            )
+        }
+    }
+
+    /// Never blocks launch: until it succeeds the app shows the built-in
+    /// default templates, and the UserDefaults data stays for the next try.
+    private func runTemplateMigration(in container: ModelContainer) {
+        do {
+            let outcome = try migrateTemplates(ModelContext(container))
+            if outcome.removedKey || outcome.invalid > 0 {
+                PersistenceController.logger.info(
+                    """
+                    Template migration: \(outcome.migrated, privacy: .public) migrated, \
+                    \(outcome.skippedExisting, privacy: .public) already present, \
+                    \(outcome.invalid, privacy: .public) unreadable, \
+                    key removed: \(outcome.removedKey, privacy: .public)
+                    """
+                )
+            }
+        } catch {
+            PersistenceController.logger.error(
+                "Template migration failed: \(String(describing: error), privacy: .public)"
             )
         }
     }

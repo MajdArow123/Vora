@@ -9,9 +9,11 @@ a migration stage. Never edit an existing version.
 | `Vora/Models/Schema/SchemaV1.swift` | The schema every pre-versioning store was created with; frozen copies of WorkoutSession, ExerciseLog, SetEntry |
 | `Vora/Models/Schema/SchemaV2.swift` | Adds `ExerciseLog.exerciseId` (lightweight stage) |
 | `Vora/Models/Schema/ExerciseIDBackfill.swift` | Post-open fill of `exerciseId` for pre-V2 rows |
+| `Vora/Models/Schema/SchemaV3.swift` | Adds the `WorkoutTemplate` and `TemplateExercise` entities (lightweight stage; nothing frozen because no existing model changed) |
+| `Vora/Models/Schema/TemplateDefaultsMigration.swift` | Post-open move of the pre-V3 `vora.workoutTemplates` UserDefaults dictionary into SwiftData; removes the key only after a successful save |
 | `Vora/Models/Schema/VoraMigrationPlan.swift` | Ordered `schemas` and `stages`; `CurrentSchema` alias |
 | `Vora/Services/PersistenceController.swift` | Builds the container on `CurrentSchema` with the plan |
-| `Vora/Services/AppDataStore.swift` | Opens the store at launch and runs post-open backfills; failures show `DataStoreErrorView` (Retry / Export data) instead of crashing |
+| `Vora/Services/AppDataStore.swift` | Opens the store at launch and runs post-open backfills and data moves (exercise IDs, then templates); failures show `DataStoreErrorView` (Retry / Export data) instead of crashing |
 
 ## Adding a schema version (SchemaV2 shown; same steps for every Vn)
 
@@ -54,7 +56,14 @@ a migration stage. Never edit an existing version.
      actual code (check that commit out in a temporary worktree and run a
      throwaway test that writes the store), add it under
      `VoraTests/Fixtures/`, and open a temp copy of it through the
-     current plan. `v1-fixture.store` was generated from commit 0cafae8.
+     current plan. `v1-fixture.store` was generated from commit 0cafae8;
+     `v2-fixture.store` and `v2-fixture-templates.plist` (the UserDefaults
+     domain written by the shipped `WorkoutTemplateStore`) from commit
+     712aea5. When data outside the store moves into it (UserDefaults,
+     files), fixture that data too and test the move against it.
+   - Post-open moves and backfills run through `AppDataStore` with their
+     inputs injected (e.g. a test `UserDefaults` suite), never the host
+     app's real `UserDefaults.standard`.
 
 ## Rules
 

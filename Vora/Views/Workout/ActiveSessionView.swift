@@ -20,14 +20,13 @@ struct ActiveSessionView: View {
     private var activeProfiles: [GymProfile]
     @State private var didPrefill = false
     @State private var editMode: EditMode = .inactive
-    @AppStorage("restTimerSeconds") private var restTimerSeconds = 90
 
     private let healthKitService = HealthKitService()
-    private let templateExercises: [String]
+    private let templatePlan: [TemplateExerciseSpec]
 
-    init(sessionName: String, templateExercises: [String] = []) {
+    init(sessionName: String, templatePlan: [TemplateExerciseSpec] = []) {
         _viewModel = State(initialValue: ActiveSessionViewModel(sessionName: sessionName))
-        self.templateExercises = templateExercises
+        self.templatePlan = templatePlan
     }
 
     var body: some View {
@@ -52,7 +51,7 @@ struct ActiveSessionView: View {
                             viewModel: viewModel,
                             isUnavailable: isUnavailable(exercise.name),
                             onSetCompleted: {
-                                viewModel.startRest(duration: TimeInterval(restTimerSeconds))
+                                viewModel.startRest(duration: TimeInterval(exercise.restSeconds))
                             },
                             onSwap: {
                                 swappingExercise = exercise
@@ -147,7 +146,7 @@ struct ActiveSessionView: View {
         .onAppear {
             guard !didPrefill else { return }
             didPrefill = true
-            viewModel.prefill(with: templateExercises, context: modelContext)
+            viewModel.prefill(with: templatePlan, context: modelContext)
         }
     }
 
@@ -269,6 +268,13 @@ struct ExerciseSessionCard: View {
     var onSwap: () -> Void = {}
     var onInfo: () -> Void = {}
 
+    /// "8–12", or "8" when the range is a single rep count.
+    static func repRangeText(_ range: ClosedRange<Int>) -> String {
+        range.lowerBound == range.upperBound
+            ? "\(range.lowerBound)"
+            : "\(range.lowerBound)–\(range.upperBound)"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: DesignSystem.Spacing.sm) {
             HStack {
@@ -342,6 +348,7 @@ struct ExerciseSessionCard: View {
                     previousText: index < exercise.previousSets.count
                         ? exercise.previousSets[index].text
                         : "—",
+                    repsPlaceholder: exercise.repRange.map { Self.repRangeText($0) } ?? "0",
                     exerciseID: exercise.id,
                     viewModel: viewModel,
                     onCompleted: onSetCompleted
@@ -378,6 +385,7 @@ private struct SetRow: View {
     let setNumber: Int
     let set: ActiveSessionViewModel.DraftSet
     let previousText: String
+    let repsPlaceholder: String
     let exerciseID: ActiveSessionViewModel.DraftExercise.ID
     let viewModel: ActiveSessionViewModel
     let onCompleted: () -> Void
@@ -397,7 +405,7 @@ private struct SetRow: View {
 
             field(binding(\.weightText), placeholder: "0")
                 .accessibilityLabel("Weight in kilograms")
-            field(binding(\.repsText), placeholder: "0")
+            field(binding(\.repsText), placeholder: repsPlaceholder)
                 .accessibilityLabel("Reps")
 
             Button {

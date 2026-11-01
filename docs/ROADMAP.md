@@ -2,7 +2,7 @@
 
 Nov 1, 2026 · @majd arow
 
-> **Status (updated 2026-11-01):** Prompt 0 (git) done. Prompt 1 (versioned schema) committed in `0cafae8`. Prompt 2 (stable exercise IDs) done: library IDs, SchemaV2, lightweight stage + post-open backfill, legacy alias map, 68-exercise library, 536 tests passing. **Next: Prompt 3.**
+> **Status (updated 2026-11-01):** Prompt 0 (git) done. Prompt 1 (versioned schema) committed in `0cafae8`. Prompt 2 (stable exercise IDs) committed in `712aea5`. Prompt 3 (templates as SwiftData) done: SchemaV3 adds `WorkoutTemplate` / `TemplateExercise` (matched by `exerciseId`, custom exercises by `customName`), lightweight stage + post-open UserDefaults move, per-exercise sets / rep range / target RIR / rest (compound 120 s, isolation 90 s via the new `mechanics` field), generic "Leg Curl" hidden from the picker as legacy-only, V2 fixture from `712aea5`, 580 tests passing. **Next: Prompt 4.**
 >
 > Lessons applied so far (see docs/MIGRATIONS.md): freeze every model in a relationship cluster, not just the one that changes; prefer `.lightweight` stages plus an idempotent post-open backfill in `AppDataStore.load()` over custom stages; test migrations against a real fixture store generated from the previous commit; always match exercises by `exerciseId`, never by name.
 
@@ -84,7 +84,13 @@ Phase 0 makes the data model safe to change. Phase 1 builds the progression loop
 12. **Live Activity rest timer.** Needs a new widget extension target.
 13. **Training-cycle programs**, then the **training-aware coaching** differentiator.
 
-Later or never: auto-generated programs, spreadsheet import. Small fix any time: the 6 test warnings and the README (iOS 26.5, not 17+; RPE not recorded).
+Later or never: auto-generated programs, spreadsheet import.
+
+**Small fixes** (any time)
+
+- The 6 test warnings and the README (iOS 26.5, not 17+; RPE not recorded).
+- Long exercise names wrap ("Barbell / Bench Press") when the muscle tag sits beside them in TemplateEditorView.
+- Free provisioning: the app expires on the iPhone after 7 days until I join the Apple Developer Program.
 
 ## Claude Code prompts
 

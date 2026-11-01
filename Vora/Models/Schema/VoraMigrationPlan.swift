@@ -13,7 +13,7 @@ import SwiftData
 /// stage that reaches it from the previous one to `stages`.
 nonisolated enum VoraMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
-        [SchemaV1.self, SchemaV2.self]
+        [SchemaV1.self, SchemaV2.self, SchemaV3.self]
     }
 
     static var stages: [MigrationStage] {
@@ -21,10 +21,14 @@ nonisolated enum VoraMigrationPlan: SchemaMigrationPlan {
             // Adds the optional ExerciseLog.exerciseId; values are filled
             // after opening by ExerciseIDBackfill.
             .lightweight(fromVersion: SchemaV1.self, toVersion: SchemaV2.self),
+            // Adds the WorkoutTemplate and TemplateExercise entities; saved
+            // UserDefaults templates are moved in after opening by
+            // TemplateDefaultsMigration.
+            .lightweight(fromVersion: SchemaV2.self, toVersion: SchemaV3.self),
         ]
     }
 }
 
 /// The schema the app currently runs on. Always the last entry of
 /// `VoraMigrationPlan.schemas`.
-typealias CurrentSchema = SchemaV2
+typealias CurrentSchema = SchemaV3

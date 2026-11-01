@@ -5,34 +5,48 @@
 //  Created by Majd Arow on 2026-07-24.
 //
 
+import OSLog
 import SwiftUI
 import SwiftData
 
-/// Edits the default exercise list for one split day. Changes apply to
-/// future sessions only; Close abandons edits, Save persists them via
-/// WorkoutTemplateStore. Exercises the active gym can't support stay in
-/// the template but are flagged as unavailable.
+/// Edits the exercises and per-exercise targets (sets, rep range, target
+/// RIR, rest) for one split day. Changes apply to future sessions only;
+/// Close abandons edits, Save persists them via WorkoutTemplateService.
+/// Exercises the active gym can't support stay in the template but are
+/// flagged as unavailable.
 struct TemplateEditorView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
     let split: TrainingSplit
     let dayIndex: Int
     let dayTitle: String
 
     @Query(filter: #Predicate<GymProfile> { $0.isActive })
     private var activeProfiles: [GymProfile]
-    @State private var names: [String]
+    @State private var specs: [TemplateExerciseSpec] = []
+    @State private var expanded: Set<TemplateExerciseSpec.ID> = []
+    @State private var didLoad = false
+    /// The defaults assigned by Reset to Default. While the list still
+    /// equals them, saving deletes the saved template instead of writing a
+    /// copy of the defaults.
+    @State private var resetSnapshot: [TemplateExerciseSpec]?
     @State private var showingExercisePicker = false
+    @State private var errorMessage: String?
 
-    private func isAvailable(_ name: String) -> Bool {
-        guard let equipment = activeProfiles.first?.availableEquipment else { return true }
-        return ExerciseLibrary.isAvailable(name: name, with: equipment)
-    }
+    private static let logger = Logger(subsystem: "com.majdarow.Vora", category: "Workout")
 
     init(split: TrainingSplit, dayIndex: Int, dayTitle: String) {
         self.split = split
         self.dayIndex = dayIndex
         self.dayTitle = dayTitle
-        _names = State(initialValue: WorkoutTemplateStore.template(for: split, dayIndex: dayIndex))
+    }
+
+    private func isAvailable(_ spec: TemplateExerciseSpec) -> Bool {
+        guard let equipment = activeProfiles.first?.availableEquipment,
+              let exerciseId = spec.exerciseId,
+              let definition = ExerciseLibrary.definition(id: exerciseId)
+        else { return true }
+        return definition.isAvailable(with: equipment)
     }
 
     var body: some View {
@@ -43,7 +57,7 @@ struct TemplateEditorView: View {
 
                 VStack(spacing: 0) {
                     List {
-                        if names.isEmpty {
+                        if specs.isEmpty {
                             Text("No exercises yet. Add some below.")
                                 .font(DesignSystem.Typography.caption)
                                 .foregroundStyle(DesignSystem.Colors.textSecondary)
@@ -53,14 +67,14 @@ struct TemplateEditorView: View {
                                 .listRowSeparator(.hidden)
                         }
 
-                        ForEach(names, id: \.self) { name in
-                            exerciseRow(name)
+                        ForEach($specs) { $spec in
+                            exerciseRow($spec)
                                 .listRowBackground(Color.clear)
                                 .listRowSeparator(.hidden)
                                 .listRowInsets(rowInsets)
                         }
-                        .onDelete { names.remove(atOffsets: $0) }
-                        .onMove { names.move(fromOffsets: $0, toOffset: $1) }
+                        .onDelete { specs.remove(atOffsets: $0) }
+                        .onMove { specs.move(fromOffsets: $0, toOffset: $1) }
 
                         Button {
                             showingExercisePicker = true
@@ -84,8 +98,11 @@ struct TemplateEditorView: View {
                         .listRowInsets(rowInsets)
 
                         Button {
+                            let defaults = WorkoutTemplateService.defaultPlan(for: split, dayIndex: dayIndex)
+                            resetSnapshot = defaults
                             withAnimation(.easeInOut(duration: 0.2)) {
-                                names = WorkoutTemplateStore.defaultTemplate(for: split, dayIndex: dayIndex)
+                                specs = defaults
+                                expanded = []
                             }
                         } label: {
                             Text("Reset to Default")
@@ -104,8 +121,7 @@ struct TemplateEditorView: View {
                     .environment(\.editMode, .constant(.active))
 
                     PrimaryButton(title: "Save Template") {
-                        WorkoutTemplateStore.saveTemplate(names, for: split, dayIndex: dayIndex)
-                        dismiss()
+                        save()
                     }
                     .padding(DesignSystem.Spacing.lg)
                 }
@@ -121,12 +137,61 @@ struct TemplateEditorView: View {
         }
         .sheet(isPresented: $showingExercisePicker) {
             ExercisePickerView { name, _ in
-                if !names.contains(name) {
-                    names.append(name)
+                let spec = TemplateExerciseSpec(pickedName: name)
+                if !specs.contains(where: { $0.identityKey == spec.identityKey }) {
+                    specs.append(spec)
                 }
             }
         }
+        .alert(
+            "Couldn't Save Template",
+            isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "")
+        }
+        .onChange(of: specs) {
+            if let resetSnapshot, specs != resetSnapshot {
+                self.resetSnapshot = nil
+            }
+        }
+        .task {
+            guard !didLoad else { return }
+            didLoad = true
+            load()
+        }
     }
+
+    // MARK: - Persistence
+
+    private func load() {
+        do {
+            specs = try WorkoutTemplateService.plan(for: split, dayIndex: dayIndex, context: modelContext)
+        } catch {
+            Self.logger.error("Failed to load template: \(String(describing: error), privacy: .public)")
+            specs = WorkoutTemplateService.defaultPlan(for: split, dayIndex: dayIndex)
+        }
+    }
+
+    private func save() {
+        do {
+            if let resetSnapshot, specs == resetSnapshot {
+                try WorkoutTemplateService.reset(for: split, dayIndex: dayIndex, context: modelContext)
+            } else {
+                try WorkoutTemplateService.save(specs, for: split, dayIndex: dayIndex, context: modelContext)
+            }
+            dismiss()
+        } catch {
+            Self.logger.error("Failed to save template: \(String(describing: error), privacy: .public)")
+            errorMessage = "Your changes weren't saved. Please try again."
+        }
+    }
+
+    // MARK: - Rows
 
     private var rowInsets: EdgeInsets {
         EdgeInsets(
@@ -137,47 +202,179 @@ struct TemplateEditorView: View {
         )
     }
 
-    private func exerciseRow(_ name: String) -> some View {
-        let available = isAvailable(name)
-        return HStack(spacing: DesignSystem.Spacing.md) {
-            Text(name)
-                .font(DesignSystem.Typography.body)
-                .foregroundStyle(available
-                                 ? DesignSystem.Colors.textPrimary
-                                 : DesignSystem.Colors.textSecondary)
-            Spacer()
-            if !available {
-                HStack(spacing: DesignSystem.Spacing.xs) {
-                    Image(systemName: "circle.slash")
-                        .font(.caption2)
-                        .accessibilityHidden(true)
-                    Text("Unavailable")
-                        .font(DesignSystem.Typography.caption)
+    private func exerciseRow(_ spec: Binding<TemplateExerciseSpec>) -> some View {
+        let value = spec.wrappedValue
+        let available = isAvailable(value)
+        let isExpanded = expanded.contains(value.id)
+        return VStack(alignment: .leading, spacing: DesignSystem.Spacing.sm) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    if isExpanded {
+                        expanded.remove(value.id)
+                    } else {
+                        expanded.insert(value.id)
+                    }
                 }
-                .foregroundStyle(DesignSystem.Colors.textSecondary)
-                .padding(.horizontal, DesignSystem.Spacing.sm)
-                .padding(.vertical, 4)
-                .background(DesignSystem.Colors.textSecondary.opacity(0.12))
-                .clipShape(Capsule())
-                .accessibilityLabel("Not available at your active gym")
+            } label: {
+                header(value, available: available, isExpanded: isExpanded)
             }
-            if let group = ExerciseLibrary.definition(named: name)?.muscleGroup {
-                Text(group.displayName)
-                    .font(DesignSystem.Typography.caption)
-                    .foregroundStyle(DesignSystem.Colors.accent)
-                    .padding(.horizontal, DesignSystem.Spacing.sm)
-                    .padding(.vertical, 4)
-                    .background(DesignSystem.Colors.accent.opacity(0.12))
-                    .clipShape(Capsule())
+            .buttonStyle(.plain)
+            .accessibilityHint(isExpanded ? "Hides targets" : "Shows targets")
+
+            if isExpanded {
+                targets(spec)
+                    .transition(.opacity)
             }
         }
         .padding(DesignSystem.Spacing.md)
         .background(DesignSystem.Colors.card)
         .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
     }
+
+    private func header(_ spec: TemplateExerciseSpec, available: Bool, isExpanded: Bool) -> some View {
+        VStack(alignment: .leading, spacing: DesignSystem.Spacing.xs) {
+            HStack(spacing: DesignSystem.Spacing.md) {
+                Text(spec.displayName)
+                    .font(DesignSystem.Typography.body)
+                    .foregroundStyle(available
+                                     ? DesignSystem.Colors.textPrimary
+                                     : DesignSystem.Colors.textSecondary)
+                Spacer()
+                if !available {
+                    HStack(spacing: DesignSystem.Spacing.xs) {
+                        Image(systemName: "circle.slash")
+                            .font(.caption2)
+                            .accessibilityHidden(true)
+                        Text("Unavailable")
+                            .font(DesignSystem.Typography.caption)
+                    }
+                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+                    .padding(.horizontal, DesignSystem.Spacing.sm)
+                    .padding(.vertical, DesignSystem.Spacing.xs)
+                    .background(DesignSystem.Colors.textSecondary.opacity(0.12))
+                    .clipShape(Capsule())
+                    .accessibilityLabel("Not available at your active gym")
+                }
+                if let group = spec.exerciseId.flatMap({ ExerciseLibrary.definition(id: $0) })?.muscleGroup {
+                    Text(group.displayName)
+                        .font(DesignSystem.Typography.caption)
+                        .foregroundStyle(DesignSystem.Colors.accent)
+                        .padding(.horizontal, DesignSystem.Spacing.sm)
+                        .padding(.vertical, DesignSystem.Spacing.xs)
+                        .background(DesignSystem.Colors.accent.opacity(0.12))
+                        .clipShape(Capsule())
+                }
+                Image(systemName: "chevron.down")
+                    .font(.caption)
+                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+                    .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                    .accessibilityHidden(true)
+            }
+            Text(Self.summary(spec))
+                .font(DesignSystem.Typography.caption)
+                .foregroundStyle(DesignSystem.Colors.textSecondary)
+        }
+        .contentShape(Rectangle())
+    }
+
+    private func targets(_ spec: Binding<TemplateExerciseSpec>) -> some View {
+        let limits = TemplateExerciseSpec.Limits.self
+        return VStack(spacing: DesignSystem.Spacing.xs) {
+            Divider()
+            stepperRow("Sets", value: "\(spec.wrappedValue.targetSets)") {
+                Stepper("Sets", value: spec.targetSets, in: limits.sets)
+            }
+            stepperRow("Min reps", value: "\(spec.wrappedValue.repRangeMin)") {
+                Stepper("Min reps", value: minReps(spec), in: limits.reps)
+            }
+            stepperRow("Max reps", value: "\(spec.wrappedValue.repRangeMax)") {
+                Stepper("Max reps", value: maxReps(spec), in: limits.reps)
+            }
+            stepperRow("Target RIR", value: spec.wrappedValue.targetRIR.map(String.init) ?? "Off") {
+                Stepper("Target RIR", value: rir(spec), in: (limits.rir.lowerBound - 1)...limits.rir.upperBound)
+            }
+            stepperRow("Rest", value: Self.restText(spec.wrappedValue.restSeconds)) {
+                Stepper(
+                    "Rest",
+                    value: spec.restSeconds,
+                    in: limits.restSeconds,
+                    step: limits.restStepSeconds
+                )
+            }
+        }
+    }
+
+    private func stepperRow(
+        _ title: String,
+        value: String,
+        @ViewBuilder stepper: () -> some View
+    ) -> some View {
+        HStack {
+            Text(title)
+                .font(DesignSystem.Typography.body)
+                .foregroundStyle(DesignSystem.Colors.textPrimary)
+            Spacer()
+            Text(value)
+                .font(DesignSystem.Typography.headline)
+                .foregroundStyle(DesignSystem.Colors.textPrimary)
+                .monospacedDigit()
+            stepper()
+                .labelsHidden()
+                .accessibilityValue(value)
+        }
+    }
+
+    // MARK: - Bindings
+
+    /// Raising the minimum past the maximum carries the maximum along.
+    private func minReps(_ spec: Binding<TemplateExerciseSpec>) -> Binding<Int> {
+        Binding(
+            get: { spec.wrappedValue.repRangeMin },
+            set: { newValue in
+                spec.wrappedValue.repRangeMin = newValue
+                spec.wrappedValue.repRangeMax = max(spec.wrappedValue.repRangeMax, newValue)
+            }
+        )
+    }
+
+    /// Lowering the maximum below the minimum carries the minimum along.
+    private func maxReps(_ spec: Binding<TemplateExerciseSpec>) -> Binding<Int> {
+        Binding(
+            get: { spec.wrappedValue.repRangeMax },
+            set: { newValue in
+                spec.wrappedValue.repRangeMax = newValue
+                spec.wrappedValue.repRangeMin = min(spec.wrappedValue.repRangeMin, newValue)
+            }
+        )
+    }
+
+    /// One step below the RIR range means "Off" (no target).
+    private func rir(_ spec: Binding<TemplateExerciseSpec>) -> Binding<Int> {
+        let off = TemplateExerciseSpec.Limits.rir.lowerBound - 1
+        return Binding(
+            get: { spec.wrappedValue.targetRIR ?? off },
+            set: { spec.wrappedValue.targetRIR = $0 == off ? nil : $0 }
+        )
+    }
+
+    // MARK: - Formatting
+
+    static func restText(_ seconds: Int) -> String {
+        String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
+
+    /// "3 × 8–12 · RIR 2 · 2:00 rest"
+    static func summary(_ spec: TemplateExerciseSpec) -> String {
+        var parts = ["\(spec.targetSets) × \(ExerciseSessionCard.repRangeText(spec.repRange))"]
+        if let rir = spec.targetRIR {
+            parts.append("RIR \(rir)")
+        }
+        parts.append("\(restText(spec.restSeconds)) rest")
+        return parts.joined(separator: " · ")
+    }
 }
 
 #Preview {
     TemplateEditorView(split: .ppl, dayIndex: 0, dayTitle: "Push")
-        .modelContainer(for: GymProfile.self, inMemory: true)
+        .modelContainer(for: [GymProfile.self, WorkoutTemplate.self], inMemory: true)
 }

@@ -18,8 +18,25 @@ struct SchemaMigrationTests {
 
     private static func removeStore(at url: URL) {
         for suffix in [""] + StoreExporter.sidecarSuffixes {
-            try? FileManager.default.removeItem(atPath: url.path + suffix)
+            removeTestItem(at: URL(fileURLWithPath: url.path + suffix))
         }
+    }
+
+    /// Copies a bundled fixture store (and whichever sidecars exist) into a
+    /// fresh temporary directory, so the fixture itself is never modified.
+    private static func copyFixtureStore(named name: String) throws -> (directory: URL, store: URL) {
+        let bundle = Bundle(for: BundleToken.self)
+        let source = try #require(bundle.url(forResource: name, withExtension: "store"))
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Fixture-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let storeURL = directory.appendingPathComponent("\(name).store")
+        for suffix in [""] + StoreExporter.sidecarSuffixes {
+            let sidecar = URL(fileURLWithPath: source.path + suffix)
+            guard FileManager.default.fileExists(atPath: sidecar.path) else { continue }
+            try FileManager.default.copyItem(at: sidecar, to: URL(fileURLWithPath: storeURL.path + suffix))
+        }
+        return (directory, storeURL)
     }
 
     private static func shapes(_ schema: Schema) -> [String: Set<String>] {
@@ -39,9 +56,8 @@ struct SchemaMigrationTests {
         #expect(names.contains { $0.hasSuffix("SchemaV1.SetEntry") })
     }
 
-    @Test func schemaV2IsCurrentWithSameEntities() {
+    @Test func schemaV2HasSameEntitiesAsV1() {
         #expect(SchemaV2.versionIdentifier == Schema.Version(2, 0, 0))
-        #expect(CurrentSchema.versionIdentifier == SchemaV2.versionIdentifier)
         #expect(Set(Self.shapes(Schema(SchemaV2.models)).keys) == Set(Self.shapes(Schema(SchemaV1.models)).keys))
     }
 
@@ -49,13 +65,30 @@ struct SchemaMigrationTests {
     @Test func schemaV2AddsOnlyExerciseID() {
         var expected = Self.shapes(Schema(versionedSchema: SchemaV1.self))
         expected["ExerciseLog", default: []].insert("exerciseId")
+        #expect(Self.shapes(Schema(versionedSchema: SchemaV2.self)) == expected)
+    }
+
+    @Test func schemaV3IsCurrent() {
+        #expect(SchemaV3.versionIdentifier == Schema.Version(3, 0, 0))
+        #expect(CurrentSchema.versionIdentifier == SchemaV3.versionIdentifier)
+        #expect(SchemaV3.models.count == 20)
+    }
+
+    /// V3 is V2 plus the two template entities; no V2 entity changed.
+    @Test func schemaV3AddsOnlyTemplateEntities() {
+        var expected = Self.shapes(Schema(versionedSchema: SchemaV2.self))
+        expected["WorkoutTemplate"] = ["id", "splitRawValue", "dayIndex", "name", "exercises"]
+        expected["TemplateExercise"] = [
+            "id", "exerciseId", "customName", "orderIndex", "targetSets",
+            "repRangeMin", "repRangeMax", "targetRIR", "restSeconds", "parent",
+        ]
         #expect(Self.shapes(PersistenceController.schema) == expected)
     }
 
-    @Test func migrationPlanListsV1ThenV2WithOneStage() {
+    @Test func migrationPlanListsEveryVersionWithAStageBetweenEach() {
         let versions = VoraMigrationPlan.schemas.map { $0.versionIdentifier }
-        #expect(versions == [Schema.Version(1, 0, 0), Schema.Version(2, 0, 0)])
-        #expect(VoraMigrationPlan.stages.count == 1)
+        #expect(versions == [Schema.Version(1, 0, 0), Schema.Version(2, 0, 0), Schema.Version(3, 0, 0)])
+        #expect(VoraMigrationPlan.stages.count == 2)
     }
 
     // MARK: - Container
@@ -170,21 +203,14 @@ struct SchemaMigrationTests {
     /// "Leg Curl" (custom then, a library exercise since); the second
     /// session holds the bench PR.
     @Test @MainActor func realV1FixtureMigratesWithoutLoss() throws {
-        let bundle = Bundle(for: BundleToken.self)
-        let source = try #require(bundle.url(forResource: "v1-fixture", withExtension: "store"))
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("V1Fixture-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        let fixture = try Self.copyFixtureStore(named: "v1-fixture")
+        defer { removeTestItem(at: fixture.directory) }
+        let storeURL = fixture.store
 
-        let storeURL = directory.appendingPathComponent("v1-fixture.store")
-        for suffix in [""] + StoreExporter.sidecarSuffixes {
-            let sidecar = URL(fileURLWithPath: source.path + suffix)
-            guard FileManager.default.fileExists(atPath: sidecar.path) else { continue }
-            try FileManager.default.copyItem(at: sidecar, to: URL(fileURLWithPath: storeURL.path + suffix))
-        }
-
-        let store = AppDataStore(open: { try PersistenceController.makeContainer(url: storeURL) })
+        let store = AppDataStore(
+            open: { try PersistenceController.makeContainer(url: storeURL) },
+            migrateTemplates: { _ in TemplateDefaultsMigration.Outcome() }
+        )
         store.load()
         let context = try #require(store.container).mainContext
 
@@ -221,6 +247,170 @@ struct SchemaMigrationTests {
         #expect(try ExerciseIDBackfill.run(in: context) == 0)
     }
 
+    // MARK: - V2 -> V3 (frozen types)
+
+    /// A store written with the V2 schema opens through the plan with every
+    /// row intact and the new template entities usable.
+    @Test @MainActor func v2StoreMigratesToV3WithoutLoss() throws {
+        let storeURL = Self.temporaryStoreURL()
+        defer { Self.removeStore(at: storeURL) }
+
+        let sessionDate = Date(timeIntervalSince1970: 1_792_000_000)
+        try {
+            let schema = Schema(versionedSchema: SchemaV2.self)
+            let v2 = try ModelContainer(
+                for: schema,
+                configurations: [ModelConfiguration(schema: schema, url: storeURL)]
+            )
+            let context = v2.mainContext
+            let bench = ExerciseLog(
+                exerciseName: "Barbell Bench Press", exerciseId: "barbell-bench-press",
+                muscleGroups: ["chest"], orderIndex: 0,
+                sets: [SetEntry(setNumber: 1, weightKg: 90, reps: 5, isCompleted: true)]
+            )
+            let sled = ExerciseLog(
+                exerciseName: "Sled Push", orderIndex: 1,
+                sets: [SetEntry(setNumber: 1, weightKg: 120, reps: 1, isCompleted: true)]
+            )
+            context.insert(WorkoutSession(
+                date: sessionDate, sessionName: "Push", durationSeconds: 1800,
+                totalVolumeKg: 570, exercises: [bench, sled]
+            ))
+            context.insert(SplitDay(dayIndex: 0, title: "Push", muscleGroups: ["chest"]))
+            context.insert(WeightEntry(date: sessionDate, weightKg: 81.2))
+            try context.save()
+        }()
+
+        let container = try PersistenceController.makeContainer(url: storeURL)
+        let context = container.mainContext
+
+        let session = try #require(try context.fetch(FetchDescriptor<WorkoutSession>()).first)
+        #expect(session.date == sessionDate)
+        let logs = session.exercises.sorted { $0.orderIndex < $1.orderIndex }
+        #expect(logs.map(\.exerciseId) == ["barbell-bench-press", nil])
+        #expect(logs.flatMap(\.sets).map(\.weightKg).sorted() == [90, 120])
+        #expect(try context.fetch(FetchDescriptor<SplitDay>()).map(\.title) == ["Push"])
+        #expect(try context.fetch(FetchDescriptor<WeightEntry>()).map(\.weightKg) == [81.2])
+        #expect(try context.fetchCount(FetchDescriptor<WorkoutTemplate>()) == 0)
+
+        try WorkoutTemplateService.save(
+            [TemplateExerciseSpec(exerciseId: "barbell-bench-press")],
+            for: .ppl, dayIndex: 0, context: context
+        )
+        #expect(try context.fetchCount(FetchDescriptor<TemplateExercise>()) == 1)
+    }
+
+    // MARK: - V2 -> V3 (real store and templates from commit 712aea5)
+
+    /// Loads `Fixtures/v2-fixture-templates.plist` (the UserDefaults domain
+    /// written by the shipped WorkoutTemplateStore) into a fresh suite.
+    private static func fixtureTemplateDefaults() throws -> UserDefaults {
+        let bundle = Bundle(for: BundleToken.self)
+        let url = try #require(bundle.url(forResource: "v2-fixture-templates", withExtension: "plist"))
+        let plist = try PropertyListSerialization.propertyList(from: Data(contentsOf: url), format: nil)
+        let domain = try #require(plist as? [String: Any])
+        let defaults = try makeTestDefaults()
+        for (key, value) in domain {
+            defaults.set(value, forKey: key)
+        }
+        return defaults
+    }
+
+    /// `Fixtures/v2-fixture.store` was written by the shipped V2 code
+    /// (commit 712aea5): 2 Push sessions, each with Barbell Bench Press,
+    /// Leg Curl and the custom Sled Push; the second session holds the
+    /// bench PR. `v2-fixture-templates.plist` holds the templates that
+    /// build saved: ppl.0, ppl.1 (with "Leg Curl" and the alias
+    /// "bench press"), an emptied ppl.2, and upperLower.0.
+    @Test @MainActor func realV2FixtureMigratesStoreAndTemplatesWithoutLoss() throws {
+        let fixture = try Self.copyFixtureStore(named: "v2-fixture")
+        defer { removeTestItem(at: fixture.directory) }
+        let storeURL = fixture.store
+        let defaults = try Self.fixtureTemplateDefaults()
+        let open = { try PersistenceController.makeContainer(url: storeURL) }
+
+        let store = AppDataStore(
+            open: open,
+            migrateTemplates: { try TemplateDefaultsMigration.run(in: $0, defaults: defaults) }
+        )
+        store.load()
+        let context = try #require(store.container).mainContext
+
+        // Every V2 row survived.
+        let users = try context.fetch(FetchDescriptor<UserProfile>())
+        #expect(users.map(\.name) == ["Fixture User"])
+        #expect(users.first?.trainingSplit == .ppl)
+        let sessions = try context.fetch(FetchDescriptor<WorkoutSession>(sortBy: [SortDescriptor(\.date)]))
+        #expect(sessions.map(\.date) == [
+            Date(timeIntervalSince1970: 1_792_051_200),
+            Date(timeIntervalSince1970: 1_792_656_000),
+        ])
+        #expect(try context.fetchCount(FetchDescriptor<ExerciseLog>()) == 6)
+        #expect(try context.fetchCount(FetchDescriptor<SetEntry>()) == 12)
+        for session in sessions {
+            let logs = session.exercises.sorted { $0.orderIndex < $1.orderIndex }
+            #expect(logs.map(\.exerciseName) == ["Barbell Bench Press", "Leg Curl", "Sled Push"])
+            #expect(logs.map(\.exerciseId) == ["barbell-bench-press", "leg-curl", nil])
+        }
+        #expect(try context.fetch(FetchDescriptor<GymProfile>()).map(\.name) == ["Commercial Gym"])
+
+        let records = WorkoutHomeViewModel.computePersonalRecords(from: context)
+        let benchPR = try #require(records.first { $0.exerciseId == "barbell-bench-press" })
+        #expect(benchPR.weightKg == 85)
+        #expect(benchPR.reps == 8)
+        #expect(benchPR.date == Date(timeIntervalSince1970: 1_792_656_000))
+        #expect(records.first { $0.exerciseId == "leg-curl" }?.weightKg == 45)
+        #expect(records.first { $0.exerciseName == "Sled Push" }?.weightKg == 110)
+
+        // Templates moved from UserDefaults, matched by ID.
+        let push = try #require(try WorkoutTemplateService.template(for: .ppl, dayIndex: 0, context: context))
+        #expect(push.name == "Push")
+        #expect(push.orderedExercises.map(\.exerciseId) == ["barbell-bench-press", "overhead-press", nil])
+        #expect(push.orderedExercises.map(\.customName) == [nil, nil, "Sled Push"])
+        #expect(push.orderedExercises.map(\.restSeconds) == [120, 120, 90])
+        for exercise in push.orderedExercises {
+            #expect(exercise.targetSets == 3)
+            #expect(exercise.repRangeMin == 8)
+            #expect(exercise.repRangeMax == 12)
+            #expect(exercise.targetRIR == 2)
+        }
+
+        let pull = try #require(try WorkoutTemplateService.template(for: .ppl, dayIndex: 1, context: context))
+        #expect(pull.orderedExercises.map(\.exerciseId) == ["pull-up", "leg-curl", "barbell-bench-press"])
+        #expect(pull.orderedExercises.map(\.displayName) == ["Pull-Up", "Leg Curl", "Barbell Bench Press"])
+
+        let legs = try #require(try WorkoutTemplateService.template(for: .ppl, dayIndex: 2, context: context))
+        #expect(legs.exercises.isEmpty)
+        #expect(try WorkoutTemplateService.plan(for: .ppl, dayIndex: 2, context: context).isEmpty)
+
+        let upper = try #require(try WorkoutTemplateService.template(for: .upperLower, dayIndex: 0, context: context))
+        #expect(upper.name == "Upper")
+        #expect(upper.orderedExercises.map(\.exerciseId) == ["back-squat", "lateral-raise"])
+        #expect(upper.orderedExercises.map(\.restSeconds) == [120, 90])
+
+        #expect(try context.fetchCount(FetchDescriptor<WorkoutTemplate>()) == 4)
+        #expect(try context.fetchCount(FetchDescriptor<TemplateExercise>()) == 8)
+        #expect(defaults.object(forKey: TemplateDefaultsMigration.storageKey) == nil)
+
+        // A second launch, and a rerun with the old key restored (as if the
+        // app died between the save and the key removal), add nothing.
+        let relaunch = AppDataStore(
+            open: open,
+            migrateTemplates: { try TemplateDefaultsMigration.run(in: $0, defaults: defaults) }
+        )
+        relaunch.load()
+        let relaunched = try #require(relaunch.container).mainContext
+        #expect(try relaunched.fetchCount(FetchDescriptor<WorkoutTemplate>()) == 4)
+
+        let restored = try Self.fixtureTemplateDefaults()
+        let rerun = try TemplateDefaultsMigration.run(in: relaunched, defaults: restored)
+        #expect(rerun.migrated == 0)
+        #expect(rerun.skippedExisting == 4)
+        #expect(rerun.removedKey)
+        #expect(try relaunched.fetchCount(FetchDescriptor<WorkoutTemplate>()) == 4)
+        #expect(try relaunched.fetchCount(FetchDescriptor<TemplateExercise>()) == 8)
+    }
+
     @Test @MainActor func versionedStoreReopensRepeatedly() throws {
         let storeURL = Self.temporaryStoreURL()
         defer { Self.removeStore(at: storeURL) }
@@ -244,8 +434,13 @@ struct SchemaMigrationTests {
 struct AppDataStoreTests {
     private struct OpenFailure: Error {}
 
+    /// Keeps tests away from the host app's real UserDefaults.
+    private static let noTemplateMigration: (ModelContext) throws -> TemplateDefaultsMigration.Outcome = { _ in
+        TemplateDefaultsMigration.Outcome()
+    }
+
     @Test func startsLoading() {
-        let store = AppDataStore(open: { try PersistenceController.makeContainer(inMemory: true) })
+        let store = AppDataStore(open: { try PersistenceController.makeContainer(inMemory: true) }, migrateTemplates: Self.noTemplateMigration)
         guard case .loading = store.state else {
             Issue.record("Expected .loading before load()")
             return
@@ -253,7 +448,7 @@ struct AppDataStoreTests {
     }
 
     @Test func failedOpenMovesToFailedWithDetails() {
-        let store = AppDataStore(open: { throw OpenFailure() })
+        let store = AppDataStore(open: { throw OpenFailure() }, migrateTemplates: Self.noTemplateMigration)
         store.load()
 
         guard case .failed(let details) = store.state else {
@@ -270,7 +465,7 @@ struct AppDataStoreTests {
             attempts += 1
             if attempts == 1 { throw OpenFailure() }
             return try PersistenceController.makeContainer(inMemory: true)
-        })
+        }, migrateTemplates: Self.noTemplateMigration)
 
         store.load()
         #expect(store.container == nil)
@@ -285,7 +480,7 @@ struct AppDataStoreTests {
         let store = AppDataStore(open: {
             attempts += 1
             return try PersistenceController.makeContainer(inMemory: true)
-        })
+        }, migrateTemplates: Self.noTemplateMigration)
 
         store.load()
         store.load()
@@ -297,7 +492,7 @@ struct AppDataStoreTests {
         container.mainContext.insert(ExerciseLog(exerciseName: "back squat", orderIndex: 0))
         try container.mainContext.save()
 
-        let store = AppDataStore(open: { container })
+        let store = AppDataStore(open: { container }, migrateTemplates: Self.noTemplateMigration)
         store.load()
 
         let ready = try #require(store.container)
@@ -308,14 +503,39 @@ struct AppDataStoreTests {
     @Test func failingBackfillStillReachesReady() {
         let store = AppDataStore(
             open: { try PersistenceController.makeContainer(inMemory: true) },
-            backfillExerciseIDs: { _ in throw OpenFailure() }
+            backfillExerciseIDs: { _ in throw OpenFailure() },
+            migrateTemplates: Self.noTemplateMigration
+        )
+        store.load()
+        #expect(store.container != nil)
+    }
+
+    @Test func loadMigratesSavedTemplatesBeforeReady() throws {
+        let defaults = try makeTestDefaults()
+        defaults.set(["ppl.0": ["Back Squat", "Sled Push"]], forKey: TemplateDefaultsMigration.storageKey)
+        let store = AppDataStore(
+            open: { try PersistenceController.makeContainer(inMemory: true) },
+            migrateTemplates: { try TemplateDefaultsMigration.run(in: $0, defaults: defaults) }
+        )
+        store.load()
+
+        let context = try #require(store.container).mainContext
+        let plan = try WorkoutTemplateService.plan(for: .ppl, dayIndex: 0, context: context)
+        #expect(plan.map(\.displayName) == ["Back Squat", "Sled Push"])
+        #expect(defaults.object(forKey: TemplateDefaultsMigration.storageKey) == nil)
+    }
+
+    @Test func failingTemplateMigrationStillReachesReady() {
+        let store = AppDataStore(
+            open: { try PersistenceController.makeContainer(inMemory: true) },
+            migrateTemplates: { _ in throw OpenFailure() }
         )
         store.load()
         #expect(store.container != nil)
     }
 
     @Test func successfulOpenSeedsDefaultGymProfile() throws {
-        let store = AppDataStore(open: { try PersistenceController.makeContainer(inMemory: true) })
+        let store = AppDataStore(open: { try PersistenceController.makeContainer(inMemory: true) }, migrateTemplates: Self.noTemplateMigration)
         store.load()
 
         let container = try #require(store.container)
@@ -344,11 +564,11 @@ struct StoreExporterTests {
 
     @Test func archiveIsANonEmptyZipNamedForTheDay() throws {
         let fake = try makeFakeStore(sidecars: ["-wal", "-shm"])
-        defer { try? fileManager.removeItem(at: fake.directory) }
+        defer { removeTestItem(at: fake.directory) }
 
         let day = try #require(ISO8601DateFormatter().date(from: "2026-11-01T12:00:00Z"))
         let archive = try StoreExporter.makeArchive(storeURL: fake.store, now: day)
-        defer { try? fileManager.removeItem(at: archive.deletingLastPathComponent()) }
+        defer { removeTestItem(at: archive.deletingLastPathComponent()) }
 
         #expect(archive.lastPathComponent == "Vora-Data-2026-11-01.zip")
         let data = try Data(contentsOf: archive)
@@ -358,7 +578,7 @@ struct StoreExporterTests {
 
     @Test func stagingCopiesStoreAndPresentSidecars() throws {
         let fake = try makeFakeStore(sidecars: ["-wal"])
-        defer { try? fileManager.removeItem(at: fake.directory) }
+        defer { removeTestItem(at: fake.directory) }
         let destination = fake.directory.appendingPathComponent("out", isDirectory: true)
         try fileManager.createDirectory(at: destination, withIntermediateDirectories: true)
 
@@ -382,11 +602,11 @@ struct StoreExporterTests {
 
     @Test func exportLeavesSourceFilesUntouched() throws {
         let fake = try makeFakeStore(sidecars: ["-wal", "-shm"])
-        defer { try? fileManager.removeItem(at: fake.directory) }
+        defer { removeTestItem(at: fake.directory) }
         let before = try fileManager.contentsOfDirectory(atPath: fake.directory.path).sorted()
 
         let archive = try StoreExporter.makeArchive(storeURL: fake.store)
-        defer { try? fileManager.removeItem(at: archive.deletingLastPathComponent()) }
+        defer { removeTestItem(at: archive.deletingLastPathComponent()) }
 
         #expect(try fileManager.contentsOfDirectory(atPath: fake.directory.path).sorted() == before)
         #expect(try Data(contentsOf: fake.store) == Data("store".utf8))
