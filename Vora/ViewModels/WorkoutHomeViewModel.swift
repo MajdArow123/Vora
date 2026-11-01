@@ -7,18 +7,23 @@
 
 import Foundation
 import Observation
+import OSLog
 import SwiftData
 
 struct PersonalRecord: Identifiable {
+    /// Display name: the library's current name for library exercises.
     let exerciseName: String
     let weightKg: Double
     let reps: Int
     let date: Date
+    /// Library ID; nil for custom exercises.
+    var exerciseId: String?
     var totalSets: Int = 0
     var minReps: Int = 0
     var maxReps: Int = 0
 
-    var id: String { exerciseName }
+    /// Identity key shared by every log of this exercise (see ExerciseIdentity).
+    var id: String { ExerciseIdentity.key(exerciseId: exerciseId, name: exerciseName) }
 
     /// Epley estimate.
     var estimatedOneRepMax: Double {
@@ -44,6 +49,8 @@ enum SplitDayState {
 
 @Observable
 final class WorkoutHomeViewModel {
+    private static let logger = Logger(subsystem: "com.majdarow.Vora", category: "Workout")
+
     private(set) var profile: UserProfile?
     private(set) var splitDays: [SplitDay] = []
     private(set) var weekSessions: [WorkoutSession] = []
@@ -131,23 +138,30 @@ final class WorkoutHomeViewModel {
     /// date come from the set that achieved it, set totals and the rep
     /// range from the session that achieved it.
     static func computePersonalRecords(from context: ModelContext, limit: Int? = nil) -> [PersonalRecord] {
-        let sessions = (try? context.fetch(FetchDescriptor<WorkoutSession>())) ?? []
+        let sessions: [WorkoutSession]
+        do {
+            sessions = try context.fetch(FetchDescriptor<WorkoutSession>())
+        } catch {
+            logger.error("Failed to fetch sessions for PRs: \(String(describing: error), privacy: .public)")
+            return []
+        }
         var best: [String: (record: PersonalRecord, session: WorkoutSession)] = [:]
 
         for session in sessions {
             for exercise in session.exercises {
                 for set in exercise.sets where set.isCompleted && set.weightKg > 0 && set.reps > 0 {
-                    let key = exercise.exerciseName.lowercased()
+                    let key = exercise.matchKey
                     let current = best[key]?.record
                     let isBetter = current == nil
                         || set.weightKg > current!.weightKg
                         || (set.weightKg == current!.weightKg && set.reps > current!.reps)
                     if isBetter {
                         best[key] = (PersonalRecord(
-                            exerciseName: exercise.exerciseName,
+                            exerciseName: exercise.displayName,
                             weightKg: set.weightKg,
                             reps: set.reps,
-                            date: session.date
+                            date: session.date,
+                            exerciseId: ExerciseLibrary.definition(id: key).map(\.id)
                         ), session)
                     }
                 }
@@ -156,9 +170,9 @@ final class WorkoutHomeViewModel {
 
         let records = best.values.map { record, session in
             var record = record
-            let key = record.exerciseName.lowercased()
+            let key = record.id
             let reps = session.exercises
-                .filter { $0.exerciseName.lowercased() == key }
+                .filter { $0.matchKey == key }
                 .flatMap(\.sets)
                 .filter { $0.isCompleted && $0.weightKg > 0 && $0.reps > 0 }
                 .map(\.reps)

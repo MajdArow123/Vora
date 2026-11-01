@@ -178,12 +178,12 @@ struct StrengthProgressViewModelTests {
         let container = try makeContainer()
         let context = ModelContext(container)
         insertSession(context, date: weekStart(-1), exercise: "Squat", sets: [(120, 5, true)])
-        insertSession(context, date: thisWeekStart, exercise: "bench press", sets: [(90, 8, true)])
-        insertSession(context, date: now, exercise: "Bench Press", sets: [(100, 5, true)])
+        insertSession(context, date: thisWeekStart, exercise: "sled push", sets: [(90, 8, true)])
+        insertSession(context, date: now, exercise: "Sled Push", sets: [(100, 5, true)])
         try context.save()
 
         let names = StrengthProgression.distinctExerciseNames(in: try fetchSessions(context))
-        #expect(names == ["bench press", "Squat"])
+        #expect(names == ["sled push", "Squat"])
     }
 
     @Test func exercisesWithoutQualifyingSetsAreExcluded() throws {
@@ -276,7 +276,7 @@ struct StrengthProgressViewModelTests {
     @Test func loadDefaultsSelectionToHeaviestPRExercise() throws {
         let container = try makeContainer()
         let context = ModelContext(container)
-        insertSession(context, date: weekStart(-1), exercise: "Bench Press", sets: [(100, 5, true)])
+        insertSession(context, date: weekStart(-1), exercise: "Barbell Bench Press", sets: [(100, 5, true)])
         insertSession(context, date: thisWeekStart, exercise: "Squat", sets: [(140, 5, true)])
         try context.save()
 
@@ -284,21 +284,21 @@ struct StrengthProgressViewModelTests {
         viewModel.load(from: context, now: now)
 
         #expect(viewModel.selectedExercise == "Squat")
-        #expect(viewModel.exerciseNames == ["Bench Press", "Squat"])
+        #expect(viewModel.exerciseNames == ["Barbell Bench Press", "Squat"])
     }
 
     @Test func loadKeepsValidExistingSelection() throws {
         let container = try makeContainer()
         let context = ModelContext(container)
-        insertSession(context, date: weekStart(-1), exercise: "Bench Press", sets: [(100, 5, true)])
+        insertSession(context, date: weekStart(-1), exercise: "Barbell Bench Press", sets: [(100, 5, true)])
         insertSession(context, date: thisWeekStart, exercise: "Squat", sets: [(140, 5, true)])
         try context.save()
 
         let viewModel = StrengthProgressViewModel()
-        viewModel.selectedExercise = "Bench Press"
+        viewModel.selectedExercise = "Barbell Bench Press"
         viewModel.load(from: context, now: now)
 
-        #expect(viewModel.selectedExercise == "Bench Press")
+        #expect(viewModel.selectedExercise == "Barbell Bench Press")
     }
 
     @Test func loadWithNoSessionsLeavesEverythingEmpty() throws {

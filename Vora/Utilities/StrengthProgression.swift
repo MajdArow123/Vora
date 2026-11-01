@@ -45,20 +45,28 @@ struct ExerciseSessionStat: Identifiable {
 /// Pure aggregation over fetched sessions, shared by the exercise
 /// history screen and the Progress tab's strength analytics.
 enum StrengthProgression {
-    /// Best completed set per session for the named exercise
-    /// (case-insensitive), oldest session first. A set qualifies when
-    /// completed with positive weight and reps; the best set is the
-    /// heaviest, ties broken by higher reps.
+    /// Best completed set per session for the named exercise, resolved to
+    /// its identity key (see ExerciseIdentity), oldest session first.
     static func sessionStats(
         for exerciseName: String,
         sessions: [WorkoutSession]
     ) -> [ExerciseSessionStat] {
-        let target = exerciseName.lowercased()
+        sessionStats(forKey: ExerciseIdentity.key(exerciseId: nil, name: exerciseName), sessions: sessions)
+    }
+
+    /// Best completed set per session for the exercise with the given
+    /// identity key, oldest session first. A set qualifies when completed
+    /// with positive weight and reps; the best set is the heaviest, ties
+    /// broken by higher reps.
+    static func sessionStats(
+        forKey key: String,
+        sessions: [WorkoutSession]
+    ) -> [ExerciseSessionStat] {
         var stats: [ExerciseSessionStat] = []
 
         for session in sessions.sorted(by: { $0.date < $1.date }) {
             let sets = session.exercises
-                .filter { $0.exerciseName.lowercased() == target }
+                .filter { $0.matchKey == key }
                 .flatMap(\.sets)
                 .filter { $0.isCompleted && $0.weightKg > 0 && $0.reps > 0 }
             guard var best = sets.first else { continue }
@@ -101,18 +109,18 @@ enum StrengthProgression {
         return "\(setsPart(count: count)) of \(reps)"
     }
 
-    /// Distinct exercise names with at least one qualifying set,
-    /// case-insensitively deduped (first-seen casing wins), sorted
-    /// alphabetically.
+    /// Display names of distinct exercises (deduped by identity key, so
+    /// renamed and legacy rows collapse into one) with at least one
+    /// qualifying set, sorted alphabetically.
     static func distinctExerciseNames(in sessions: [WorkoutSession]) -> [String] {
         var seen: [String: String] = [:]
         for session in sessions {
             for exercise in session.exercises {
-                let key = exercise.exerciseName.lowercased()
+                let key = exercise.matchKey
                 guard seen[key] == nil,
                       exercise.sets.contains(where: { $0.isCompleted && $0.weightKg > 0 && $0.reps > 0 })
                 else { continue }
-                seen[key] = exercise.exerciseName
+                seen[key] = exercise.displayName
             }
         }
         return seen.values.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }

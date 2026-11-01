@@ -5,11 +5,14 @@
 //  Created by Majd Arow on 2026-07-24.
 //
 
-import SwiftUI
-import SwiftData
 import Charts
+import OSLog
+import SwiftData
+import SwiftUI
 
 struct ExerciseHistoryView: View {
+    private static let logger = Logger(subsystem: "com.majdarow.Vora", category: "Workout")
+
     @Environment(\.modelContext) private var modelContext
     let record: PersonalRecord
 
@@ -170,10 +173,15 @@ struct ExerciseHistoryView: View {
     // MARK: - Data
 
     private func load() {
-        let descriptor = FetchDescriptor<WorkoutSession>(sortBy: [SortDescriptor(\.date)])
-        guard let sessions = try? modelContext.fetch(descriptor) else { return }
+        let sessions: [WorkoutSession]
+        do {
+            sessions = try modelContext.fetch(ExerciseIdentity.candidateSessions(exerciseId: record.exerciseId))
+        } catch {
+            Self.logger.error("Failed to load exercise history: \(String(describing: error), privacy: .public)")
+            return
+        }
 
-        var stats = StrengthProgression.sessionStats(for: record.exerciseName, sessions: sessions)
+        var stats = StrengthProgression.sessionStats(forKey: record.id, sessions: sessions)
 
         if let prIndex = stats.firstIndex(where: {
             $0.bestWeightKg == record.weightKg && $0.bestReps == record.reps

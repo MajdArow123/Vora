@@ -33,6 +33,10 @@ enum MuscleGroup: String, CaseIterable, Identifiable {
 /// ExerciseLibrary; logged exercises store name + muscle groups on
 /// ExerciseLog.
 struct ExerciseDefinition: Identifiable, Hashable {
+    /// Permanent slug identity, persisted on ExerciseLog.exerciseId.
+    /// Never derive it from `name` or change it once shipped: renaming
+    /// an exercise only changes `name`.
+    let id: String
     let name: String
     let muscleGroup: MuscleGroup
     let equipment: Set<EquipmentType>
@@ -43,8 +47,6 @@ struct ExerciseDefinition: Identifiable, Hashable {
     let secondaryMuscles: Set<Muscle>
     /// Short imperative form pointers, shown in the exercise detail view.
     let techniqueCues: [String]
-
-    var id: String { name }
 
     /// Everything the exercise needs must be on offer for it to count as
     /// doable in a given gym.

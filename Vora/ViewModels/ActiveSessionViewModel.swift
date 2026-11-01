@@ -7,6 +7,7 @@
 
 import Foundation
 import Observation
+import OSLog
 import SwiftData
 
 struct SessionSummary: Identifiable {
@@ -45,10 +46,17 @@ final class ActiveSessionViewModel {
     struct DraftExercise: Identifiable {
         let id = UUID()
         let name: String
+        /// Library ID; nil for custom exercises.
+        let exerciseId: String?
         let muscleGroups: [String]
         var sets: [DraftSet]
         let previousSets: [PreviousSet]
     }
+
+    private static let logger = Logger(subsystem: "com.majdarow.Vora", category: "Workout")
+
+    /// Sessions fetched per page when looking for an exercise's history.
+    static let historyPageSize = 5
 
     let sessionName: String
     let startDate = Date.now
@@ -93,7 +101,8 @@ final class ActiveSessionViewModel {
         guard exercises.isEmpty, !names.isEmpty else { return }
 
         exercises = names.map { name in
-            let previous = Self.previousSets(for: name, context: context)
+            let exerciseId = ExerciseIdentity.libraryID(forName: name)
+            let previous = Self.previousSets(exerciseId: exerciseId, name: name, context: context)
             let sets = (0..<4).map { index in
                 var set = DraftSet()
                 if let reference = index < previous.count ? previous[index] : previous.last {
@@ -103,6 +112,7 @@ final class ActiveSessionViewModel {
             }
             return DraftExercise(
                 name: name,
+                exerciseId: exerciseId,
                 muscleGroups: ExerciseLibrary.definition(named: name)
                     .map { [$0.muscleGroup.rawValue] } ?? [],
                 sets: sets,
@@ -114,7 +124,8 @@ final class ActiveSessionViewModel {
     // MARK: - Exercise management
 
     func addExercise(name: String, muscleGroups: [String], context: ModelContext) {
-        let previous = Self.previousSets(for: name, context: context)
+        let exerciseId = ExerciseIdentity.libraryID(forName: name)
+        let previous = Self.previousSets(exerciseId: exerciseId, name: name, context: context)
         var firstSet = DraftSet()
         if let first = previous.first {
             firstSet.weightText = Self.weightString(first.weightKg)
@@ -122,6 +133,7 @@ final class ActiveSessionViewModel {
         }
         exercises.append(DraftExercise(
             name: name,
+            exerciseId: exerciseId,
             muscleGroups: muscleGroups,
             sets: [firstSet],
             previousSets: previous
@@ -142,7 +154,8 @@ final class ActiveSessionViewModel {
         context: ModelContext
     ) {
         guard let index = exercises.firstIndex(where: { $0.id == id }) else { return }
-        let previous = Self.previousSets(for: name, context: context)
+        let exerciseId = ExerciseIdentity.libraryID(forName: name)
+        let previous = Self.previousSets(exerciseId: exerciseId, name: name, context: context)
         var firstSet = DraftSet()
         if let first = previous.first {
             firstSet.weightText = Self.weightString(first.weightKg)
@@ -150,6 +163,7 @@ final class ActiveSessionViewModel {
         }
         exercises[index] = DraftExercise(
             name: name,
+            exerciseId: exerciseId,
             muscleGroups: muscleGroups,
             sets: [firstSet],
             previousSets: previous
@@ -219,7 +233,7 @@ final class ActiveSessionViewModel {
     func finish(context: ModelContext) {
         let priorRecords = Dictionary(
             uniqueKeysWithValues: WorkoutHomeViewModel.computePersonalRecords(from: context)
-                .map { ($0.exerciseName.lowercased(), $0.weightKg) }
+                .map { ($0.id, $0.weightKg) }
         )
 
         let session = WorkoutSession(
@@ -240,6 +254,7 @@ final class ActiveSessionViewModel {
 
             let log = ExerciseLog(
                 exerciseName: draft.name,
+                exerciseId: draft.exerciseId,
                 muscleGroups: draft.muscleGroups,
                 orderIndex: order
             )
@@ -264,13 +279,15 @@ final class ActiveSessionViewModel {
                 }
             }
 
-            let prior = priorRecords[draft.name.lowercased()] ?? 0
+            let key = ExerciseIdentity.key(exerciseId: draft.exerciseId, name: draft.name)
+            let prior = priorRecords[key] ?? 0
             if bestWeight > prior, bestWeight > 0 {
                 newPRs.append(PersonalRecord(
                     exerciseName: draft.name,
                     weightKg: bestWeight,
                     reps: bestReps,
-                    date: startDate
+                    date: startDate,
+                    exerciseId: draft.exerciseId
                 ))
             }
         }
@@ -278,7 +295,7 @@ final class ActiveSessionViewModel {
         do {
             try context.save()
         } catch {
-            assertionFailure("Failed to save workout session: \(error)")
+            Self.logger.error("Failed to save workout session: \(String(describing: error), privacy: .public)")
         }
 
         summary = SessionSummary(
@@ -292,23 +309,35 @@ final class ActiveSessionViewModel {
 
     // MARK: - Previous session reference
 
-    private static func previousSets(for exerciseName: String, context: ModelContext) -> [PreviousSet] {
-        let descriptor = FetchDescriptor<WorkoutSession>(
-            sortBy: [SortDescriptor(\.date, order: .reverse)]
-        )
-        let sessions = (try? context.fetch(descriptor)) ?? []
-        let key = exerciseName.lowercased()
+    /// Completed sets from the most recent session that logged the
+    /// exercise with at least one completed set. Fetches candidate
+    /// sessions newest first, one page at a time, and confirms each match
+    /// by identity key so renamed and legacy rows resolve the same way.
+    static func previousSets(exerciseId: String?, name: String, context: ModelContext) -> [PreviousSet] {
+        let key = ExerciseIdentity.key(exerciseId: exerciseId, name: name)
+        var descriptor = ExerciseIdentity.candidateSessions(exerciseId: exerciseId ?? ExerciseIdentity.libraryID(forName: name))
+        descriptor.fetchLimit = historyPageSize
 
-        for session in sessions {
-            if let match = session.exercises.first(where: { $0.exerciseName.lowercased() == key }) {
-                let sets = match.sets
-                    .filter(\.isCompleted)
-                    .sorted { $0.setNumber < $1.setNumber }
-                    .map { PreviousSet(weightKg: $0.weightKg, reps: $0.reps) }
-                if !sets.isEmpty { return sets }
+        do {
+            var offset = 0
+            while true {
+                descriptor.fetchOffset = offset
+                let page = try context.fetch(descriptor)
+                for session in page {
+                    guard let match = session.exercises.first(where: { $0.matchKey == key }) else { continue }
+                    let sets = match.sets
+                        .filter(\.isCompleted)
+                        .sorted { $0.setNumber < $1.setNumber }
+                        .map { PreviousSet(weightKg: $0.weightKg, reps: $0.reps) }
+                    if !sets.isEmpty { return sets }
+                }
+                guard page.count == historyPageSize else { return [] }
+                offset += historyPageSize
             }
+        } catch {
+            logger.error("Failed to fetch exercise history: \(String(describing: error), privacy: .public)")
+            return []
         }
-        return []
     }
 
     static func weightString(_ value: Double) -> String {

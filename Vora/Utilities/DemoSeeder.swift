@@ -7,6 +7,7 @@
 
 #if DEBUG
 import Foundation
+import OSLog
 import SwiftData
 
 /// Fills an empty store with a realistic month of data for App Store
@@ -21,7 +22,8 @@ enum DemoSeeder {
         seed(into: context)
     }
 
-    private static func seed(into context: ModelContext) {
+    /// Internal (not private) so tests can check what the seed writes.
+    static func seed(into context: ModelContext) {
         let cal = Calendar.current
         let today = cal.startOfDay(for: .now)
 
@@ -57,7 +59,12 @@ enum DemoSeeder {
         seedFoodLibrary(into: context)
         seedSupplements(into: context, today: today, calendar: cal)
 
-        try? context.save()
+        do {
+            try context.save()
+        } catch {
+            Logger(subsystem: "com.majdarow.Vora", category: "DemoSeeder")
+                .error("Failed to save demo data: \(String(describing: error), privacy: .public)")
+        }
     }
 
     /// Three supplements with three weeks of full logs; today the evening
@@ -210,7 +217,7 @@ enum DemoSeeder {
 
             let exercises: [(String, Double, [String])]
             switch plan.title {
-            case "Push": exercises = [("Bench Press", 85, ["chest"]), ("Overhead Press", 52.5, ["shoulders"]), ("Incline Dumbbell Press", 30, ["chest"]), ("Cable Fly", 17.5, ["chest"]), ("Triceps Pushdown", 27.5, ["triceps"])]
+            case "Push": exercises = [("Barbell Bench Press", 85, ["chest"]), ("Overhead Press", 52.5, ["shoulders"]), ("Incline Dumbbell Press", 30, ["chest"]), ("Cable Fly", 17.5, ["chest"]), ("Triceps Pushdown", 27.5, ["triceps"])]
             case "Pull": exercises = [("Deadlift", 150, ["back"]), ("Pull-Up", 10, ["back"]), ("Barbell Row", 75, ["back"]), ("Face Pull", 20, ["shoulders"]), ("Barbell Curl", 32.5, ["biceps"])]
             default: exercises = [("Back Squat", 120, ["quads"]), ("Romanian Deadlift", 95, ["hamstrings"]), ("Leg Press", 180, ["quads"]), ("Seated Calf Raise", 45, ["calves"]), ("Leg Curl", 40, ["hamstrings"])]
             }
@@ -227,6 +234,7 @@ enum DemoSeeder {
                 totalVolume += progressed * 8 * 3
                 return ExerciseLog(
                     exerciseName: exercise.0,
+                    exerciseId: ExerciseIdentity.libraryID(forName: exercise.0),
                     muscleGroups: exercise.2,
                     orderIndex: index,
                     sets: sets

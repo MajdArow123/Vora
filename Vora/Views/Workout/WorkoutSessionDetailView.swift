@@ -79,7 +79,7 @@ struct WorkoutSessionDetailView: View {
 
     private func exerciseCard(_ exercise: ExerciseLog) -> some View {
         VStack(alignment: .leading, spacing: DesignSystem.Spacing.sm) {
-            Text(exercise.exerciseName)
+            Text(exercise.displayName)
                 .font(DesignSystem.Typography.headline)
                 .foregroundStyle(DesignSystem.Colors.textPrimary)
 

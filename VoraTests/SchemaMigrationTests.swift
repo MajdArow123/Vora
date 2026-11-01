@@ -11,15 +11,6 @@ import Testing
 @testable import Vora
 
 struct SchemaMigrationTests {
-    /// The flat model list VoraApp used before versioning was introduced.
-    private static let legacyModels: [any PersistentModel.Type] = [
-        UserProfile.self, FoodEntry.self, CustomFood.self, WorkoutSession.self,
-        ExerciseLog.self, SetEntry.self, WeightEntry.self, BodyMeasurement.self,
-        WaterEntry.self, CardioEntry.self, SplitDay.self, SavedMeal.self,
-        SavedMealItem.self, Recipe.self, RecipeIngredient.self, Supplement.self,
-        SupplementLog.self, GymProfile.self,
-    ]
-
     private static func temporaryStoreURL() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("SchemaMigration-\(UUID().uuidString).store")
@@ -31,34 +22,40 @@ struct SchemaMigrationTests {
         }
     }
 
-    private static func entityNames(_ models: [any PersistentModel.Type]) -> Set<String> {
-        Set(Schema(models).entities.map(\.name))
+    private static func shapes(_ schema: Schema) -> [String: Set<String>] {
+        Dictionary(uniqueKeysWithValues: schema.entities.map { entity in
+            (entity.name, Set(entity.properties.map(\.name)))
+        })
     }
 
-    // MARK: - Schema definition
+    // MARK: - Schema definitions
 
-    @Test func schemaV1IsVersionOneWithAllEighteenModels() {
+    @Test func schemaV1HasEighteenModelsWithFrozenWorkoutCluster() {
         #expect(SchemaV1.versionIdentifier == Schema.Version(1, 0, 0))
         #expect(SchemaV1.models.count == 18)
-        #expect(Self.entityNames(SchemaV1.models) == Self.entityNames(Self.legacyModels))
+        let names = SchemaV1.models.map { String(reflecting: $0) }
+        #expect(names.contains { $0.hasSuffix("SchemaV1.WorkoutSession") })
+        #expect(names.contains { $0.hasSuffix("SchemaV1.ExerciseLog") })
+        #expect(names.contains { $0.hasSuffix("SchemaV1.SetEntry") })
     }
 
-    @Test func migrationPlanStartsAtV1AndEndsAtCurrentSchema() {
+    @Test func schemaV2IsCurrentWithSameEntities() {
+        #expect(SchemaV2.versionIdentifier == Schema.Version(2, 0, 0))
+        #expect(CurrentSchema.versionIdentifier == SchemaV2.versionIdentifier)
+        #expect(Set(Self.shapes(Schema(SchemaV2.models)).keys) == Set(Self.shapes(Schema(SchemaV1.models)).keys))
+    }
+
+    /// V2 differs from V1 only by the optional ExerciseLog.exerciseId.
+    @Test func schemaV2AddsOnlyExerciseID() {
+        var expected = Self.shapes(Schema(versionedSchema: SchemaV1.self))
+        expected["ExerciseLog", default: []].insert("exerciseId")
+        #expect(Self.shapes(PersistenceController.schema) == expected)
+    }
+
+    @Test func migrationPlanListsV1ThenV2WithOneStage() {
         let versions = VoraMigrationPlan.schemas.map { $0.versionIdentifier }
-        #expect(versions.first == SchemaV1.versionIdentifier)
-        #expect(versions.last == CurrentSchema.versionIdentifier)
-        #expect(versions == versions.sorted())
-    }
-
-    /// V1 must describe exactly what pre-versioning stores contain, down
-    /// to each entity's stored properties.
-    @Test func currentSchemaMatchesLegacyEntityShapes() {
-        func shapes(_ schema: Schema) -> [String: Set<String>] {
-            Dictionary(uniqueKeysWithValues: schema.entities.map { entity in
-                (entity.name, Set(entity.properties.map(\.name)))
-            })
-        }
-        #expect(shapes(PersistenceController.schema) == shapes(Schema(Self.legacyModels)))
+        #expect(versions == [Schema.Version(1, 0, 0), Schema.Version(2, 0, 0)])
+        #expect(VoraMigrationPlan.stages.count == 1)
     }
 
     // MARK: - Container
@@ -76,20 +73,22 @@ struct SchemaMigrationTests {
         #expect(PersistenceController.defaultStoreURL.lastPathComponent == "default.store")
     }
 
-    /// A store written by the pre-versioning flat schema must open through
-    /// the migration plan with every row and relationship intact.
-    @Test @MainActor func legacyFlatStoreOpensWithoutLoss() throws {
+    // MARK: - V1 -> V2 (frozen types)
+
+    /// A store written with the frozen V1 types opens through the plan with
+    /// every row intact, and the post-open backfill fills library IDs.
+    @Test @MainActor func v1StoreMigratesAndBackfillsExerciseIDs() throws {
         let storeURL = Self.temporaryStoreURL()
         defer { Self.removeStore(at: storeURL) }
 
         let sessionDate = Date(timeIntervalSince1970: 1_790_000_000)
         try {
-            let schema = Schema(Self.legacyModels)
-            let legacy = try ModelContainer(
+            let schema = Schema(versionedSchema: SchemaV1.self)
+            let v1 = try ModelContainer(
                 for: schema,
                 configurations: [ModelConfiguration(schema: schema, url: storeURL)]
             )
-            let context = legacy.mainContext
+            let context = v1.mainContext
             context.insert(UserProfile(
                 name: "Existing User",
                 dateOfBirth: .distantPast,
@@ -104,14 +103,19 @@ struct SchemaMigrationTests {
                 fatTargetG: 65,
                 goalWeightKg: 68
             ))
-            let session = WorkoutSession(date: sessionDate, sessionName: "Push", durationSeconds: 3600, totalVolumeKg: 1600)
-            let log = ExerciseLog(exerciseName: "Barbell Bench Press", muscleGroups: ["chest"], orderIndex: 0)
-            log.sets = [
-                SetEntry(setNumber: 1, weightKg: 80, reps: 10, isCompleted: true),
-                SetEntry(setNumber: 2, weightKg: 82.5, reps: 8, isCompleted: true),
+            let bench = SchemaV1.ExerciseLog(exerciseName: "Barbell Bench Press", muscleGroups: ["chest"], orderIndex: 0)
+            bench.sets = [
+                SchemaV1.SetEntry(setNumber: 1, weightKg: 80, reps: 10, isCompleted: true),
+                SchemaV1.SetEntry(setNumber: 2, weightKg: 82.5, reps: 8, isCompleted: true),
             ]
-            session.exercises = [log]
-            context.insert(session)
+            let curl = SchemaV1.ExerciseLog(exerciseName: "Leg Curl", muscleGroups: ["hamstrings"], orderIndex: 1)
+            curl.sets = [SchemaV1.SetEntry(setNumber: 1, weightKg: 40, reps: 12, isCompleted: true)]
+            let sled = SchemaV1.ExerciseLog(exerciseName: "Sled Push", orderIndex: 2)
+            sled.sets = [SchemaV1.SetEntry(setNumber: 1, weightKg: 100, reps: 1, isCompleted: true)]
+            context.insert(SchemaV1.WorkoutSession(
+                date: sessionDate, sessionName: "Push", durationSeconds: 3600,
+                totalVolumeKg: 2040, exercises: [bench, curl, sled]
+            ))
             context.insert(WeightEntry(date: sessionDate, weightKg: 72.4, bodyFatPercent: 21))
             context.insert(GymProfile(name: "Home", preset: .homeDumbbells, isActive: true))
             let supplement = Supplement(name: "Creatine", dose: "5 g", orderIndex: 0)
@@ -123,14 +127,8 @@ struct SchemaMigrationTests {
                 date: sessionDate
             ))
             context.insert(FoodEntry(
-                date: sessionDate,
-                mealSlot: .lunch,
-                foodName: "Chicken Breast",
-                servingGrams: 200,
-                calories: 330,
-                proteinG: 62,
-                carbsG: 0,
-                fatG: 7
+                date: sessionDate, mealSlot: .lunch, foodName: "Chicken Breast",
+                servingGrams: 200, calories: 330, proteinG: 62, carbsG: 0, fatG: 7
             ))
             try context.save()
         }()
@@ -138,31 +136,89 @@ struct SchemaMigrationTests {
         let container = try PersistenceController.makeContainer(url: storeURL)
         let context = container.mainContext
 
+        #expect(try ExerciseIDBackfill.run(in: context) == 2)
+
         let users = try context.fetch(FetchDescriptor<UserProfile>())
-        #expect(users.count == 1)
-        #expect(users.first?.name == "Existing User")
+        #expect(users.map(\.name) == ["Existing User"])
         #expect(users.first?.biologicalSex == .female)
         #expect(users.first?.goalWeightKg == 68)
 
-        let sessions = try context.fetch(FetchDescriptor<WorkoutSession>())
-        #expect(sessions.count == 1)
-        #expect(sessions.first?.date == sessionDate)
-        let exercise = try #require(sessions.first?.exercises.first)
-        #expect(exercise.exerciseName == "Barbell Bench Press")
-        #expect(exercise.sets.sorted { $0.setNumber < $1.setNumber }.map(\.weightKg) == [80, 82.5])
-        #expect(try context.fetchCount(FetchDescriptor<SetEntry>()) == 2)
+        let session = try #require(try context.fetch(FetchDescriptor<WorkoutSession>()).first)
+        #expect(session.date == sessionDate)
+        let logs = session.exercises.sorted { $0.orderIndex < $1.orderIndex }
+        #expect(logs.map(\.exerciseName) == ["Barbell Bench Press", "Leg Curl", "Sled Push"])
+        #expect(logs.map(\.exerciseId) == ["barbell-bench-press", "leg-curl", nil])
+        #expect(logs[0].sets.sorted { $0.setNumber < $1.setNumber }.map(\.weightKg) == [80, 82.5])
+        #expect(try context.fetchCount(FetchDescriptor<SetEntry>()) == 4)
 
         let weights = try context.fetch(FetchDescriptor<WeightEntry>())
         #expect(weights.map(\.weightKg) == [72.4])
         #expect(weights.first?.bodyFatPercent == 21)
-
         let gyms = try context.fetch(FetchDescriptor<GymProfile>())
-        #expect(gyms.count == 1)
         #expect(gyms.first?.availableEquipment == GymPreset.homeDumbbells.defaultEquipment)
-
         #expect(try context.fetch(FetchDescriptor<Supplement>()).map(\.name) == ["Creatine"])
         #expect(try context.fetchCount(FetchDescriptor<SupplementLog>()) == 1)
         #expect(try context.fetch(FetchDescriptor<FoodEntry>()).map(\.mealSlot) == [.lunch])
+    }
+
+    // MARK: - V1 -> V2 (real store from commit 0cafae8)
+
+    private final class BundleToken {}
+
+    /// `Fixtures/v1-fixture.store` was written by the shipped V1 code
+    /// (commit 0cafae8): 2 sessions, each with Barbell Bench Press and
+    /// "Leg Curl" (custom then, a library exercise since); the second
+    /// session holds the bench PR.
+    @Test @MainActor func realV1FixtureMigratesWithoutLoss() throws {
+        let bundle = Bundle(for: BundleToken.self)
+        let source = try #require(bundle.url(forResource: "v1-fixture", withExtension: "store"))
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("V1Fixture-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let storeURL = directory.appendingPathComponent("v1-fixture.store")
+        for suffix in [""] + StoreExporter.sidecarSuffixes {
+            let sidecar = URL(fileURLWithPath: source.path + suffix)
+            guard FileManager.default.fileExists(atPath: sidecar.path) else { continue }
+            try FileManager.default.copyItem(at: sidecar, to: URL(fileURLWithPath: storeURL.path + suffix))
+        }
+
+        let store = AppDataStore(open: { try PersistenceController.makeContainer(url: storeURL) })
+        store.load()
+        let context = try #require(store.container).mainContext
+
+        let users = try context.fetch(FetchDescriptor<UserProfile>())
+        #expect(users.map(\.name) == ["Fixture User"])
+        #expect(users.first?.trainingSplit == .upperLower)
+
+        let sessions = try context.fetch(FetchDescriptor<WorkoutSession>(sortBy: [SortDescriptor(\.date)]))
+        #expect(sessions.map(\.date) == [
+            Date(timeIntervalSince1970: 1_790_841_600),
+            Date(timeIntervalSince1970: 1_791_446_400),
+        ])
+        #expect(try context.fetchCount(FetchDescriptor<ExerciseLog>()) == 4)
+        #expect(try context.fetchCount(FetchDescriptor<SetEntry>()) == 10)
+
+        for session in sessions {
+            let logs = session.exercises.sorted { $0.orderIndex < $1.orderIndex }
+            #expect(logs.map(\.exerciseName) == ["Barbell Bench Press", "Leg Curl"])
+            #expect(logs.map(\.exerciseId) == ["barbell-bench-press", "leg-curl"])
+        }
+        let lastBench = try #require(sessions.last?.exercises.first { $0.orderIndex == 0 })
+        #expect(lastBench.sets.sorted { $0.setNumber < $1.setNumber }.map(\.weightKg) == [85, 85, 82.5])
+
+        let records = WorkoutHomeViewModel.computePersonalRecords(from: context)
+        let benchPR = try #require(records.first { $0.exerciseId == "barbell-bench-press" })
+        #expect(benchPR.weightKg == 85)
+        #expect(benchPR.reps == 8)
+        #expect(benchPR.date == Date(timeIntervalSince1970: 1_791_446_400))
+        let curlPR = try #require(records.first { $0.exerciseName == "Leg Curl" })
+        #expect(curlPR.exerciseId == "leg-curl")
+        #expect(curlPR.weightKg == 42.5)
+
+        // A second launch finds nothing left to fill.
+        #expect(try ExerciseIDBackfill.run(in: context) == 0)
     }
 
     @Test @MainActor func versionedStoreReopensRepeatedly() throws {
@@ -234,6 +290,28 @@ struct AppDataStoreTests {
         store.load()
         store.load()
         #expect(attempts == 1)
+    }
+
+    @Test func loadBackfillsExerciseIDsBeforeReady() throws {
+        let container = try PersistenceController.makeContainer(inMemory: true)
+        container.mainContext.insert(ExerciseLog(exerciseName: "back squat", orderIndex: 0))
+        try container.mainContext.save()
+
+        let store = AppDataStore(open: { container })
+        store.load()
+
+        let ready = try #require(store.container)
+        let logs = try ready.mainContext.fetch(FetchDescriptor<ExerciseLog>())
+        #expect(logs.map(\.exerciseId) == ["back-squat"])
+    }
+
+    @Test func failingBackfillStillReachesReady() {
+        let store = AppDataStore(
+            open: { try PersistenceController.makeContainer(inMemory: true) },
+            backfillExerciseIDs: { _ in throw OpenFailure() }
+        )
+        store.load()
+        #expect(store.container != nil)
     }
 
     @Test func successfulOpenSeedsDefaultGymProfile() throws {

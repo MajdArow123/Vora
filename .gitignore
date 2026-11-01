@@ -8,3 +8,6 @@ xcuserdata/
 # Build artifacts
 DerivedData/
 build/
+
+# Claude Code local settings
+.claude/settings.local.json

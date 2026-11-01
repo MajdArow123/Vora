@@ -11,6 +11,7 @@ enum ExerciseLibrary {
     static let all: [ExerciseDefinition] = [
         // Chest
         .init(
+            id: "barbell-bench-press",
             name: "Barbell Bench Press",
             muscleGroup: .chest,
             equipment: [.barbell, .bench],
@@ -24,6 +25,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "incline-barbell-press",
             name: "Incline Barbell Press",
             muscleGroup: .chest,
             equipment: [.barbell, .bench],
@@ -37,6 +39,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "dumbbell-bench-press",
             name: "Dumbbell Bench Press",
             muscleGroup: .chest,
             equipment: [.dumbbell, .bench],
@@ -49,6 +52,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "incline-dumbbell-press",
             name: "Incline Dumbbell Press",
             muscleGroup: .chest,
             equipment: [.dumbbell, .bench],
@@ -61,6 +65,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "dumbbell-fly",
             name: "Dumbbell Fly",
             muscleGroup: .chest,
             equipment: [.dumbbell, .bench],
@@ -74,6 +79,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "cable-crossover",
             name: "Cable Crossover",
             muscleGroup: .chest,
             equipment: [.cable],
@@ -87,6 +93,21 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "cable-fly",
+            name: "Cable Fly",
+            muscleGroup: .chest,
+            equipment: [.cable],
+            primaryMuscles: [.chest],
+            secondaryMuscles: [.frontDelts],
+            techniqueCues: [
+                "Set both pulleys at chest height and stand centered between them",
+                "Keep a soft bend in your elbows and lock it in",
+                "Bring the handles together in a wide arc straight in front of your chest",
+                "Return slowly until you feel a stretch across your chest",
+            ]
+        ),
+        .init(
+            id: "machine-chest-press",
             name: "Machine Chest Press",
             muscleGroup: .chest,
             equipment: [.machine],
@@ -99,6 +120,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "push-up",
             name: "Push-Up",
             muscleGroup: .chest,
             equipment: [.bodyweight],
@@ -112,6 +134,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "dip",
             name: "Dip",
             muscleGroup: .chest,
             equipment: [.bodyweight, .pullUpBar],
@@ -126,6 +149,7 @@ enum ExerciseLibrary {
         ),
         // Back
         .init(
+            id: "deadlift",
             name: "Deadlift",
             muscleGroup: .back,
             equipment: [.barbell],
@@ -139,6 +163,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "barbell-row",
             name: "Barbell Row",
             muscleGroup: .back,
             equipment: [.barbell],
@@ -152,6 +177,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "t-bar-row",
             name: "T-Bar Row",
             muscleGroup: .back,
             equipment: [.barbell],
@@ -165,6 +191,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "dumbbell-row",
             name: "Dumbbell Row",
             muscleGroup: .back,
             equipment: [.dumbbell, .bench],
@@ -178,6 +205,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "pull-up",
             name: "Pull-Up",
             muscleGroup: .back,
             equipment: [.bodyweight, .pullUpBar],
@@ -191,6 +219,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "chin-up",
             name: "Chin-Up",
             muscleGroup: .back,
             equipment: [.bodyweight, .pullUpBar],
@@ -204,6 +233,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "lat-pulldown",
             name: "Lat Pulldown",
             muscleGroup: .back,
             equipment: [.cable, .machine],
@@ -217,6 +247,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "seated-cable-row",
             name: "Seated Cable Row",
             muscleGroup: .back,
             equipment: [.cable, .machine],
@@ -230,6 +261,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "face-pull",
             name: "Face Pull",
             muscleGroup: .back,
             equipment: [.cable],
@@ -243,6 +275,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "machine-row",
             name: "Machine Row",
             muscleGroup: .back,
             equipment: [.machine],
@@ -257,6 +290,7 @@ enum ExerciseLibrary {
         ),
         // Shoulders
         .init(
+            id: "overhead-press",
             name: "Overhead Press",
             muscleGroup: .shoulders,
             equipment: [.barbell],
@@ -270,6 +304,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "dumbbell-shoulder-press",
             name: "Dumbbell Shoulder Press",
             muscleGroup: .shoulders,
             equipment: [.dumbbell],
@@ -283,6 +318,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "arnold-press",
             name: "Arnold Press",
             muscleGroup: .shoulders,
             equipment: [.dumbbell],
@@ -296,6 +332,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "lateral-raise",
             name: "Lateral Raise",
             muscleGroup: .shoulders,
             equipment: [.dumbbell],
@@ -309,6 +346,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "front-raise",
             name: "Front Raise",
             muscleGroup: .shoulders,
             equipment: [.dumbbell],
@@ -321,6 +359,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "rear-delt-fly",
             name: "Rear Delt Fly",
             muscleGroup: .shoulders,
             equipment: [.dumbbell],
@@ -334,6 +373,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "cable-lateral-raise",
             name: "Cable Lateral Raise",
             muscleGroup: .shoulders,
             equipment: [.cable],
@@ -347,6 +387,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "machine-shoulder-press",
             name: "Machine Shoulder Press",
             muscleGroup: .shoulders,
             equipment: [.machine],
@@ -360,6 +401,7 @@ enum ExerciseLibrary {
         ),
         // Biceps
         .init(
+            id: "barbell-curl",
             name: "Barbell Curl",
             muscleGroup: .biceps,
             equipment: [.barbell],
@@ -373,6 +415,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "preacher-curl",
             name: "Preacher Curl",
             muscleGroup: .biceps,
             equipment: [.barbell, .bench],
@@ -386,6 +429,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "dumbbell-curl",
             name: "Dumbbell Curl",
             muscleGroup: .biceps,
             equipment: [.dumbbell],
@@ -398,6 +442,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "hammer-curl",
             name: "Hammer Curl",
             muscleGroup: .biceps,
             equipment: [.dumbbell],
@@ -411,6 +456,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "incline-dumbbell-curl",
             name: "Incline Dumbbell Curl",
             muscleGroup: .biceps,
             equipment: [.dumbbell, .bench],
@@ -424,6 +470,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "cable-curl",
             name: "Cable Curl",
             muscleGroup: .biceps,
             equipment: [.cable],
@@ -437,6 +484,7 @@ enum ExerciseLibrary {
         ),
         // Triceps
         .init(
+            id: "close-grip-bench-press",
             name: "Close-Grip Bench Press",
             muscleGroup: .triceps,
             equipment: [.barbell, .bench],
@@ -450,6 +498,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "skull-crusher",
             name: "Skull Crusher",
             muscleGroup: .triceps,
             equipment: [.barbell, .bench],
@@ -463,6 +512,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "overhead-triceps-extension",
             name: "Overhead Triceps Extension",
             muscleGroup: .triceps,
             equipment: [.dumbbell],
@@ -476,6 +526,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "triceps-kickback",
             name: "Triceps Kickback",
             muscleGroup: .triceps,
             equipment: [.dumbbell],
@@ -489,6 +540,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "triceps-pushdown",
             name: "Triceps Pushdown",
             muscleGroup: .triceps,
             equipment: [.cable],
@@ -502,6 +554,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "bench-dip",
             name: "Bench Dip",
             muscleGroup: .triceps,
             equipment: [.bodyweight],
@@ -516,6 +569,7 @@ enum ExerciseLibrary {
         ),
         // Quads
         .init(
+            id: "back-squat",
             name: "Back Squat",
             muscleGroup: .quads,
             equipment: [.barbell],
@@ -529,6 +583,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "front-squat",
             name: "Front Squat",
             muscleGroup: .quads,
             equipment: [.barbell],
@@ -542,6 +597,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "bulgarian-split-squat",
             name: "Bulgarian Split Squat",
             muscleGroup: .quads,
             equipment: [.dumbbell, .bench],
@@ -555,6 +611,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "walking-lunge",
             name: "Walking Lunge",
             muscleGroup: .quads,
             equipment: [.dumbbell],
@@ -568,6 +625,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "goblet-squat",
             name: "Goblet Squat",
             muscleGroup: .quads,
             equipment: [.kettlebell],
@@ -581,6 +639,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "leg-press",
             name: "Leg Press",
             muscleGroup: .quads,
             equipment: [.machine],
@@ -594,6 +653,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "leg-extension",
             name: "Leg Extension",
             muscleGroup: .quads,
             equipment: [.machine],
@@ -606,6 +666,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "hack-squat",
             name: "Hack Squat",
             muscleGroup: .quads,
             equipment: [.machine],
@@ -619,6 +680,7 @@ enum ExerciseLibrary {
         ),
         // Hamstrings
         .init(
+            id: "romanian-deadlift",
             name: "Romanian Deadlift",
             muscleGroup: .hamstrings,
             equipment: [.barbell],
@@ -632,6 +694,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "good-morning",
             name: "Good Morning",
             muscleGroup: .hamstrings,
             equipment: [.barbell],
@@ -645,6 +708,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "lying-leg-curl",
             name: "Lying Leg Curl",
             muscleGroup: .hamstrings,
             equipment: [.machine],
@@ -658,6 +722,21 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "leg-curl",
+            name: "Leg Curl",
+            muscleGroup: .hamstrings,
+            equipment: [.machine],
+            primaryMuscles: [.hamstrings],
+            secondaryMuscles: [.calves],
+            techniqueCues: [
+                "Line your knees up with the machine's pivot",
+                "Keep your hips down and still throughout",
+                "Curl the pad toward your glutes and pause briefly",
+                "Lower under control to a full stretch",
+            ]
+        ),
+        .init(
+            id: "seated-leg-curl",
             name: "Seated Leg Curl",
             muscleGroup: .hamstrings,
             equipment: [.machine],
@@ -671,6 +750,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "nordic-curl",
             name: "Nordic Curl",
             muscleGroup: .hamstrings,
             equipment: [.bodyweight],
@@ -685,6 +765,7 @@ enum ExerciseLibrary {
         ),
         // Glutes
         .init(
+            id: "hip-thrust",
             name: "Hip Thrust",
             muscleGroup: .glutes,
             equipment: [.barbell, .bench],
@@ -698,6 +779,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "glute-bridge",
             name: "Glute Bridge",
             muscleGroup: .glutes,
             equipment: [.bodyweight],
@@ -711,6 +793,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "cable-kickback",
             name: "Cable Kickback",
             muscleGroup: .glutes,
             equipment: [.cable],
@@ -724,6 +807,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "hip-abduction",
             name: "Hip Abduction",
             muscleGroup: .glutes,
             equipment: [.machine],
@@ -737,6 +821,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "kettlebell-swing",
             name: "Kettlebell Swing",
             muscleGroup: .glutes,
             equipment: [.kettlebell],
@@ -751,6 +836,7 @@ enum ExerciseLibrary {
         ),
         // Calves
         .init(
+            id: "standing-calf-raise",
             name: "Standing Calf Raise",
             muscleGroup: .calves,
             equipment: [.machine],
@@ -764,6 +850,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "seated-calf-raise",
             name: "Seated Calf Raise",
             muscleGroup: .calves,
             equipment: [.machine],
@@ -776,6 +863,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "single-leg-calf-raise",
             name: "Single-Leg Calf Raise",
             muscleGroup: .calves,
             equipment: [.bodyweight],
@@ -790,6 +878,7 @@ enum ExerciseLibrary {
         ),
         // Core
         .init(
+            id: "plank",
             name: "Plank",
             muscleGroup: .core,
             equipment: [.bodyweight],
@@ -803,6 +892,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "crunch",
             name: "Crunch",
             muscleGroup: .core,
             equipment: [.bodyweight],
@@ -816,6 +906,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "hanging-leg-raise",
             name: "Hanging Leg Raise",
             muscleGroup: .core,
             equipment: [.bodyweight, .pullUpBar],
@@ -828,6 +919,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "ab-wheel-rollout",
             name: "Ab Wheel Rollout",
             muscleGroup: .core,
             equipment: [.bodyweight],
@@ -840,6 +932,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "cable-crunch",
             name: "Cable Crunch",
             muscleGroup: .core,
             equipment: [.cable],
@@ -853,6 +946,7 @@ enum ExerciseLibrary {
             ]
         ),
         .init(
+            id: "russian-twist",
             name: "Russian Twist",
             muscleGroup: .core,
             equipment: [.bodyweight],
@@ -867,8 +961,38 @@ enum ExerciseLibrary {
         ),
     ]
 
+    private static let byID: [String: ExerciseDefinition] =
+        Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
+
+    private static let byLowercasedName: [String: ExerciseDefinition] =
+        Dictionary(uniqueKeysWithValues: all.map { ($0.name.lowercased(), $0) })
+
+    static func definition(id: String) -> ExerciseDefinition? {
+        byID[id]
+    }
+
+    /// Case-insensitive lookup by current display name.
     static func definition(named name: String) -> ExerciseDefinition? {
-        all.first { $0.name.compare(name, options: .caseInsensitive) == .orderedSame }
+        byLowercasedName[name.lowercased()]
+    }
+
+    /// Older or alternate spellings found in shipped data (seed data,
+    /// earlier builds) that unambiguously mean one library exercise, keyed
+    /// by lowercased name. Only for resolving rows saved before IDs
+    /// existed; never consulted for names chosen today. Ambiguous names
+    /// ("bench", "squat") are deliberately absent.
+    static let legacyAliases: [String: String] = [
+        "bench press": "barbell-bench-press",
+        "pull up": "pull-up",
+        "push up": "push-up",
+    ]
+
+    /// Resolves a name stored before exercise IDs existed: an exact
+    /// current name first, then a legacy alias. Used by ExerciseIDBackfill
+    /// and the nil-ID matching fallback in ExerciseIdentity.
+    static func legacyDefinition(lowercasedName: String) -> ExerciseDefinition? {
+        byLowercasedName[lowercasedName]
+            ?? legacyAliases[lowercasedName].flatMap { byID[$0] }
     }
 
     /// Whether the named exercise can be performed with the given

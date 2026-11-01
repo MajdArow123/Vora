@@ -10,18 +10,21 @@ import SwiftData
 
 /// Ordered history of every schema version and the stages between them.
 /// Adding a version means appending it to `schemas` and appending the
-/// stage that reaches it from the previous one to `stages`, e.g.
-/// `MigrationStage.lightweight(fromVersion: SchemaV1.self, toVersion: SchemaV2.self)`.
+/// stage that reaches it from the previous one to `stages`.
 nonisolated enum VoraMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
-        [SchemaV1.self]
+        [SchemaV1.self, SchemaV2.self]
     }
 
     static var stages: [MigrationStage] {
-        []
+        [
+            // Adds the optional ExerciseLog.exerciseId; values are filled
+            // after opening by ExerciseIDBackfill.
+            .lightweight(fromVersion: SchemaV1.self, toVersion: SchemaV2.self),
+        ]
     }
 }
 
 /// The schema the app currently runs on. Always the last entry of
 /// `VoraMigrationPlan.schemas`.
-typealias CurrentSchema = SchemaV1
+typealias CurrentSchema = SchemaV2

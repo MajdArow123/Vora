@@ -25,9 +25,14 @@ final class AppDataStore {
     private(set) var state: State = .loading
 
     private let open: () throws -> ModelContainer
+    private let backfillExerciseIDs: (ModelContext) throws -> Int
 
-    init(open: @escaping () throws -> ModelContainer = { try PersistenceController.makeContainer() }) {
+    init(
+        open: @escaping () throws -> ModelContainer = { try PersistenceController.makeContainer() },
+        backfillExerciseIDs: @escaping (ModelContext) throws -> Int = { try ExerciseIDBackfill.run(in: $0) }
+    ) {
         self.open = open
+        self.backfillExerciseIDs = backfillExerciseIDs
     }
 
     var container: ModelContainer? {
@@ -47,12 +52,28 @@ final class AppDataStore {
             DemoSeeder.seedIfRequested(container: container)
             #endif
             GymProfileService.ensureDefaultProfile(context: ModelContext(container))
+            runExerciseIDBackfill(in: container)
             state = .ready(container)
         } catch {
             PersistenceController.logger.error(
                 "Failed to open the data store: \(String(describing: error), privacy: .public)"
             )
             state = .failed(String(describing: error))
+        }
+    }
+
+    /// Never blocks launch: rows left unfilled still match through the
+    /// name fallback in ExerciseIdentity, and the next launch retries.
+    private func runExerciseIDBackfill(in container: ModelContainer) {
+        do {
+            let filled = try backfillExerciseIDs(ModelContext(container))
+            if filled > 0 {
+                PersistenceController.logger.info("Backfilled exercise IDs on \(filled, privacy: .public) logs")
+            }
+        } catch {
+            PersistenceController.logger.error(
+                "Exercise ID backfill failed: \(String(describing: error), privacy: .public)"
+            )
         }
     }
 
