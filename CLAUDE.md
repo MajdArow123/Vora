@@ -13,6 +13,7 @@ SwiftUI + SwiftData iOS app (iOS 26.5, Swift Testing). Scheme `Vora`, targets `V
 - Unit tests must never reach real HealthKit — always inject a stub.
 - Run the full suite and report pass/fail totals.
 - Do not commit unless asked; summarize changed files for review.
+- Commit directly to main and push after I confirm; don't create feature branches unless I ask.
 
 ## SwiftData
 
