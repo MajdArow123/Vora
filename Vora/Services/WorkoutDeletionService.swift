@@ -27,10 +27,10 @@ struct WorkoutDeletionService {
         _ session: WorkoutSession,
         context: ModelContext,
         save: (ModelContext) throws -> Void = { try $0.save() }
-    ) throws -> HealthWorkoutMatch? {
-        let match = HealthWorkoutMatch(session: session)
+    ) throws -> HealthWorkoutTarget? {
+        let target = HealthWorkoutTarget(session: session)
         try deleteModel(session, context: context, save: save)
-        return match
+        return target
     }
 
     /// Deletes the entry. Returns what to remove from HealthKit.
@@ -38,20 +38,26 @@ struct WorkoutDeletionService {
         _ entry: CardioEntry,
         context: ModelContext,
         save: (ModelContext) throws -> Void = { try $0.save() }
-    ) throws -> HealthWorkoutMatch? {
-        let match = HealthWorkoutMatch(cardio: entry)
+    ) throws -> HealthWorkoutTarget? {
+        let target = HealthWorkoutTarget(cardio: entry)
         try deleteModel(entry, context: context, save: save)
-        return match
+        return target
     }
 
     /// Best-effort: every outcome but `.deleted` is logged and nothing is
     /// thrown, because the local delete has already happened. Returns nil
     /// when there was nothing to look for or the attempt failed.
     @discardableResult
-    func removeFromHealth(_ match: HealthWorkoutMatch?) async -> HealthWorkoutDeletionResult? {
-        guard let match else { return nil }
+    func removeFromHealth(_ target: HealthWorkoutTarget?) async -> HealthWorkoutDeletionResult? {
+        guard let target else { return nil }
         do {
-            let result = try await health.deleteWorkout(matching: match)
+            let result: HealthWorkoutDeletionResult
+            switch target {
+            case .id(let id):
+                result = try await health.deleteWorkout(id: id)
+            case .match(let match):
+                result = try await health.deleteWorkout(matching: match)
+            }
             switch result {
             case .deleted:
                 break

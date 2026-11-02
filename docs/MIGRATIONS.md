@@ -6,10 +6,11 @@ a migration stage. Never edit an existing version.
 
 | File | Role |
 |------|------|
-| `Vora/Models/Schema/SchemaV1.swift` | The schema every pre-versioning store was created with; frozen copies of WorkoutSession, ExerciseLog, SetEntry |
-| `Vora/Models/Schema/SchemaV2.swift` | Adds `ExerciseLog.exerciseId` (lightweight stage) |
+| `Vora/Models/Schema/SchemaV1.swift` | The schema every pre-versioning store was created with; frozen copies of WorkoutSession, ExerciseLog, SetEntry, CardioEntry |
+| `Vora/Models/Schema/SchemaV2.swift` | Adds `ExerciseLog.exerciseId` (lightweight stage); frozen copies of the same four models |
 | `Vora/Models/Schema/ExerciseIDBackfill.swift` | Post-open fill of `exerciseId` for pre-V2 rows |
-| `Vora/Models/Schema/SchemaV3.swift` | Adds the `WorkoutTemplate` and `TemplateExercise` entities (lightweight stage; nothing frozen because no existing model changed) |
+| `Vora/Models/Schema/SchemaV3.swift` | Adds the `WorkoutTemplate` and `TemplateExercise` entities (lightweight stage); frozen copies of the same four models |
+| `Vora/Models/Schema/SchemaV4.swift` | Replaces `SetEntry.rpe` with the optional `SetEntry.rir`, and adds the optional `healthKitWorkoutID` to WorkoutSession and CardioEntry (lightweight stage) |
 | `Vora/Models/Schema/TemplateDefaultsMigration.swift` | Post-open move of the pre-V3 `vora.workoutTemplates` UserDefaults dictionary into SwiftData; removes the key only after a successful save |
 | `Vora/Models/Schema/VoraMigrationPlan.swift` | Ordered `schemas` and `stages`; `CurrentSchema` alias |
 | `Vora/Services/PersistenceController.swift` | Builds the container on `CurrentSchema` with the plan |
@@ -26,6 +27,10 @@ a migration stage. Never edit an existing version.
    a shared `WorkoutSession` would point V1 at the live V2 `ExerciseLog`.
    Copies are verbatim, with relationships pointing at the other nested
    copies. Models outside that cluster can keep being shared.
+   **Freeze into every version that lists the live class, not only the
+   previous one.** V1, V2 and V3 all listed the live `CardioEntry`, and V2
+   and V3 the live workout cluster, so V4 froze them into each. Missing one
+   silently gives that older version the new shape.
 2. **Change the live model** (the top-level class) and create
    `SchemaV2.swift` listing all models, with
    `versionIdentifier = Schema.Version(2, 0, 0)`.
@@ -59,11 +64,26 @@ a migration stage. Never edit an existing version.
      current plan. `v1-fixture.store` was generated from commit 0cafae8;
      `v2-fixture.store` and `v2-fixture-templates.plist` (the UserDefaults
      domain written by the shipped `WorkoutTemplateStore`) from commit
-     712aea5. When data outside the store moves into it (UserDefaults,
-     files), fixture that data too and test the move against it.
+     712aea5; `v3-fixture.store` and `v1-session-draft.json` (a version 1
+     `ActiveSessionDraft`) from commit 07190d1. When data outside the store
+     moves into it (UserDefaults, files), fixture that data too and test
+     the move against it.
    - Post-open moves and backfills run through `AppDataStore` with their
      inputs injected (e.g. a test `UserDefaults` suite), never the host
      app's real `UserDefaults.standard`.
+
+## Why removing `SetEntry.rpe` lost no data
+
+V4 drops `rpe` in a lightweight stage, without reading the column first,
+because no build ever wrote a non-zero value. Evidence, as of commit 07190d1:
+
+- `git log --all -p -G'rpe' -- Vora` shows only three kinds of line across
+  every commit: the declaration (`var rpe: Int`), the init default
+  (`rpe: Int = 0`) and the init assignment (`self.rpe = rpe`). No call site
+  ever passed a value and nothing assigned the property elsewhere.
+- Every `ZRPE` value is 0 in all three fixture stores: 10 of 10 rows in
+  `v1-fixture.store`, 12 of 12 in `v2-fixture.store`, and 8 of 8 in
+  `v3-fixture.store`.
 
 ## Rules
 

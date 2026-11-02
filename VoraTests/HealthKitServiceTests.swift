@@ -19,9 +19,40 @@ struct HealthKitServiceTests {
         // end == start and end < start must both return without any
         // HealthKit interaction (no permission prompt in the test host
         // proves the early guard fired).
-        await service.saveStrengthWorkout(start: .now, end: .now)
-        await service.saveStrengthWorkout(start: .now, end: .now.addingTimeInterval(-60))
-        await service.saveCardioWorkout(type: .run, start: .now, end: .now, calories: 300)
+        #expect(await service.saveStrengthWorkout(start: .now, end: .now) == nil)
+        #expect(await service.saveStrengthWorkout(start: .now, end: .now.addingTimeInterval(-60)) == nil)
+        #expect(await service.saveCardioWorkout(type: .run, start: .now, end: .now, calories: 300) == nil)
+    }
+
+    // MARK: - Target construction
+
+    @Test func targetPrefersTheStoredID() {
+        let start = Date(timeIntervalSince1970: 1_000_000)
+        let id = UUID()
+        let session = WorkoutSession(date: start, sessionName: "Push", durationSeconds: 3600, healthKitWorkoutID: id)
+        let entry = CardioEntry(date: start, type: .run, durationSeconds: 1800, estimatedCalories: 200, healthKitWorkoutID: id)
+
+        #expect(HealthWorkoutTarget(session: session) == .id(id))
+        #expect(HealthWorkoutTarget(cardio: entry) == .id(id))
+    }
+
+    @Test func targetFallsBackToTheMatchWithoutAnID() throws {
+        let start = Date(timeIntervalSince1970: 1_000_000)
+        let session = WorkoutSession(date: start, sessionName: "Push", durationSeconds: 3600)
+        let entry = CardioEntry(date: start, type: .run, durationSeconds: 1800, estimatedCalories: 200)
+
+        let sessionMatch = try #require(HealthWorkoutMatch(session: session))
+        let cardioMatch = try #require(HealthWorkoutMatch(cardio: entry))
+        #expect(HealthWorkoutTarget(session: session) == .match(sessionMatch))
+        #expect(HealthWorkoutTarget(cardio: entry) == .match(cardioMatch))
+    }
+
+    @Test func noTargetWithoutAnIDOrADuration() {
+        let date = Date(timeIntervalSince1970: 1_000_000)
+        #expect(HealthWorkoutTarget(session: WorkoutSession(date: date, sessionName: "Push")) == nil)
+        #expect(HealthWorkoutTarget(cardio: CardioEntry(
+            date: date, type: .run, durationSeconds: 0, estimatedCalories: 0
+        )) == nil)
     }
 
     // MARK: - Match construction

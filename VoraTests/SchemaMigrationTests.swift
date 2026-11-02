@@ -68,10 +68,36 @@ struct SchemaMigrationTests {
         #expect(Self.shapes(Schema(versionedSchema: SchemaV2.self)) == expected)
     }
 
-    @Test func schemaV3IsCurrent() {
-        #expect(SchemaV3.versionIdentifier == Schema.Version(3, 0, 0))
-        #expect(CurrentSchema.versionIdentifier == SchemaV3.versionIdentifier)
-        #expect(SchemaV3.models.count == 20)
+    @Test func schemaV4IsCurrent() {
+        #expect(SchemaV4.versionIdentifier == Schema.Version(4, 0, 0))
+        #expect(CurrentSchema.versionIdentifier == SchemaV4.versionIdentifier)
+        #expect(SchemaV4.models.count == 20)
+    }
+
+    /// V4 changes exactly these columns and nothing else.
+    @Test func schemaV4ReplacesRPEWithRIRAndAddsHealthKitIDs() {
+        var expected = Self.shapes(Schema(versionedSchema: SchemaV3.self))
+        expected["SetEntry", default: []].remove("rpe")
+        expected["SetEntry", default: []].insert("rir")
+        expected["WorkoutSession", default: []].insert("healthKitWorkoutID")
+        expected["CardioEntry", default: []].insert("healthKitWorkoutID")
+        #expect(Self.shapes(PersistenceController.schema) == expected)
+    }
+
+    /// The freeze held: every earlier version still describes what its
+    /// stores contain, not the live classes.
+    @Test(arguments: [
+        SchemaV1.self as any VersionedSchema.Type,
+        SchemaV2.self as any VersionedSchema.Type,
+        SchemaV3.self as any VersionedSchema.Type,
+    ])
+    func earlierVersionsKeepTheirShape(version: any VersionedSchema.Type) {
+        let shapes = Self.shapes(Schema(versionedSchema: version))
+        let sets = shapes["SetEntry"] ?? []
+        #expect(sets.contains("rpe"))
+        #expect(!sets.contains("rir"))
+        #expect(shapes["WorkoutSession"]?.contains("healthKitWorkoutID") == false)
+        #expect(shapes["CardioEntry"]?.contains("healthKitWorkoutID") == false)
     }
 
     /// V3 is V2 plus the two template entities; no V2 entity changed.
@@ -82,13 +108,15 @@ struct SchemaMigrationTests {
             "id", "exerciseId", "customName", "orderIndex", "targetSets",
             "repRangeMin", "repRangeMax", "targetRIR", "restSeconds", "parent",
         ]
-        #expect(Self.shapes(PersistenceController.schema) == expected)
+        #expect(Self.shapes(Schema(versionedSchema: SchemaV3.self)) == expected)
     }
 
     @Test func migrationPlanListsEveryVersionWithAStageBetweenEach() {
         let versions = VoraMigrationPlan.schemas.map { $0.versionIdentifier }
-        #expect(versions == [Schema.Version(1, 0, 0), Schema.Version(2, 0, 0), Schema.Version(3, 0, 0)])
-        #expect(VoraMigrationPlan.stages.count == 2)
+        #expect(versions == [
+            Schema.Version(1, 0, 0), Schema.Version(2, 0, 0), Schema.Version(3, 0, 0), Schema.Version(4, 0, 0),
+        ])
+        #expect(VoraMigrationPlan.stages.count == 3)
     }
 
     // MARK: - Container
@@ -263,16 +291,16 @@ struct SchemaMigrationTests {
                 configurations: [ModelConfiguration(schema: schema, url: storeURL)]
             )
             let context = v2.mainContext
-            let bench = ExerciseLog(
+            let bench = SchemaV2.ExerciseLog(
                 exerciseName: "Barbell Bench Press", exerciseId: "barbell-bench-press",
                 muscleGroups: ["chest"], orderIndex: 0,
-                sets: [SetEntry(setNumber: 1, weightKg: 90, reps: 5, isCompleted: true)]
+                sets: [SchemaV2.SetEntry(setNumber: 1, weightKg: 90, reps: 5, isCompleted: true)]
             )
-            let sled = ExerciseLog(
+            let sled = SchemaV2.ExerciseLog(
                 exerciseName: "Sled Push", orderIndex: 1,
-                sets: [SetEntry(setNumber: 1, weightKg: 120, reps: 1, isCompleted: true)]
+                sets: [SchemaV2.SetEntry(setNumber: 1, weightKg: 120, reps: 1, isCompleted: true)]
             )
-            context.insert(WorkoutSession(
+            context.insert(SchemaV2.WorkoutSession(
                 date: sessionDate, sessionName: "Push", durationSeconds: 1800,
                 totalVolumeKg: 570, exercises: [bench, sled]
             ))
@@ -409,6 +437,136 @@ struct SchemaMigrationTests {
         #expect(rerun.removedKey)
         #expect(try relaunched.fetchCount(FetchDescriptor<WorkoutTemplate>()) == 4)
         #expect(try relaunched.fetchCount(FetchDescriptor<TemplateExercise>()) == 8)
+    }
+
+    // MARK: - V3 -> V4 (frozen types)
+
+    /// A store written with the frozen V3 types opens through the plan with
+    /// every row intact and the new optional columns nil.
+    @Test @MainActor func v3StoreMigratesToV4WithoutLoss() throws {
+        let storeURL = Self.temporaryStoreURL()
+        defer { Self.removeStore(at: storeURL) }
+
+        let sessionDate = Date(timeIntervalSince1970: 1_793_000_000)
+        try {
+            let schema = Schema(versionedSchema: SchemaV3.self)
+            let v3 = try ModelContainer(
+                for: schema,
+                configurations: [ModelConfiguration(schema: schema, url: storeURL)]
+            )
+            let context = v3.mainContext
+            let bench = SchemaV3.ExerciseLog(
+                exerciseName: "Barbell Bench Press", exerciseId: "barbell-bench-press",
+                muscleGroups: ["chest"], orderIndex: 0,
+                sets: [
+                    SchemaV3.SetEntry(setNumber: 1, weightKg: 90, reps: 5, isCompleted: true),
+                    SchemaV3.SetEntry(setNumber: 2, weightKg: 92.5, reps: 3, isCompleted: true),
+                ]
+            )
+            context.insert(SchemaV3.WorkoutSession(
+                date: sessionDate, sessionName: "Push", durationSeconds: 1800,
+                totalVolumeKg: 727.5, notes: "Felt good", exercises: [bench]
+            ))
+            context.insert(SchemaV3.CardioEntry(
+                date: sessionDate, type: .row, durationSeconds: 900,
+                estimatedCalories: 150, strokesPerMinute: 24
+            ))
+            try context.save()
+        }()
+
+        let container = try PersistenceController.makeContainer(url: storeURL)
+        let context = container.mainContext
+
+        let session = try #require(try context.fetch(FetchDescriptor<WorkoutSession>()).first)
+        #expect(session.date == sessionDate)
+        #expect(session.notes == "Felt good")
+        #expect(session.healthKitWorkoutID == nil)
+        let sets = try #require(session.exercises.first?.sets).sorted { $0.setNumber < $1.setNumber }
+        #expect(sets.map(\.weightKg) == [90, 92.5])
+        #expect(sets.map(\.reps) == [5, 3])
+        #expect(sets.allSatisfy { $0.rir == nil })
+
+        let cardio = try #require(try context.fetch(FetchDescriptor<CardioEntry>()).first)
+        #expect(cardio.type == .row)
+        #expect(cardio.strokesPerMinute == 24)
+        #expect(cardio.healthKitWorkoutID == nil)
+    }
+
+    // MARK: - V3 -> V4 (real store from commit 07190d1)
+
+    /// `Fixtures/v3-fixture.store` was written by the shipped V3 code
+    /// (commit 07190d1): 2 Push sessions saved through
+    /// `ActiveSessionViewModel.finish()`, each with Barbell Bench Press
+    /// (3 sets) and the custom Sled Push (1 set), the second holding the
+    /// bench PR; 2 cardio entries; and one template with target RIRs of 2,
+    /// 0 and nil.
+    @Test @MainActor func realV3FixtureMigratesWithoutLoss() async throws {
+        let fixture = try Self.copyFixtureStore(named: "v3-fixture")
+        defer { removeTestItem(at: fixture.directory) }
+        let storeURL = fixture.store
+
+        let store = AppDataStore(
+            open: { try PersistenceController.makeContainer(url: storeURL) },
+            migrateTemplates: { _ in TemplateDefaultsMigration.Outcome() }
+        )
+        store.load()
+        let context = try #require(store.container).mainContext
+
+        #expect(try context.fetch(FetchDescriptor<UserProfile>()).map(\.name) == ["Fixture User"])
+        #expect(try context.fetch(FetchDescriptor<GymProfile>()).map(\.name) == ["Commercial Gym"])
+
+        let sessions = try context.fetch(FetchDescriptor<WorkoutSession>(sortBy: [SortDescriptor(\.date)]))
+        #expect(sessions.map(\.date) == [
+            Date(timeIntervalSince1970: 1_793_260_800),
+            Date(timeIntervalSince1970: 1_793_865_600),
+        ])
+        #expect(sessions.map(\.durationSeconds) == [3000, 3000])
+        #expect(sessions.allSatisfy { $0.healthKitWorkoutID == nil })
+        #expect(try context.fetchCount(FetchDescriptor<ExerciseLog>()) == 4)
+        #expect(try context.fetchCount(FetchDescriptor<SetEntry>()) == 8)
+        #expect(try context.fetch(FetchDescriptor<SetEntry>()).allSatisfy { $0.rir == nil })
+        for session in sessions {
+            let logs = session.exercises.sorted { $0.orderIndex < $1.orderIndex }
+            #expect(logs.map(\.exerciseName) == ["Barbell Bench Press", "Sled Push"])
+            #expect(logs.map(\.exerciseId) == ["barbell-bench-press", nil])
+        }
+        let lastBench = try #require(sessions.last?.exercises.first { $0.orderIndex == 0 })
+        #expect(lastBench.sets.sorted { $0.setNumber < $1.setNumber }.map(\.weightKg) == [85, 85, 82.5])
+
+        let records = WorkoutHomeViewModel.computePersonalRecords(from: context)
+        let benchPR = try #require(records.first { $0.exerciseId == "barbell-bench-press" })
+        #expect(benchPR.weightKg == 85)
+        #expect(benchPR.reps == 8)
+        #expect(records.first { $0.exerciseName == "Sled Push" }?.weightKg == 110)
+
+        let cardio = try context.fetch(FetchDescriptor<CardioEntry>(sortBy: [SortDescriptor(\.date)]))
+        #expect(cardio.map(\.type) == [.treadmill, .stationaryBike])
+        #expect(cardio.first?.speedKmh == 8.5)
+        #expect(cardio.first?.inclinePercent == 2)
+        #expect(cardio.last?.resistanceLevel == 8)
+        #expect(cardio.last?.rpm == 80)
+        #expect(cardio.allSatisfy { $0.healthKitWorkoutID == nil })
+
+        let push = try #require(try WorkoutTemplateService.template(for: .ppl, dayIndex: 0, context: context))
+        #expect(push.orderedExercises.map(\.exerciseId) == ["barbell-bench-press", "lateral-raise", nil])
+        #expect(push.orderedExercises.map(\.targetRIR) == [2, 0, nil])
+        #expect(push.orderedExercises.map(\.customName) == [nil, nil, "Sled Push"])
+
+        // The new columns save and reread on migrated rows.
+        let workoutID = UUID()
+        let firstSet = try #require(lastBench.sets.first)
+        firstSet.rir = 0
+        let session = try #require(sessions.last)
+        session.healthKitWorkoutID = workoutID
+        try context.save()
+        let setID = firstSet.id
+        let reread = try context.fetch(FetchDescriptor<SetEntry>(predicate: #Predicate { $0.id == setID }))
+        #expect(reread.map(\.rir) == [0])
+
+        // Migrated rows without an ID still delete through time matching.
+        let oldest = try #require(sessions.first)
+        #expect(HealthWorkoutTarget(session: oldest) == HealthWorkoutMatch(session: oldest).map(HealthWorkoutTarget.match))
+        #expect(HealthWorkoutTarget(session: session) == .id(workoutID))
     }
 
     @Test @MainActor func versionedStoreReopensRepeatedly() throws {

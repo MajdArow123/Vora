@@ -85,13 +85,13 @@ final class WorkoutHistoryViewModel {
         let previousItems = items
         items.removeAll { $0.id == item.id }
 
-        let match: HealthWorkoutMatch?
+        let target: HealthWorkoutTarget?
         do {
             switch item {
             case .lifting(let session):
-                match = try deletionService.delete(session, context: context, save: save)
+                target = try deletionService.delete(session, context: context, save: save)
             case .cardio(let entry):
-                match = try deletionService.delete(entry, context: context, save: save)
+                target = try deletionService.delete(entry, context: context, save: save)
             }
         } catch {
             items = previousItems
@@ -101,7 +101,7 @@ final class WorkoutHistoryViewModel {
 
         let service = deletionService
         return Task {
-            await service.removeFromHealth(match)
+            await service.removeFromHealth(target)
         }
     }
 

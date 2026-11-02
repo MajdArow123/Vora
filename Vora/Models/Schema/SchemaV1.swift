@@ -28,7 +28,7 @@ nonisolated enum SchemaV1: VersionedSchema {
             WeightEntry.self,
             BodyMeasurement.self,
             WaterEntry.self,
-            CardioEntry.self,
+            SchemaV1.CardioEntry.self,
             SplitDay.self,
             SavedMeal.self,
             SavedMealItem.self,
@@ -130,6 +130,58 @@ extension SchemaV1 {
             self.reps = reps
             self.isCompleted = isCompleted
             self.rpe = rpe
+        }
+    }
+
+    // Frozen alone: it has no relationships.
+    @Model
+    final class CardioEntry {
+        @Attribute(.unique) var id: UUID
+        var date: Date
+        var type: CardioType
+        var durationSeconds: Int
+        var estimatedCalories: Double
+
+        // Machine-specific stats. All optional so pre-existing rows migrate
+        // untouched; only the fields relevant to `type` are ever populated.
+        var speedKmh: Double?
+        var inclinePercent: Double?
+        var resistanceLevel: Int?
+        var strokesPerMinute: Int?
+        var stepsPerMinute: Int?
+        var rpm: Int?
+        var distanceKm: Double?
+        /// Minutes per kilometre.
+        var pace: Double?
+
+        init(
+            id: UUID = UUID(),
+            date: Date,
+            type: CardioType,
+            durationSeconds: Int,
+            estimatedCalories: Double,
+            speedKmh: Double? = nil,
+            inclinePercent: Double? = nil,
+            resistanceLevel: Int? = nil,
+            strokesPerMinute: Int? = nil,
+            stepsPerMinute: Int? = nil,
+            rpm: Int? = nil,
+            distanceKm: Double? = nil,
+            pace: Double? = nil
+        ) {
+            self.id = id
+            self.date = date
+            self.type = type
+            self.durationSeconds = durationSeconds
+            self.estimatedCalories = estimatedCalories
+            self.speedKmh = speedKmh
+            self.inclinePercent = inclinePercent
+            self.resistanceLevel = resistanceLevel
+            self.strokesPerMinute = strokesPerMinute
+            self.stepsPerMinute = stepsPerMinute
+            self.rpm = rpm
+            self.distanceKm = distanceKm
+            self.pace = pace
         }
     }
 }

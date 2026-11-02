@@ -22,7 +22,6 @@ struct ActiveSessionView: View {
     @State private var didPrefill = false
     @State private var editMode: EditMode = .inactive
 
-    private let healthKitService = HealthKitService()
     private let templatePlan: [TemplateExerciseSpec]
     private let restoredDraft: ActiveSessionDraft?
 
@@ -269,10 +268,10 @@ struct ActiveSessionView: View {
 
             Button {
                 viewModel.finish(context: modelContext)
-                guard let interval = viewModel.workoutInterval else { return }
-                let service = healthKitService
+                let context = modelContext
+                let finished = viewModel
                 Task {
-                    await service.saveStrengthWorkout(start: interval.start, end: interval.end)
+                    await finished.recordHealthWorkout(context: context)
                 }
             } label: {
                 Text("Finish")
@@ -364,15 +363,17 @@ struct ExerciseSessionCard: View {
                 .accessibilityLabel("Exercise options")
             }
 
-            HStack {
+            HStack(spacing: SetRow.columnSpacing) {
                 Text("SET")
-                    .frame(width: 34, alignment: .leading)
+                    .frame(width: SetRow.setNumberWidth, alignment: .leading)
                 Text("PREVIOUS")
                     .frame(width: 76, alignment: .leading)
                 Text(UnitConversion.weightUnitSymbol(viewModel.units).uppercased())
                     .frame(maxWidth: .infinity, alignment: .center)
                 Text("REPS")
                     .frame(maxWidth: .infinity, alignment: .center)
+                Text("RIR")
+                    .frame(width: SetRow.rirWidth, alignment: .center)
                 Color.clear.frame(width: 40, height: 1)
             }
             .font(.system(size: 10, weight: .semibold))
@@ -386,6 +387,7 @@ struct ExerciseSessionCard: View {
                         ? exercise.previousSets[index].text(units: viewModel.units)
                         : "—",
                     repsPlaceholder: exercise.repRange.map { Self.repRangeText($0) } ?? "0",
+                    targetRIR: exercise.targets?.targetRIR,
                     exerciseID: exercise.id,
                     viewModel: viewModel,
                     onCompleted: onSetCompleted
@@ -419,20 +421,26 @@ struct ExerciseSessionCard: View {
 // MARK: - Set row
 
 private struct SetRow: View {
+    // Sized so a weight like 102.25 stays readable beside the RIR column.
+    static let columnSpacing: CGFloat = 6
+    static let setNumberWidth: CGFloat = 22
+    static let rirWidth: CGFloat = 32
+
     let setNumber: Int
     let set: ActiveSessionViewModel.DraftSet
     let previousText: String
     let repsPlaceholder: String
+    let targetRIR: Int?
     let exerciseID: ActiveSessionViewModel.DraftExercise.ID
     let viewModel: ActiveSessionViewModel
     let onCompleted: () -> Void
 
     var body: some View {
-        HStack {
+        HStack(spacing: Self.columnSpacing) {
             Text("\(setNumber)")
                 .font(DesignSystem.Typography.headline)
                 .foregroundStyle(DesignSystem.Colors.textSecondary)
-                .frame(width: 34, alignment: .leading)
+                .frame(width: Self.setNumberWidth, alignment: .leading)
 
             Text(previousText)
                 .font(DesignSystem.Typography.caption)
@@ -444,6 +452,8 @@ private struct SetRow: View {
                 .accessibilityLabel("Weight in \(UnitConversion.spokenWeightUnit(set.units))")
             field(binding(\.repsText), placeholder: repsPlaceholder)
                 .accessibilityLabel("Reps")
+
+            rirPicker
 
             Button {
                 let completed = withAnimation(.spring(duration: 0.3)) {
@@ -483,12 +493,54 @@ private struct SetRow: View {
         }
     }
 
+    /// Stays enabled on completed sets, since effort is usually rated right
+    /// after finishing. An untouched picker shows the target dimmed and logs
+    /// nothing.
+    private var rirPicker: some View {
+        Menu {
+            Picker("Reps in reserve", selection: rirBinding) {
+                Text("Not logged").tag(Int?.none)
+                ForEach(RIRScale.range, id: \.self) { value in
+                    Text(value == RIRScale.range.lowerBound ? "\(value) (Failure)" : RIRScale.text(value))
+                        .tag(Int?.some(value))
+                }
+            }
+        } label: {
+            Text((set.rir ?? targetRIR).map { RIRScale.text($0) } ?? "–")
+                .font(DesignSystem.Typography.headline)
+                .foregroundStyle(set.rir == nil
+                                 ? DesignSystem.Colors.textSecondary.opacity(0.6)
+                                 : DesignSystem.Colors.textPrimary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .padding(.vertical, 6)
+                .frame(width: Self.rirWidth)
+                .background(DesignSystem.Colors.background)
+                .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.small))
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel("Reps in reserve")
+        .accessibilityValue(set.rir.map { RIRScale.spokenText($0) } ?? "Not logged")
+        .accessibilityHint(targetRIR.map { "Target: \(RIRScale.spokenText($0))" } ?? "")
+    }
+
+    private var rirBinding: Binding<Int?> {
+        Binding(
+            get: {
+                viewModel.exercises.first { $0.id == exerciseID }?
+                    .sets.first { $0.id == set.id }?.rir
+            },
+            set: { viewModel.setRIR($0, setID: set.id, in: exerciseID) }
+        )
+    }
+
     private func field(_ binding: Binding<String>, placeholder: String) -> some View {
         TextField(placeholder, text: binding)
             .keyboardType(.decimalPad)
             .multilineTextAlignment(.center)
             .font(DesignSystem.Typography.headline)
             .foregroundStyle(DesignSystem.Colors.textPrimary)
+            .minimumScaleFactor(0.7)
             .padding(.vertical, 6)
             .frame(maxWidth: .infinity)
             .background(DesignSystem.Colors.background)

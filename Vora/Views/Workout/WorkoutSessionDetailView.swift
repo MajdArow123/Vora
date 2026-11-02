@@ -169,6 +169,8 @@ struct WorkoutSessionDetailView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
                 Text("REPS")
                     .frame(maxWidth: .infinity, alignment: .center)
+                Text("RIR")
+                    .frame(maxWidth: .infinity, alignment: .center)
                 Color.clear.frame(width: 40, height: 1)
             }
             .font(.system(size: 10, weight: .semibold))
@@ -200,6 +202,13 @@ struct WorkoutSessionDetailView: View {
                 .foregroundStyle(DesignSystem.Colors.textPrimary)
                 .frame(maxWidth: .infinity, alignment: .center)
 
+            Text(set.rir.map { RIRScale.text($0) } ?? "–")
+                .font(DesignSystem.Typography.headline)
+                .foregroundStyle(set.rir == nil
+                                 ? DesignSystem.Colors.textSecondary
+                                 : DesignSystem.Colors.textPrimary)
+                .frame(maxWidth: .infinity, alignment: .center)
+
             Image(systemName: set.isCompleted ? "checkmark.circle.fill" : "circle")
                 .font(.title3)
                 .foregroundStyle(set.isCompleted
@@ -216,7 +225,7 @@ struct WorkoutSessionDetailView: View {
         )
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
-            "Set \(set.setNumber), \(UnitConversion.weightNumberText(kg: set.weightKg, units: units)) \(UnitConversion.spokenWeightUnit(units)), \(set.reps) reps\(set.isCompleted ? ", completed" : "")"
+            "Set \(set.setNumber), \(UnitConversion.weightNumberText(kg: set.weightKg, units: units)) \(UnitConversion.spokenWeightUnit(units)), \(set.reps) reps\(set.rir.map { ", \(RIRScale.spokenText($0))" } ?? "")\(set.isCompleted ? ", completed" : "")"
         )
     }
 

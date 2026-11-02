@@ -16,6 +16,9 @@ final class WorkoutSession {
     var durationSeconds: Int
     var totalVolumeKg: Double
     var notes: String
+    /// UUID of the workout written to HealthKit. nil when none was written,
+    /// and for rows saved before SchemaV4; deletion then matches on times.
+    var healthKitWorkoutID: UUID?
 
     @Relationship(deleteRule: .cascade, inverse: \ExerciseLog.parent)
     var exercises: [ExerciseLog]
@@ -27,6 +30,7 @@ final class WorkoutSession {
         durationSeconds: Int = 0,
         totalVolumeKg: Double = 0,
         notes: String = "",
+        healthKitWorkoutID: UUID? = nil,
         exercises: [ExerciseLog] = []
     ) {
         self.id = id
@@ -35,6 +39,7 @@ final class WorkoutSession {
         self.durationSeconds = durationSeconds
         self.totalVolumeKg = totalVolumeKg
         self.notes = notes
+        self.healthKitWorkoutID = healthKitWorkoutID
         self.exercises = exercises
     }
 }

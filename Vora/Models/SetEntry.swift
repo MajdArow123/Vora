@@ -15,8 +15,9 @@ final class SetEntry {
     var weightKg: Double
     var reps: Int
     var isCompleted: Bool
-    /// Rate of perceived exertion, 1–10. 0 means not set.
-    var rpe: Int
+    /// Reps in reserve, 0–5: 0 means failure, 5 means five or more. nil
+    /// means not logged, which is different from 0.
+    var rir: Int?
 
     var parent: ExerciseLog?
 
@@ -26,13 +27,13 @@ final class SetEntry {
         weightKg: Double,
         reps: Int,
         isCompleted: Bool = false,
-        rpe: Int = 0
+        rir: Int? = nil
     ) {
         self.id = id
         self.setNumber = setNumber
         self.weightKg = weightKg
         self.reps = reps
         self.isCompleted = isCompleted
-        self.rpe = rpe
+        self.rir = rir
     }
 }

@@ -27,6 +27,9 @@ final class ActiveSessionViewModel {
         var weightText = ""
         var repsText = ""
         var isCompleted = false
+        /// Logged reps in reserve. nil until the user picks one; a template
+        /// target is only ever shown as a placeholder.
+        var rir: Int?
         let units: UnitSystem
         /// Exact kilograms behind a prefilled `weightText`. Used while the
         /// text is untouched, so display rounding never drifts the value.
@@ -43,7 +46,8 @@ final class ActiveSessionViewModel {
 
         var reps: Int? { Int(repsText) }
 
-        /// A fresh, incomplete set with this set's weight and reps.
+        /// A fresh, incomplete set with this set's weight and reps. RIR is
+        /// not copied: effort belongs to the set that was performed.
         func copyingValues() -> DraftSet {
             var copy = DraftSet(units: units)
             copy.weightText = weightText
@@ -106,7 +110,10 @@ final class ActiveSessionViewModel {
     var summary: SessionSummary?
     /// Start and active-duration end of the saved workout, for HealthKit.
     private(set) var workoutInterval: DateInterval?
+    /// The saved session's ID. nil until `finish` has saved successfully.
+    private(set) var savedSessionID: UUID?
 
+    @ObservationIgnored private let health: any HealthWorkoutWriting
     @ObservationIgnored private var draftStore: SessionDraftStore?
     @ObservationIgnored private let draftDebounce: Duration
     @ObservationIgnored private let now: () -> Date
@@ -118,10 +125,12 @@ final class ActiveSessionViewModel {
         units: UnitSystem = .metric,
         draftStore: SessionDraftStore? = nil,
         draftDebounce: Duration = .milliseconds(500),
+        health: any HealthWorkoutWriting = HealthKitService(),
         now: @escaping () -> Date = Date.init
     ) {
         self.sessionName = sessionName
         self.units = units
+        self.health = health
         self.draftStore = draftStore
         self.draftDebounce = draftDebounce
         self.now = now
@@ -295,6 +304,17 @@ final class ActiveSessionViewModel {
         return true
     }
 
+    /// Logs reps in reserve, or clears it with nil. Independent of
+    /// completion, so it can be set before or after finishing the set.
+    /// Values off the scale are ignored.
+    func setRIR(_ rir: Int?, setID: DraftSet.ID, in exerciseID: DraftExercise.ID) {
+        guard rir == nil || RIRScale.validated(rir) != nil,
+              let e = exercises.firstIndex(where: { $0.id == exerciseID }),
+              let s = exercises[e].sets.firstIndex(where: { $0.id == setID })
+        else { return }
+        exercises[e].sets[s].rir = rir
+    }
+
     // MARK: - Rest timer
 
     func startRest(duration: TimeInterval) {
@@ -355,7 +375,8 @@ final class ActiveSessionViewModel {
                     setNumber: setIndex + 1,
                     weightKg: weight,
                     reps: reps,
-                    isCompleted: true
+                    isCompleted: true,
+                    rir: set.rir
                 ))
                 savedSetCount += 1
                 if weight > bestWeight {
@@ -379,6 +400,7 @@ final class ActiveSessionViewModel {
 
         do {
             try save(context)
+            savedSessionID = session.id
             // Only a saved workout may drop the draft; on failure it stays
             // on disk so the work can still be resumed.
             discardDraft()
@@ -394,6 +416,28 @@ final class ActiveSessionViewModel {
             setCount: savedSetCount,
             newPRs: newPRs
         )
+    }
+
+    /// Writes the saved workout to HealthKit and stores its ID on the
+    /// session, so deleting it later can target that exact workout. Does
+    /// nothing if the local save failed: there is no row to link, and
+    /// resuming the draft would write a second workout.
+    func recordHealthWorkout(context: ModelContext) async {
+        guard let sessionID = savedSessionID, let interval = workoutInterval,
+              let workoutID = await health.saveStrengthWorkout(start: interval.start, end: interval.end)
+        else { return }
+
+        do {
+            let descriptor = FetchDescriptor<WorkoutSession>(predicate: #Predicate { $0.id == sessionID })
+            guard let session = try context.fetch(descriptor).first else {
+                Self.logger.notice("Workout was deleted before its HealthKit ID could be stored")
+                return
+            }
+            session.healthKitWorkoutID = workoutID
+            try context.save()
+        } catch {
+            Self.logger.error("Failed to store HealthKit workout ID: \(String(describing: error), privacy: .public)")
+        }
     }
 
     // MARK: - Previous session reference
@@ -447,7 +491,7 @@ final class ActiveSessionViewModel {
                     restSeconds: exercise.restSeconds,
                     targets: exercise.targets,
                     sets: exercise.sets.map {
-                        ActiveSessionDraft.Set(weightKg: $0.weightKg, reps: $0.reps, isCompleted: $0.isCompleted)
+                        ActiveSessionDraft.Set(weightKg: $0.weightKg, reps: $0.reps, isCompleted: $0.isCompleted, rir: $0.rir)
                     }
                 )
             }
@@ -474,6 +518,7 @@ final class ActiveSessionViewModel {
                 }
                 set.repsText = savedSet.reps.map(String.init) ?? ""
                 set.isCompleted = savedSet.isCompleted
+                set.rir = RIRScale.validated(savedSet.rir)
                 return set
             }
             return DraftExercise(

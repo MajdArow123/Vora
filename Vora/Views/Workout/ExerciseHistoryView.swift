@@ -151,8 +151,15 @@ struct ExerciseHistoryView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(entry.date.formatted(.dateTime.month(.wide).day().year()))
         .accessibilityValue(
-            "\(entry.spokenSetsSummary), best \(UnitConversion.weightNumberText(kg: entry.bestWeightKg, units: units)) \(UnitConversion.spokenWeightUnit(units))\(entry.isPR ? ", personal record" : "")"
+            "\(entry.spokenSetsSummary), best \(UnitConversion.weightNumberText(kg: entry.bestWeightKg, units: units)) \(UnitConversion.spokenWeightUnit(units))\(entry.isPR ? ", personal record" : "")\(Self.spokenRIR(entry.sets))"
         )
+    }
+
+    /// Only the sets with RIR logged, e.g. ", set 1 2 reps in reserve".
+    private static func spokenRIR(_ sets: [SetDetail]) -> String {
+        sets.compactMap { set in
+            set.rir.map { ", set \(set.setNumber) \(RIRScale.spokenText($0))" }
+        }.joined()
     }
 
     private func setRow(_ set: SetDetail) -> some View {
@@ -171,6 +178,12 @@ struct ExerciseHistoryView: View {
                 .foregroundStyle(DesignSystem.Colors.textSecondary)
 
             Spacer()
+
+            if let rir = set.rir {
+                Text("RIR \(RIRScale.text(rir))")
+                    .font(DesignSystem.Typography.caption)
+                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+            }
         }
         .padding(.vertical, 2)
     }

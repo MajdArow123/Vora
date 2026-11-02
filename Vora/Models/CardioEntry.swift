@@ -86,6 +86,9 @@ final class CardioEntry {
     var distanceKm: Double?
     /// Minutes per kilometre.
     var pace: Double?
+    /// UUID of the workout written to HealthKit. nil when none was written,
+    /// and for rows saved before SchemaV4; deletion then matches on times.
+    var healthKitWorkoutID: UUID?
 
     init(
         id: UUID = UUID(),
@@ -100,7 +103,8 @@ final class CardioEntry {
         stepsPerMinute: Int? = nil,
         rpm: Int? = nil,
         distanceKm: Double? = nil,
-        pace: Double? = nil
+        pace: Double? = nil,
+        healthKitWorkoutID: UUID? = nil
     ) {
         self.id = id
         self.date = date
@@ -115,6 +119,7 @@ final class CardioEntry {
         self.rpm = rpm
         self.distanceKm = distanceKm
         self.pace = pace
+        self.healthKitWorkoutID = healthKitWorkoutID
     }
 }
 

@@ -26,7 +26,7 @@ Vora is a premium iOS fitness tracking app that brings nutrition, training, and 
 
 ### Workout
 - Session logging built around your training split (Upper/Lower, Push Pull Legs, Full Body, Custom)
-- Exercise and set tracking: weight, reps, RPE, completion
+- Exercise and set tracking: weight, reps, optional RIR (reps in reserve), completion
 - Session volume and duration tracking
 - Per-day exercise templates with previous-session weight auto-fill
 - Personal records with per-exercise history and progression charts

@@ -50,7 +50,7 @@ struct SessionDraftStore {
             return nil
         }
 
-        guard draft.version == ActiveSessionDraft.currentVersion else {
+        guard ActiveSessionDraft.readableVersions.contains(draft.version) else {
             Self.logger.error("Session draft has unsupported version \(draft.version, privacy: .public)")
             setAside()
             return nil

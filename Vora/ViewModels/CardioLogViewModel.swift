@@ -7,10 +7,13 @@
 
 import Foundation
 import Observation
+import OSLog
 import SwiftData
 
 @Observable
 final class CardioLogViewModel {
+    private static let logger = Logger(subsystem: "com.majdarow.Vora", category: "Workout")
+
     var type: CardioType = .treadmill
     var durationMinutes = 30
 
@@ -26,7 +29,11 @@ final class CardioLogViewModel {
 
     private var bodyWeightKg: Double = 75
 
-    private let healthKitService = HealthKitService()
+    private let health: any HealthWorkoutWriting
+
+    init(health: any HealthWorkoutWriting = HealthKitService()) {
+        self.health = health
+    }
 
     /// Switches the cardio type, resetting speed and incline to defaults
     /// suited to the new activity.
@@ -57,8 +64,13 @@ final class CardioLogViewModel {
             sortBy: [SortDescriptor(\.date, order: .reverse)]
         )
         descriptor.fetchLimit = 1
-        if let latest = try? context.fetch(descriptor).first {
-            bodyWeightKg = latest.weightKg
+        do {
+            if let latest = try context.fetch(descriptor).first {
+                bodyWeightKg = latest.weightKg
+            }
+        } catch {
+            // Calories fall back to the default body weight.
+            Self.logger.error("Failed to fetch latest weight: \(String(describing: error), privacy: .public)")
         }
     }
 
@@ -72,7 +84,15 @@ final class CardioLogViewModel {
         )
     }
 
-    func save(in context: ModelContext) {
+    /// Saves the entry, then writes it to HealthKit and stores the workout's
+    /// ID on it in the returned task; only tests need to wait for that. A
+    /// failed save returns nil and never reaches HealthKit, because there is
+    /// no row to link. `save` is injectable so tests can simulate a failure.
+    @discardableResult
+    func save(
+        in context: ModelContext,
+        save: (ModelContext) throws -> Void = { try $0.save() }
+    ) -> Task<Void, Never>? {
         let end = Date.now
         let seconds = durationMinutes * 60
         let start = end.addingTimeInterval(-Double(seconds))
@@ -87,15 +107,34 @@ final class CardioLogViewModel {
         populateMachineFields(of: entry)
         context.insert(entry)
         do {
-            try context.save()
+            try save(context)
         } catch {
-            assertionFailure("Failed to save cardio entry: \(error)")
+            Self.logger.error("Failed to save cardio entry: \(String(describing: error), privacy: .public)")
+            return nil
         }
 
-        let service = healthKitService
+        let service = health
         let cardioType = type
-        Task {
-            await service.saveCardioWorkout(type: cardioType, start: start, end: end, calories: calories)
+        let entryID = entry.id
+        return Task {
+            guard let workoutID = await service.saveCardioWorkout(
+                type: cardioType, start: start, end: end, calories: calories
+            ) else { return }
+            Self.storeHealthWorkoutID(workoutID, entryID: entryID, context: context)
+        }
+    }
+
+    private static func storeHealthWorkoutID(_ workoutID: UUID, entryID: UUID, context: ModelContext) {
+        do {
+            let descriptor = FetchDescriptor<CardioEntry>(predicate: #Predicate { $0.id == entryID })
+            guard let entry = try context.fetch(descriptor).first else {
+                logger.notice("Cardio entry was deleted before its HealthKit ID could be stored")
+                return
+            }
+            entry.healthKitWorkoutID = workoutID
+            try context.save()
+        } catch {
+            logger.error("Failed to store HealthKit workout ID: \(String(describing: error), privacy: .public)")
         }
     }
 

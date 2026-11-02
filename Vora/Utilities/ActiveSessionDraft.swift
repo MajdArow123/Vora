@@ -23,7 +23,10 @@ nonisolated struct TemplateTargets: Codable, Equatable {
 /// Codable snapshot of an in-progress session, written to disk so a
 /// killed app can resume the workout. Weights are kilograms.
 nonisolated struct ActiveSessionDraft: Codable, Equatable {
-    static let currentVersion = 1
+    /// Version 2 added `Set.rir`. Version 1 drafts decode as they are, with
+    /// no RIR logged.
+    static let currentVersion = 2
+    static let readableVersions = 1...currentVersion
 
     struct Exercise: Codable, Equatable {
         /// Library ID; nil for custom exercises.
@@ -40,6 +43,7 @@ nonisolated struct ActiveSessionDraft: Codable, Equatable {
         var weightKg: Double?
         var reps: Int?
         var isCompleted: Bool
+        var rir: Int?
     }
 
     var version = Self.currentVersion

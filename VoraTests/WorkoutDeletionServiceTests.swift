@@ -21,14 +21,23 @@ private final class StubHealth: HealthWorkoutDeleting {
     }
 
     private let outcome: Outcome
-    private(set) var requests: [HealthWorkoutMatch] = []
+    private(set) var requests: [HealthWorkoutTarget] = []
 
     init(_ outcome: Outcome = .result(.deleted)) {
         self.outcome = outcome
     }
 
+    func deleteWorkout(id: UUID) async throws -> HealthWorkoutDeletionResult {
+        requests.append(.id(id))
+        return try result()
+    }
+
     func deleteWorkout(matching match: HealthWorkoutMatch) async throws -> HealthWorkoutDeletionResult {
-        requests.append(match)
+        requests.append(.match(match))
+        return try result()
+    }
+
+    private func result() throws -> HealthWorkoutDeletionResult {
         switch outcome {
         case .result(let result): return result
         case .failure: throw StubError.failed
@@ -229,6 +238,91 @@ struct WorkoutDeletionServiceTests {
         #expect(result == nil)
         #expect(health.requests.isEmpty)
         #expect(try count(WorkoutSession.self) == 0)
+    }
+
+    // MARK: - Stored HealthKit ID
+
+    @Test func storedSessionIDIsUsedInsteadOfMatching() async throws {
+        let workoutID = UUID()
+        let session = insertSession()
+        session.healthKitWorkoutID = workoutID
+        try context.save()
+        let health = StubHealth()
+        let service = WorkoutDeletionService(health: health)
+
+        let target = try service.delete(session, context: context)
+        let result = await service.removeFromHealth(target)
+
+        #expect(result == .deleted)
+        #expect(health.requests == [.id(workoutID)])
+    }
+
+    @Test func storedCardioIDIsUsedInsteadOfMatching() async throws {
+        let workoutID = UUID()
+        let entry = insertCardio(date: date(daysAgo: 1))
+        entry.healthKitWorkoutID = workoutID
+        try context.save()
+        let health = StubHealth()
+        let service = WorkoutDeletionService(health: health)
+
+        let target = try service.delete(entry, context: context)
+        await service.removeFromHealth(target)
+
+        #expect(health.requests == [.id(workoutID)])
+    }
+
+    @Test func nilIDFallsBackToMatchingForBothKinds() async throws {
+        let session = insertSession()
+        let entry = insertCardio(date: date(daysAgo: 2))
+        try context.save()
+        let expectedSession = try #require(HealthWorkoutMatch(session: session))
+        let expectedCardio = try #require(HealthWorkoutMatch(cardio: entry))
+        let health = StubHealth()
+        let service = WorkoutDeletionService(health: health)
+
+        await service.removeFromHealth(try service.delete(session, context: context))
+        await service.removeFromHealth(try service.delete(entry, context: context))
+
+        #expect(health.requests == [.match(expectedSession), .match(expectedCardio)])
+    }
+
+    /// The workout may have been removed in the Health app; a different one
+    /// in the same window must not be deleted in its place.
+    @Test func idNotFoundInHealthKitDoesNotFallBackToMatching() async throws {
+        let workoutID = UUID()
+        let session = insertSession()
+        session.healthKitWorkoutID = workoutID
+        try context.save()
+        let health = StubHealth(.result(.noMatch))
+        let service = WorkoutDeletionService(health: health)
+
+        let target = try service.delete(session, context: context)
+        let result = await service.removeFromHealth(target)
+
+        #expect(result == .noMatch)
+        #expect(health.requests == [.id(workoutID)])
+        #expect(try count(WorkoutSession.self) == 0)
+    }
+
+    @Test func storedIDIsUsedEvenWithZeroDuration() throws {
+        let workoutID = UUID()
+        let session = WorkoutSession(date: .now, sessionName: "Push", healthKitWorkoutID: workoutID)
+        #expect(HealthWorkoutTarget(session: session) == .id(workoutID))
+    }
+
+    @Test func failedSaveWithStoredIDNeverReachesHealthKit() throws {
+        let session = insertSession()
+        session.healthKitWorkoutID = UUID()
+        try context.save()
+        let health = StubHealth()
+        let service = WorkoutDeletionService(health: health)
+
+        #expect(throws: StubError.self) {
+            _ = try service.delete(session, context: context, save: { _ in throw StubError.failed })
+        }
+
+        #expect(health.requests.isEmpty)
+        #expect(try count(WorkoutSession.self) == 1)
     }
 
     // MARK: - Failed local save

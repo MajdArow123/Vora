@@ -103,6 +103,10 @@ struct WorkoutHistoryViewModelTests {
     private struct SaveFailure: Error {}
 
     private struct NoHealthWorkouts: HealthWorkoutDeleting {
+        func deleteWorkout(id: UUID) async throws -> HealthWorkoutDeletionResult {
+            .noMatch
+        }
+
         func deleteWorkout(matching match: HealthWorkoutMatch) async throws -> HealthWorkoutDeletionResult {
             .noMatch
         }

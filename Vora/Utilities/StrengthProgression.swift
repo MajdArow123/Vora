@@ -13,6 +13,7 @@ struct SetDetail: Identifiable {
     let setNumber: Int
     let weightKg: Double
     let reps: Int
+    var rir: Int? = nil
 }
 
 /// Per-session best set for a single exercise.
@@ -81,7 +82,7 @@ enum StrengthProgression {
                 bestReps: best.reps,
                 completedSets: sets.count,
                 sets: sets.sorted { $0.setNumber < $1.setNumber }
-                    .map { SetDetail(setNumber: $0.setNumber, weightKg: $0.weightKg, reps: $0.reps) }
+                    .map { SetDetail(setNumber: $0.setNumber, weightKg: $0.weightKg, reps: $0.reps, rir: $0.rir) }
             ))
         }
         return stats

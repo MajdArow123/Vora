@@ -9,8 +9,38 @@ import Foundation
 import HealthKit
 import OSLog
 
-/// What identifies a workout Vora wrote to HealthKit. No HealthKit ID is
-/// stored on sessions, so deletion matches on activity and times.
+/// What to remove from HealthKit for a deleted workout. Rows with a stored
+/// ID use it; a stored ID that HealthKit can't find never falls back to
+/// matching, so a different workout in the same window is never deleted.
+enum HealthWorkoutTarget: Equatable {
+    case id(UUID)
+    case match(HealthWorkoutMatch)
+
+    /// nil when there is no ID and the session could not have been written.
+    init?(session: WorkoutSession) {
+        if let id = session.healthKitWorkoutID {
+            self = .id(id)
+        } else if let match = HealthWorkoutMatch(session: session) {
+            self = .match(match)
+        } else {
+            return nil
+        }
+    }
+
+    /// nil when there is no ID and the entry could not have been written.
+    init?(cardio: CardioEntry) {
+        if let id = cardio.healthKitWorkoutID {
+            self = .id(id)
+        } else if let match = HealthWorkoutMatch(cardio: cardio) {
+            self = .match(match)
+        } else {
+            return nil
+        }
+    }
+}
+
+/// What identifies a workout Vora wrote to HealthKit when no ID was stored
+/// (rows saved before SchemaV4, or whose ID write didn't complete).
 struct HealthWorkoutMatch: Equatable {
     let activityType: HKWorkoutActivityType
     let start: Date
@@ -85,10 +115,17 @@ enum HealthWorkoutMatcher {
 }
 
 protocol HealthWorkoutDeleting {
+    func deleteWorkout(id: UUID) async throws -> HealthWorkoutDeletionResult
     func deleteWorkout(matching match: HealthWorkoutMatch) async throws -> HealthWorkoutDeletionResult
 }
 
-final class HealthKitService: HealthWorkoutDeleting {
+/// Both return the written workout's UUID, or nil if nothing was written.
+protocol HealthWorkoutWriting {
+    func saveStrengthWorkout(start: Date, end: Date) async -> UUID?
+    func saveCardioWorkout(type: CardioType, start: Date, end: Date, calories: Double) async -> UUID?
+}
+
+final class HealthKitService: HealthWorkoutDeleting, HealthWorkoutWriting {
     private static let logger = Logger(subsystem: "com.majdarow.Vora", category: "HealthKit")
 
     private let healthStore = HKHealthStore()
@@ -118,13 +155,13 @@ final class HealthKitService: HealthWorkoutDeleting {
         }
     }
 
-    // MARK: - Workout writes (best-effort, silent on failure)
+    // MARK: - Workout writes (best-effort, logged on failure)
 
-    func saveStrengthWorkout(start: Date, end: Date) async {
+    func saveStrengthWorkout(start: Date, end: Date) async -> UUID? {
         await saveWorkout(activity: .traditionalStrengthTraining, start: start, end: end, calories: nil)
     }
 
-    func saveCardioWorkout(type: CardioType, start: Date, end: Date, calories: Double) async {
+    func saveCardioWorkout(type: CardioType, start: Date, end: Date, calories: Double) async -> UUID? {
         await saveWorkout(activity: Self.activity(for: type), start: start, end: end, calories: calories)
     }
 
@@ -133,8 +170,8 @@ final class HealthKitService: HealthWorkoutDeleting {
         start: Date,
         end: Date,
         calories: Double?
-    ) async {
-        guard HKHealthStore.isHealthDataAvailable(), end > start else { return }
+    ) async -> UUID? {
+        guard HKHealthStore.isHealthDataAvailable(), end > start else { return nil }
 
         let configuration = HKWorkoutConfiguration()
         configuration.activityType = activity
@@ -152,13 +189,35 @@ final class HealthKitService: HealthWorkoutDeleting {
                 try await builder.addSamples([sample])
             }
             try await builder.endCollection(at: end)
-            try await builder.finishWorkout()
+            return try await builder.finishWorkout()?.uuid
         } catch {
             // Not authorized or store unavailable — Vora works without HealthKit.
+            Self.logger.info("Workout not written to HealthKit: \(String(describing: error), privacy: .public)")
+            return nil
         }
     }
 
     // MARK: - Workout deletes
+
+    /// Deletes the workout Vora wrote with this UUID, with the energy
+    /// sample saved alongside it. A workout already removed from HealthKit,
+    /// or a denied read, shows up as `.noMatch`.
+    func deleteWorkout(id: UUID) async throws -> HealthWorkoutDeletionResult {
+        guard HKHealthStore.isHealthDataAvailable() else { return .noMatch }
+
+        let predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
+            HKQuery.predicateForObjects(from: HKSource.default()),
+            HKQuery.predicateForObject(with: id),
+        ])
+        let workouts = try await HKSampleQueryDescriptor(
+            predicates: [.workout(predicate)],
+            sortDescriptors: []
+        ).result(for: healthStore)
+
+        guard let workout = workouts.first else { return .noMatch }
+        try await delete(workout)
+        return .deleted
+    }
 
     /// Deletes the one workout Vora wrote that fits `match`, with the
     /// energy sample saved alongside it. HealthKit only lets an app delete
@@ -195,18 +254,22 @@ final class HealthKitService: HealthWorkoutDeleting {
             return .ambiguous
         case .match(let id):
             guard let workout = workouts.first(where: { $0.uuid == id }) else { return .noMatch }
-            do {
-                _ = try await healthStore.deleteObjects(
-                    of: HKQuantityType(.activeEnergyBurned),
-                    predicate: HKQuery.predicateForObjects(from: workout)
-                )
-            } catch {
-                // The workout is still worth removing without its energy sample.
-                Self.logger.error("Failed to delete workout energy sample: \(String(describing: error), privacy: .public)")
-            }
-            try await healthStore.delete(workout)
+            try await delete(workout)
             return .deleted
         }
+    }
+
+    private func delete(_ workout: HKWorkout) async throws {
+        do {
+            _ = try await healthStore.deleteObjects(
+                of: HKQuantityType(.activeEnergyBurned),
+                predicate: HKQuery.predicateForObjects(from: workout)
+            )
+        } catch {
+            // The workout is still worth removing without its energy sample.
+            Self.logger.error("Failed to delete workout energy sample: \(String(describing: error), privacy: .public)")
+        }
+        try await healthStore.delete(workout)
     }
 
     static func activity(for type: CardioType) -> HKWorkoutActivityType {
