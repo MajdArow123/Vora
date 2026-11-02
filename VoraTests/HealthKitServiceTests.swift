@@ -10,18 +10,70 @@ import HealthKit
 import Testing
 @testable import Vora
 
+private final class StubRecorder: HealthWorkoutRecording {
+    struct Write: Equatable {
+        let activity: HKWorkoutActivityType
+        let start: Date
+        let end: Date
+        let calories: Double?
+    }
+
+    struct RecordFailure: Error {}
+
+    private let result: Result<UUID?, RecordFailure>
+    private(set) var writes: [Write] = []
+
+    init(result: Result<UUID?, RecordFailure> = .success(UUID())) {
+        self.result = result
+    }
+
+    func record(activity: HKWorkoutActivityType, start: Date, end: Date, calories: Double?) async throws -> UUID? {
+        writes.append(Write(activity: activity, start: start, end: end, calories: calories))
+        return try result.get()
+    }
+}
+
 /// HealthKit's authorized read/write paths need a real device and user
-/// consent, so tests cover the synchronous guards and the pure matching;
-/// the store-facing code is deliberately best-effort (see HealthKitService).
+/// consent, so tests cover the guards through a stub recorder, plus the pure
+/// matching; the store-facing code is deliberately best-effort (see
+/// HealthKitService). Dates are fixed: a second `.now` usually equals the
+/// first but can land on the next clock tick and pass the guard.
 struct HealthKitServiceTests {
     @Test func invalidDateRangeIsRejectedBeforeTouchingHealthKit() async {
-        let service = HealthKitService()
-        // end == start and end < start must both return without any
-        // HealthKit interaction (no permission prompt in the test host
-        // proves the early guard fired).
-        #expect(await service.saveStrengthWorkout(start: .now, end: .now) == nil)
-        #expect(await service.saveStrengthWorkout(start: .now, end: .now.addingTimeInterval(-60)) == nil)
-        #expect(await service.saveCardioWorkout(type: .run, start: .now, end: .now, calories: 300) == nil)
+        let recorder = StubRecorder()
+        let service = HealthKitService(recorder: recorder)
+        let start = Date(timeIntervalSince1970: 1_000_000)
+        let earlier = start.addingTimeInterval(-60)
+
+        #expect(await service.saveStrengthWorkout(start: start, end: start) == nil)
+        #expect(await service.saveStrengthWorkout(start: start, end: earlier) == nil)
+        #expect(await service.saveCardioWorkout(type: .run, start: start, end: start, calories: 300) == nil)
+        #expect(await service.saveCardioWorkout(type: .run, start: start, end: earlier, calories: 300) == nil)
+        #expect(recorder.writes.isEmpty)
+    }
+
+    @Test func validDateRangeReachesTheRecorder() async {
+        let id = UUID()
+        let recorder = StubRecorder(result: .success(id))
+        let service = HealthKitService(recorder: recorder)
+        let start = Date(timeIntervalSince1970: 1_000_000)
+        let end = start.addingTimeInterval(1)
+
+        #expect(await service.saveStrengthWorkout(start: start, end: end) == id)
+        #expect(await service.saveCardioWorkout(type: .row, start: start, end: end, calories: 300) == id)
+        #expect(recorder.writes == [
+            .init(activity: .traditionalStrengthTraining, start: start, end: end, calories: nil),
+            .init(activity: .rowing, start: start, end: end, calories: 300),
+        ])
+    }
+
+    @Test func recorderFailureIsAbsorbed() async {
+        let recorder = StubRecorder(result: .failure(.init()))
+        let service = HealthKitService(recorder: recorder)
+        let start = Date(timeIntervalSince1970: 1_000_000)
+
+        #expect(await service.saveStrengthWorkout(start: start, end: start.addingTimeInterval(1)) == nil)
+        #expect(recorder.writes.count == 1)
     }
 
     // MARK: - Target construction

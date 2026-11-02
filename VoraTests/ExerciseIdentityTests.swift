@@ -281,7 +281,7 @@ struct ExerciseIDMatchingTests {
     @Test func finishSavesLibraryIDsAndNilForUnknownNames() throws {
         let container = try makeContainer()
         let context = container.mainContext
-        let viewModel = ActiveSessionViewModel(sessionName: "Push")
+        let viewModel = ActiveSessionViewModel(sessionName: "Push", health: NoHealthWrites())
         viewModel.addExercise(name: "Overhead Press", muscleGroups: ["shoulders"], context: context)
         viewModel.addExercise(name: "Sled Push", muscleGroups: [], context: context)
         for index in viewModel.exercises.indices {

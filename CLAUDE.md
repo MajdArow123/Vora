@@ -10,6 +10,7 @@ SwiftUI + SwiftData iOS app (iOS 26.5, Swift Testing). Scheme `Vora`, targets `V
 - Replace `try?` / `assertionFailure` with explicit error handling in any code you touch.
 - Zero warnings in the app AND test targets.
 - Swift Testing (`@Test`) unit tests for every model, migration and service change, using in-memory containers like the existing tests.
+- Unit tests must never reach real HealthKit — always inject a stub.
 - Run the full suite and report pass/fail totals.
 - Do not commit unless asked; summarize changed files for review.
 

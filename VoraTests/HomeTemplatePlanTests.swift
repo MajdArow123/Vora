@@ -143,7 +143,7 @@ struct HomeTemplatePlanTests {
         try WorkoutTemplateService.save(savedSpecs(), for: .ppl, dayIndex: Self.mondayIndex, context: context)
         let plan = try loadHome(now: monday).templatePlan(context: context)
 
-        let session = ActiveSessionViewModel(sessionName: "Push")
+        let session = ActiveSessionViewModel(sessionName: "Push", health: NoHealthWrites())
         session.prefill(with: plan, context: context)
 
         #expect(session.exercises.map(\.exerciseId) == ["dip", "barbell-bench-press"])

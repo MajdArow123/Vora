@@ -125,10 +125,48 @@ protocol HealthWorkoutWriting {
     func saveCardioWorkout(type: CardioType, start: Date, end: Date, calories: Double) async -> UUID?
 }
 
+/// The HealthKit write behind `HealthWorkoutWriting`. Separate so tests can
+/// exercise `HealthKitService`'s guards without reaching the real store.
+protocol HealthWorkoutRecording {
+    func record(activity: HKWorkoutActivityType, start: Date, end: Date, calories: Double?) async throws -> UUID?
+}
+
+private struct HealthStoreWorkoutRecorder: HealthWorkoutRecording {
+    let healthStore: HKHealthStore
+
+    func record(activity: HKWorkoutActivityType, start: Date, end: Date, calories: Double?) async throws -> UUID? {
+        guard HKHealthStore.isHealthDataAvailable() else { return nil }
+
+        let configuration = HKWorkoutConfiguration()
+        configuration.activityType = activity
+        let builder = HKWorkoutBuilder(healthStore: healthStore, configuration: configuration, device: .local())
+
+        try await builder.beginCollection(at: start)
+        if let calories, calories > 0 {
+            let sample = HKQuantitySample(
+                type: HKQuantityType(.activeEnergyBurned),
+                quantity: HKQuantity(unit: .kilocalorie(), doubleValue: calories),
+                start: start,
+                end: end
+            )
+            try await builder.addSamples([sample])
+        }
+        try await builder.endCollection(at: end)
+        return try await builder.finishWorkout()?.uuid
+    }
+}
+
 final class HealthKitService: HealthWorkoutDeleting, HealthWorkoutWriting {
     private static let logger = Logger(subsystem: "com.majdarow.Vora", category: "HealthKit")
 
-    private let healthStore = HKHealthStore()
+    private lazy var healthStore = HKHealthStore()
+    private lazy var recorder: any HealthWorkoutRecording = HealthStoreWorkoutRecorder(healthStore: healthStore)
+
+    init(recorder: (any HealthWorkoutRecording)? = nil) {
+        if let recorder {
+            self.recorder = recorder
+        }
+    }
 
     private var sampleTypes: Set<HKSampleType> {
         [
@@ -171,25 +209,10 @@ final class HealthKitService: HealthWorkoutDeleting, HealthWorkoutWriting {
         end: Date,
         calories: Double?
     ) async -> UUID? {
-        guard HKHealthStore.isHealthDataAvailable(), end > start else { return nil }
-
-        let configuration = HKWorkoutConfiguration()
-        configuration.activityType = activity
-        let builder = HKWorkoutBuilder(healthStore: healthStore, configuration: configuration, device: .local())
+        guard end > start else { return nil }
 
         do {
-            try await builder.beginCollection(at: start)
-            if let calories, calories > 0 {
-                let sample = HKQuantitySample(
-                    type: HKQuantityType(.activeEnergyBurned),
-                    quantity: HKQuantity(unit: .kilocalorie(), doubleValue: calories),
-                    start: start,
-                    end: end
-                )
-                try await builder.addSamples([sample])
-            }
-            try await builder.endCollection(at: end)
-            return try await builder.finishWorkout()?.uuid
+            return try await recorder.record(activity: activity, start: start, end: end, calories: calories)
         } catch {
             // Not authorized or store unavailable — Vora works without HealthKit.
             Self.logger.info("Workout not written to HealthKit: \(String(describing: error), privacy: .public)")

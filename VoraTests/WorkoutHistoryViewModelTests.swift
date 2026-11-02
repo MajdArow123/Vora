@@ -34,7 +34,7 @@ struct WorkoutHistoryViewModelTests {
         let container = try makeContainer()
         let context = ModelContext(container)
 
-        let viewModel = WorkoutHistoryViewModel()
+        let viewModel = makeViewModel()
         viewModel.load(from: context)
 
         #expect(viewModel.items.isEmpty)
@@ -59,7 +59,7 @@ struct WorkoutHistoryViewModelTests {
         ))
         try context.save()
 
-        let viewModel = WorkoutHistoryViewModel()
+        let viewModel = makeViewModel()
         viewModel.load(from: context)
 
         #expect(viewModel.items.count == 4)
@@ -82,7 +82,7 @@ struct WorkoutHistoryViewModelTests {
         context.insert(WorkoutSession(date: date(hoursAgo: 2), sessionName: "Push"))
         try context.save()
 
-        let viewModel = WorkoutHistoryViewModel()
+        let viewModel = makeViewModel()
         viewModel.load(from: context)
         #expect(viewModel.items.count == 1)
 

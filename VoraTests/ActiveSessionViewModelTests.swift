@@ -110,7 +110,7 @@ struct ActiveSessionViewModelTests {
         )
         try context.save()
 
-        let viewModel = ActiveSessionViewModel(sessionName: "Push", units: .imperial)
+        let viewModel = ActiveSessionViewModel(sessionName: "Push", units: .imperial, health: NoHealthWrites())
         viewModel.addExercise(name: "Bench Press", muscleGroups: ["chest"], context: context)
         #expect(viewModel.exercises[0].sets[0].weightText == "225")
         #expect(viewModel.exercises[0].previousSets.map { $0.text(units: .imperial) } == ["225×5"])
@@ -132,7 +132,7 @@ struct ActiveSessionViewModelTests {
     @Test func addExerciseWithNoHistoryStartsWithOneEmptySet() throws {
         let container = try makeContainer()
         let context = ModelContext(container)
-        let viewModel = ActiveSessionViewModel(sessionName: "Push")
+        let viewModel = ActiveSessionViewModel(sessionName: "Push", health: NoHealthWrites())
 
         viewModel.addExercise(name: "Bench Press", muscleGroups: ["chest"], context: context)
 
@@ -156,7 +156,7 @@ struct ActiveSessionViewModelTests {
         )
         try context.save()
 
-        let viewModel = ActiveSessionViewModel(sessionName: "Push")
+        let viewModel = ActiveSessionViewModel(sessionName: "Push", health: NoHealthWrites())
         viewModel.addExercise(name: "Bench Press", muscleGroups: ["chest"], context: context)
 
         let exercise = try #require(viewModel.exercises.first)
@@ -184,7 +184,7 @@ struct ActiveSessionViewModelTests {
         )
         try context.save()
 
-        let viewModel = ActiveSessionViewModel(sessionName: "Legs")
+        let viewModel = ActiveSessionViewModel(sessionName: "Legs", health: NoHealthWrites())
         viewModel.addExercise(name: "Squat", muscleGroups: ["quads"], context: context)
 
         let exercise = try #require(viewModel.exercises.first)
@@ -195,7 +195,7 @@ struct ActiveSessionViewModelTests {
     @Test func removeExerciseDeletesOnlyThatExercise() throws {
         let container = try makeContainer()
         let context = ModelContext(container)
-        let viewModel = ActiveSessionViewModel(sessionName: "Push")
+        let viewModel = ActiveSessionViewModel(sessionName: "Push", health: NoHealthWrites())
         viewModel.addExercise(name: "Bench", muscleGroups: [], context: context)
         viewModel.addExercise(name: "Fly", muscleGroups: [], context: context)
 
@@ -208,7 +208,7 @@ struct ActiveSessionViewModelTests {
     @Test func addSetCopiesLastSetValues() throws {
         let container = try makeContainer()
         let context = ModelContext(container)
-        let viewModel = ActiveSessionViewModel(sessionName: "Push")
+        let viewModel = ActiveSessionViewModel(sessionName: "Push", health: NoHealthWrites())
         viewModel.addExercise(name: "Bench", muscleGroups: [], context: context)
         viewModel.exercises[0].sets[0].weightText = "80"
         viewModel.exercises[0].sets[0].repsText = "8"
@@ -225,7 +225,7 @@ struct ActiveSessionViewModelTests {
     @Test func removeSetDeletesOnlyThatSet() throws {
         let container = try makeContainer()
         let context = ModelContext(container)
-        let viewModel = ActiveSessionViewModel(sessionName: "Push")
+        let viewModel = ActiveSessionViewModel(sessionName: "Push", health: NoHealthWrites())
         viewModel.addExercise(name: "Bench", muscleGroups: [], context: context)
         viewModel.addSet(to: viewModel.exercises[0].id)
         let firstID = viewModel.exercises[0].sets[0].id
@@ -241,7 +241,7 @@ struct ActiveSessionViewModelTests {
     @Test func toggleCompletionCompletesValidSetAndReportsTransition() throws {
         let container = try makeContainer()
         let context = ModelContext(container)
-        let viewModel = ActiveSessionViewModel(sessionName: "Push")
+        let viewModel = ActiveSessionViewModel(sessionName: "Push", health: NoHealthWrites())
         viewModel.addExercise(name: "Bench", muscleGroups: [], context: context)
         viewModel.exercises[0].sets[0].weightText = "100"
         viewModel.exercises[0].sets[0].repsText = "5"
@@ -258,7 +258,7 @@ struct ActiveSessionViewModelTests {
     @Test func toggleCompletionUncompletesWithoutReportingTransition() throws {
         let container = try makeContainer()
         let context = ModelContext(container)
-        let viewModel = ActiveSessionViewModel(sessionName: "Push")
+        let viewModel = ActiveSessionViewModel(sessionName: "Push", health: NoHealthWrites())
         viewModel.addExercise(name: "Bench", muscleGroups: [], context: context)
         viewModel.exercises[0].sets[0].weightText = "100"
         viewModel.exercises[0].sets[0].repsText = "5"
@@ -276,7 +276,7 @@ struct ActiveSessionViewModelTests {
     @Test func toggleCompletionRejectsMissingOrZeroReps() throws {
         let container = try makeContainer()
         let context = ModelContext(container)
-        let viewModel = ActiveSessionViewModel(sessionName: "Push")
+        let viewModel = ActiveSessionViewModel(sessionName: "Push", health: NoHealthWrites())
         viewModel.addExercise(name: "Bench", muscleGroups: [], context: context)
         viewModel.exercises[0].sets[0].weightText = "100"
 
@@ -296,7 +296,7 @@ struct ActiveSessionViewModelTests {
     @Test func toggleCompletionRejectsMissingWeightButAllowsZeroWeight() throws {
         let container = try makeContainer()
         let context = ModelContext(container)
-        let viewModel = ActiveSessionViewModel(sessionName: "Push")
+        let viewModel = ActiveSessionViewModel(sessionName: "Push", health: NoHealthWrites())
         viewModel.addExercise(name: "Pull Up", muscleGroups: [], context: context)
         viewModel.exercises[0].sets[0].repsText = "10"
 
@@ -315,7 +315,7 @@ struct ActiveSessionViewModelTests {
     @Test func toggleCompletionWithUnknownIDsReturnsFalse() throws {
         let container = try makeContainer()
         let context = ModelContext(container)
-        let viewModel = ActiveSessionViewModel(sessionName: "Push")
+        let viewModel = ActiveSessionViewModel(sessionName: "Push", health: NoHealthWrites())
         viewModel.addExercise(name: "Bench", muscleGroups: [], context: context)
 
         #expect(!viewModel.toggleCompletion(setID: UUID(), in: viewModel.exercises[0].id))
@@ -327,7 +327,7 @@ struct ActiveSessionViewModelTests {
     @Test func totalVolumeCountsOnlyCompletedParseableSets() throws {
         let container = try makeContainer()
         let context = ModelContext(container)
-        let viewModel = ActiveSessionViewModel(sessionName: "Push")
+        let viewModel = ActiveSessionViewModel(sessionName: "Push", health: NoHealthWrites())
 
         viewModel.addExercise(name: "Bench", muscleGroups: [], context: context)
         viewModel.exercises[0].sets[0].weightText = "100"
@@ -347,7 +347,7 @@ struct ActiveSessionViewModelTests {
     @Test func canFinishRequiresACompletedSet() throws {
         let container = try makeContainer()
         let context = ModelContext(container)
-        let viewModel = ActiveSessionViewModel(sessionName: "Push")
+        let viewModel = ActiveSessionViewModel(sessionName: "Push", health: NoHealthWrites())
         #expect(!viewModel.canFinish)
 
         viewModel.addExercise(name: "Bench", muscleGroups: [], context: context)
@@ -360,7 +360,7 @@ struct ActiveSessionViewModelTests {
     }
 
     @Test func elapsedSecondsIsNonNegativeAtStart() {
-        let viewModel = ActiveSessionViewModel(sessionName: "Push")
+        let viewModel = ActiveSessionViewModel(sessionName: "Push", health: NoHealthWrites())
         #expect(viewModel.elapsedSeconds >= 0)
         #expect(viewModel.elapsedSeconds < 5)
     }
@@ -371,7 +371,7 @@ struct ActiveSessionViewModelTests {
     // expiry needs real elapsed time and is intentionally not covered.
 
     @Test func startRestSetsEndDateDurationAhead() throws {
-        let viewModel = ActiveSessionViewModel(sessionName: "Push")
+        let viewModel = ActiveSessionViewModel(sessionName: "Push", health: NoHealthWrites())
         #expect(viewModel.restEndDate == nil)
 
         viewModel.startRest(duration: 90)
@@ -382,14 +382,14 @@ struct ActiveSessionViewModelTests {
     }
 
     @Test func cancelRestClearsEndDate() {
-        let viewModel = ActiveSessionViewModel(sessionName: "Push")
+        let viewModel = ActiveSessionViewModel(sessionName: "Push", health: NoHealthWrites())
         viewModel.startRest(duration: 120)
         viewModel.cancelRest()
         #expect(viewModel.restEndDate == nil)
     }
 
     @Test func startRestAgainReplacesEndDate() {
-        let viewModel = ActiveSessionViewModel(sessionName: "Push")
+        let viewModel = ActiveSessionViewModel(sessionName: "Push", health: NoHealthWrites())
         viewModel.startRest(duration: 60)
         let first = viewModel.restEndDate
         viewModel.startRest(duration: 180)
@@ -403,7 +403,7 @@ struct ActiveSessionViewModelTests {
     @Test func finishPersistsCompletedWorkAndDropsEmptyExercises() throws {
         let container = try makeContainer()
         let context = ModelContext(container)
-        let viewModel = ActiveSessionViewModel(sessionName: "Push Day")
+        let viewModel = ActiveSessionViewModel(sessionName: "Push Day", health: NoHealthWrites())
 
         viewModel.addExercise(name: "Bench Press", muscleGroups: ["chest"], context: context)
         viewModel.exercises[0].sets[0].weightText = "100"
@@ -433,7 +433,7 @@ struct ActiveSessionViewModelTests {
     @Test func finishRenumbersSavedSetsSequentially() throws {
         let container = try makeContainer()
         let context = ModelContext(container)
-        let viewModel = ActiveSessionViewModel(sessionName: "Legs")
+        let viewModel = ActiveSessionViewModel(sessionName: "Legs", health: NoHealthWrites())
 
         viewModel.addExercise(name: "Squat", muscleGroups: [], context: context)
         viewModel.addSet(to: viewModel.exercises[0].id)
@@ -467,7 +467,7 @@ struct ActiveSessionViewModelTests {
         )
         try context.save()
 
-        let viewModel = ActiveSessionViewModel(sessionName: "Push")
+        let viewModel = ActiveSessionViewModel(sessionName: "Push", health: NoHealthWrites())
         viewModel.addExercise(name: "Bench Press", muscleGroups: [], context: context)
         viewModel.exercises[0].sets[0].weightText = "105"
         viewModel.exercises[0].sets[0].repsText = "3"
@@ -492,7 +492,7 @@ struct ActiveSessionViewModelTests {
         )
         try context.save()
 
-        let viewModel = ActiveSessionViewModel(sessionName: "Push")
+        let viewModel = ActiveSessionViewModel(sessionName: "Push", health: NoHealthWrites())
         viewModel.addExercise(name: "bench press", muscleGroups: [], context: context)
         viewModel.exercises[0].sets[0].weightText = "100"
         viewModel.exercises[0].sets[0].repsText = "8"
@@ -507,7 +507,7 @@ struct ActiveSessionViewModelTests {
         let container = try makeContainer()
         let context = ModelContext(container)
 
-        let viewModel = ActiveSessionViewModel(sessionName: "Push")
+        let viewModel = ActiveSessionViewModel(sessionName: "Push", health: NoHealthWrites())
         viewModel.addExercise(name: "Overhead Press", muscleGroups: [], context: context)
         viewModel.exercises[0].sets[0].weightText = "40"
         viewModel.exercises[0].sets[0].repsText = "8"
@@ -522,7 +522,7 @@ struct ActiveSessionViewModelTests {
         let container = try makeContainer()
         let context = ModelContext(container)
 
-        let viewModel = ActiveSessionViewModel(sessionName: "Calisthenics")
+        let viewModel = ActiveSessionViewModel(sessionName: "Calisthenics", health: NoHealthWrites())
         viewModel.addExercise(name: "Pull Up", muscleGroups: [], context: context)
         viewModel.exercises[0].sets[0].weightText = "0"
         viewModel.exercises[0].sets[0].repsText = "10"

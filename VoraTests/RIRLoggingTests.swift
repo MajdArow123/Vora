@@ -10,11 +10,6 @@ import SwiftData
 import Testing
 @testable import Vora
 
-private final class NoHealthWrites: HealthWorkoutWriting {
-    func saveStrengthWorkout(start: Date, end: Date) async -> UUID? { nil }
-    func saveCardioWorkout(type: CardioType, start: Date, end: Date, calories: Double) async -> UUID? { nil }
-}
-
 @MainActor
 struct RIRScaleTests {
     @Test func rangeMatchesTemplateTargets() {

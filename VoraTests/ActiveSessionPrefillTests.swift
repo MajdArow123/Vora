@@ -48,7 +48,7 @@ struct ActiveSessionPrefillTests {
 
     @Test @MainActor func prefillCreatesTargetSetsPerExercise() throws {
         let container = try makeContainer()
-        let viewModel = ActiveSessionViewModel(sessionName: "Push")
+        let viewModel = ActiveSessionViewModel(sessionName: "Push", health: NoHealthWrites())
         viewModel.prefill(
             with: [spec("barbell-bench-press", sets: 1), spec("overhead-press"), spec("dip", sets: 5)],
             context: container.mainContext
@@ -62,7 +62,7 @@ struct ActiveSessionPrefillTests {
 
     @Test @MainActor func prefillUsesDefaultSetsForOutOfRangeTargets() throws {
         let container = try makeContainer()
-        let viewModel = ActiveSessionViewModel(sessionName: "Push")
+        let viewModel = ActiveSessionViewModel(sessionName: "Push", health: NoHealthWrites())
         viewModel.prefill(with: [spec("dip", sets: 0), spec("dip", sets: 99)], context: container.mainContext)
 
         #expect(viewModel.exercises.map(\.sets.count) == [3, 3])
@@ -70,7 +70,7 @@ struct ActiveSessionPrefillTests {
 
     @Test @MainActor func prefillCarriesRestAndRepRange() throws {
         let container = try makeContainer()
-        let viewModel = ActiveSessionViewModel(sessionName: "Push")
+        let viewModel = ActiveSessionViewModel(sessionName: "Push", health: NoHealthWrites())
         var bench = spec("barbell-bench-press")
         bench.repRangeMin = 5
         bench.repRangeMax = 8
@@ -85,7 +85,7 @@ struct ActiveSessionPrefillTests {
 
     @Test @MainActor func prefillResolvesNamesAndMuscleGroupsFromLibrary() throws {
         let container = try makeContainer()
-        let viewModel = ActiveSessionViewModel(sessionName: "Push")
+        let viewModel = ActiveSessionViewModel(sessionName: "Push", health: NoHealthWrites())
         viewModel.prefill(with: [spec("barbell-bench-press"), custom("Made-up Movement")], context: container.mainContext)
 
         #expect(viewModel.exercises.map(\.name) == ["Barbell Bench Press", "Made-up Movement"])
@@ -100,7 +100,7 @@ struct ActiveSessionPrefillTests {
         try seedSession(in: context, exerciseName: "Back Squat", weights: [100, 105], daysAgo: 10)
         try seedSession(in: context, exerciseName: "Back Squat", weights: [110, 115], daysAgo: 3)
 
-        let viewModel = ActiveSessionViewModel(sessionName: "Legs")
+        let viewModel = ActiveSessionViewModel(sessionName: "Legs", health: NoHealthWrites())
         viewModel.prefill(with: [spec("back-squat", sets: 4)], context: context)
 
         let sets = viewModel.exercises[0].sets
@@ -111,7 +111,7 @@ struct ActiveSessionPrefillTests {
 
     @Test @MainActor func prefillLeavesWeightsEmptyWithoutHistory() throws {
         let container = try makeContainer()
-        let viewModel = ActiveSessionViewModel(sessionName: "Legs")
+        let viewModel = ActiveSessionViewModel(sessionName: "Legs", health: NoHealthWrites())
         viewModel.prefill(with: [spec("back-squat")], context: container.mainContext)
 
         #expect(viewModel.exercises[0].sets.allSatisfy { $0.weightText.isEmpty })
@@ -120,7 +120,7 @@ struct ActiveSessionPrefillTests {
     @Test @MainActor func prefillIsNoOpWhenExercisesExist() throws {
         let container = try makeContainer()
         let context = container.mainContext
-        let viewModel = ActiveSessionViewModel(sessionName: "Push")
+        let viewModel = ActiveSessionViewModel(sessionName: "Push", health: NoHealthWrites())
         viewModel.addExercise(name: "Dip", muscleGroups: [], context: context)
         viewModel.prefill(with: [spec("barbell-bench-press")], context: context)
 
@@ -131,7 +131,7 @@ struct ActiveSessionPrefillTests {
     @Test @MainActor func addedExercisesUseLibraryRestAndNoRepRange() throws {
         let container = try makeContainer()
         let context = container.mainContext
-        let viewModel = ActiveSessionViewModel(sessionName: "Push")
+        let viewModel = ActiveSessionViewModel(sessionName: "Push", health: NoHealthWrites())
         viewModel.addExercise(name: "Back Squat", muscleGroups: ["quads"], context: context)
         viewModel.addExercise(name: "Cable Fly", muscleGroups: ["chest"], context: context)
         viewModel.addExercise(name: "Sled Push", muscleGroups: [], context: context)
@@ -143,7 +143,7 @@ struct ActiveSessionPrefillTests {
     @Test @MainActor func swappingKeepsTheSlotsTargets() throws {
         let container = try makeContainer()
         let context = container.mainContext
-        let viewModel = ActiveSessionViewModel(sessionName: "Push")
+        let viewModel = ActiveSessionViewModel(sessionName: "Push", health: NoHealthWrites())
         var bench = spec("barbell-bench-press")
         bench.repRangeMin = 6
         bench.repRangeMax = 10
@@ -162,7 +162,7 @@ struct ActiveSessionPrefillTests {
 
     @Test @MainActor func moveExerciseReorders() throws {
         let container = try makeContainer()
-        let viewModel = ActiveSessionViewModel(sessionName: "Push")
+        let viewModel = ActiveSessionViewModel(sessionName: "Push", health: NoHealthWrites())
         viewModel.prefill(with: [custom("A"), custom("B"), custom("C")], context: container.mainContext)
 
         viewModel.moveExercise(fromOffsets: IndexSet(integer: 2), toOffset: 0)

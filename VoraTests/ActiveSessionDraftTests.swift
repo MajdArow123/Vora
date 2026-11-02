@@ -46,6 +46,7 @@ struct ActiveSessionDraftTests {
             units: units,
             draftStore: store,
             draftDebounce: debounce,
+            health: NoHealthWrites(),
             now: { clock.now }
         )
     }
