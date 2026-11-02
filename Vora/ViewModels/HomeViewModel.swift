@@ -7,14 +7,21 @@
 
 import Foundation
 import Observation
+import OSLog
 import SwiftData
 
 @Observable
 final class HomeViewModel {
+    private static let logger = Logger(subsystem: "com.majdarow.Vora", category: "Home")
+
     private(set) var profile: UserProfile?
     private(set) var todayFood: [FoodEntry] = []
     private(set) var todayWater: [WaterEntry] = []
     private(set) var todaySplitDay: SplitDay?
+    /// Monday-based index of the day last loaded (0 = Monday).
+    private(set) var todayIndex = 0
+    /// Today's plan title while there is no SplitDay to name the day.
+    private var planDayTitle: String?
     private(set) var hasTrainedToday = false
     /// Last 7 days of weigh-ins, oldest first.
     private(set) var weekWeights: [WeightEntry] = []
@@ -49,24 +56,26 @@ final class HomeViewModel {
         let todayStart = cal.startOfDay(for: now)
         guard let todayEnd = cal.date(byAdding: .day, value: 1, to: todayStart) else { return }
 
-        profile = try? context.fetch(FetchDescriptor<UserProfile>()).first
+        profile = fetchOrEmpty(FetchDescriptor<UserProfile>(), from: context).first
 
         let foodDescriptor = FetchDescriptor<FoodEntry>(
             predicate: #Predicate { $0.date >= todayStart && $0.date < todayEnd }
         )
-        todayFood = (try? context.fetch(foodDescriptor)) ?? []
+        todayFood = fetchOrEmpty(foodDescriptor, from: context)
 
         let waterDescriptor = FetchDescriptor<WaterEntry>(
             predicate: #Predicate { $0.date >= todayStart && $0.date < todayEnd },
             sortBy: [SortDescriptor(\.date)]
         )
-        todayWater = (try? context.fetch(waterDescriptor)) ?? []
+        todayWater = fetchOrEmpty(waterDescriptor, from: context)
 
         let todayIndex = (cal.component(.weekday, from: now) + 5) % 7
+        self.todayIndex = todayIndex
         let splitDescriptor = FetchDescriptor<SplitDay>(
             predicate: #Predicate { $0.dayIndex == todayIndex }
         )
-        todaySplitDay = try? context.fetch(splitDescriptor).first
+        todaySplitDay = fetchOrEmpty(splitDescriptor, from: context).first
+        planDayTitle = resolvePlanDayTitle(context: context)
 
         loadWeights(from: context, todayStart: todayStart, calendar: cal)
         loadTraining(from: context, now: now, todayEnd: todayEnd, calendar: cal)
@@ -74,6 +83,51 @@ final class HomeViewModel {
         loadSupplements(from: context, now: now, todayStart: todayStart, todayEnd: todayEnd, calendar: cal)
         daysTracked = TrackingStats.daysTracked(in: context, calendar: cal)
         loadInsight(now: now, calendar: cal)
+    }
+
+    /// Today's template for a new session. A missing day is not a rest day:
+    /// SplitDay rows are seeded by the Train tab, and the card still offers
+    /// Start Session before then.
+    func templatePlan(context: ModelContext) -> [TemplateExerciseSpec] {
+        WorkoutTemplateService.sessionPlan(
+            isRestDay: todaySplitDay?.isRest ?? false,
+            split: profile?.trainingSplit ?? .fullBody,
+            dayIndex: todayIndex,
+            context: context
+        )
+    }
+
+    /// The day's title for the workout card; nil when there is neither a
+    /// SplitDay nor a plan to name it.
+    var todayTitle: String? {
+        todaySplitDay?.title ?? planDayTitle
+    }
+
+    /// Name for a session started from the card; matches its title.
+    var sessionName: String {
+        todayTitle ?? "Workout"
+    }
+
+    private func resolvePlanDayTitle(context: ModelContext) -> String? {
+        guard todaySplitDay == nil, !templatePlan(context: context).isEmpty else { return nil }
+        return WorkoutTemplateService.dayTitle(
+            split: profile?.trainingSplit ?? .fullBody,
+            dayIndex: todayIndex,
+            context: context
+        )
+    }
+
+    /// A failed fetch reads as no rows, so one bad query can't block Home.
+    private func fetchOrEmpty<Model: PersistentModel>(
+        _ descriptor: FetchDescriptor<Model>,
+        from context: ModelContext
+    ) -> [Model] {
+        do {
+            return try context.fetch(descriptor)
+        } catch {
+            Self.logger.error("Failed to fetch \(String(describing: Model.self), privacy: .public): \(String(describing: error), privacy: .public)")
+            return []
+        }
     }
 
     private func loadWeights(from context: ModelContext, todayStart: Date, calendar: Calendar) {

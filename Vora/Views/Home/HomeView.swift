@@ -86,7 +86,8 @@ struct HomeView: View {
             viewModel.load(from: modelContext)
         }) {
             ActiveSessionView(
-                sessionName: viewModel.todaySplitDay?.title ?? "Workout",
+                sessionName: viewModel.sessionName,
+                templatePlan: viewModel.templatePlan(context: modelContext),
                 units: viewModel.profile?.preferredUnits ?? .metric
             )
         }
@@ -294,7 +295,7 @@ struct HomeView: View {
                         .font(DesignSystem.Typography.caption)
                         .foregroundStyle(DesignSystem.Colors.textSecondary)
                         .textCase(.uppercase)
-                    Text(day?.title ?? "No plan")
+                    Text(viewModel.todayTitle ?? "No plan")
                         .font(DesignSystem.Typography.title)
                         .foregroundStyle(DesignSystem.Colors.textPrimary)
                     if let day, !day.muscleGroups.isEmpty {

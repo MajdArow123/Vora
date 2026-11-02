@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import OSLog
 import SwiftData
 
 /// Reads and writes split-day templates. Slots are identified by split and
@@ -13,6 +14,8 @@ import SwiftData
 /// user-editable and repeat within a week (both Upper days are "Upper").
 /// A slot with no saved WorkoutTemplate uses the built-in default.
 enum WorkoutTemplateService {
+    private static let logger = Logger(subsystem: "com.majdarow.Vora", category: "Workout")
+
     private static let upperA = [
         "barbell-bench-press", "overhead-press", "incline-dumbbell-press",
         "triceps-pushdown", "lateral-raise", "dip",
@@ -107,6 +110,37 @@ enum WorkoutTemplateService {
             return defaultPlan(for: split, dayIndex: dayIndex)
         }
         return saved.orderedExercises.map { TemplateExerciseSpec($0) }
+    }
+
+    /// The plan for a new session in this slot; empty on rest days. Falls
+    /// back to the built-in default when the saved template can't be read,
+    /// so a session can always start.
+    static func sessionPlan(
+        isRestDay: Bool,
+        split: TrainingSplit,
+        dayIndex: Int,
+        context: ModelContext
+    ) -> [TemplateExerciseSpec] {
+        guard !isRestDay else { return [] }
+        do {
+            return try plan(for: split, dayIndex: dayIndex, context: context)
+        } catch {
+            logger.error("Failed to load today's template: \(String(describing: error), privacy: .public)")
+            return defaultPlan(for: split, dayIndex: dayIndex)
+        }
+    }
+
+    /// The slot's day title: the saved template's name, or the default.
+    /// Falls back to the default when the template can't be read, matching
+    /// `sessionPlan`.
+    static func dayTitle(split: TrainingSplit, dayIndex: Int, context: ModelContext) -> String {
+        do {
+            return try template(for: split, dayIndex: dayIndex, context: context)?.name
+                ?? defaultName(for: split, dayIndex: dayIndex)
+        } catch {
+            logger.error("Failed to load today's template title: \(String(describing: error), privacy: .public)")
+            return defaultName(for: split, dayIndex: dayIndex)
+        }
     }
 
     static func isCustomized(
