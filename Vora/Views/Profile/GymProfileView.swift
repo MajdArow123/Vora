@@ -5,6 +5,7 @@
 //  Created by Majd Arow on 2026-08-10.
 //
 
+import OSLog
 import SwiftUI
 import SwiftData
 
@@ -15,8 +16,11 @@ struct GymProfileView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Query(sort: \GymProfile.createdAt) private var profiles: [GymProfile]
+    @Query private var users: [UserProfile]
     @State private var editingProfile: GymProfile?
     @State private var showingCreateSheet = false
+
+    private var units: UnitSystem { users.first?.preferredUnits ?? .metric }
 
     var body: some View {
         NavigationStack {
@@ -65,10 +69,10 @@ struct GymProfileView: View {
                 GymProfileService.ensureDefaultProfile(context: modelContext)
             }
             .sheet(item: $editingProfile) { profile in
-                GymProfileEditorView(profile: profile)
+                GymProfileEditorView(profile: profile, units: units)
             }
             .sheet(isPresented: $showingCreateSheet) {
-                GymProfileEditorView(profile: nil)
+                GymProfileEditorView(profile: nil, units: units)
             }
         }
     }
@@ -135,24 +139,40 @@ struct GymProfileEditorView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
+    private static let logger = Logger(subsystem: "com.majdarow.Vora", category: "Persistence")
+
     /// Nil when creating a new profile.
     let profile: GymProfile?
+    let units: UnitSystem
 
     @State private var draftName: String
     @State private var draftPreset: GymPreset
     @State private var draftEquipment: Set<EquipmentType>
+    @State private var draftInventory: LoadingInventoryDraft
+    @State private var showingSaveError = false
 
     private let gridColumns = [
         GridItem(.flexible(), spacing: DesignSystem.Spacing.sm),
         GridItem(.flexible(), spacing: DesignSystem.Spacing.sm),
     ]
 
-    init(profile: GymProfile?) {
+    init(profile: GymProfile?, units: UnitSystem) {
         self.profile = profile
+        self.units = units
         _draftName = State(initialValue: profile?.name ?? "")
         _draftPreset = State(initialValue: profile?.preset ?? .commercial)
         _draftEquipment = State(initialValue: profile?.availableEquipment
                                 ?? GymPreset.commercial.defaultEquipment)
+        let preset = profile?.preset ?? .commercial
+        let equipment = profile?.availableEquipment ?? preset.defaultEquipment
+        var inventory = LoadingInventoryDraft(
+            inventory: profile?.loadingInventory ?? preset.defaultInventory(units: units, equipment: equipment),
+            units: units
+        )
+        if equipment.contains(.smithMachine) {
+            inventory.seedSmithIfMissing()
+        }
+        _draftInventory = State(initialValue: inventory)
     }
 
     private var trimmedName: String {
@@ -161,6 +181,7 @@ struct GymProfileEditorView: View {
 
     private var canSave: Bool {
         !trimmedName.isEmpty && !draftEquipment.isEmpty
+            && draftInventory.inventory(for: draftEquipment) != nil
     }
 
     var body: some View {
@@ -174,6 +195,9 @@ struct GymProfileEditorView: View {
                         nameCard
                         presetCard
                         equipmentCard
+                        if showsLoadingCard {
+                            loadingCard
+                        }
                     }
                     .padding(.horizontal, DesignSystem.Spacing.lg)
                     .padding(.vertical, DesignSystem.Spacing.md)
@@ -195,6 +219,11 @@ struct GymProfileEditorView: View {
                                          : DesignSystem.Colors.textSecondary.opacity(0.5))
                         .disabled(!canSave)
                 }
+            }
+            .alert("Couldn't save this gym", isPresented: $showingSaveError) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Your changes are still here. Try saving again.")
             }
         }
     }
@@ -224,6 +253,10 @@ struct GymProfileEditorView: View {
                 draftPreset = preset
                 if preset != .custom {
                     draftEquipment = preset.defaultEquipment
+                    draftInventory = LoadingInventoryDraft(
+                        inventory: preset.defaultInventory(units: units, equipment: preset.defaultEquipment),
+                        units: units
+                    )
                 }
             }
         } label: {
@@ -265,6 +298,11 @@ struct GymProfileEditorView: View {
                     updated.remove(equipment)
                 } else {
                     updated.insert(equipment)
+                    if equipment == .barbell {
+                        draftInventory.seedBarbellIfEmpty()
+                    } else if equipment == .smithMachine {
+                        draftInventory.seedSmithIfMissing()
+                    }
                 }
                 draftEquipment = updated
                 if draftPreset != .custom, updated != draftPreset.defaultEquipment {
@@ -297,34 +335,200 @@ struct GymProfileEditorView: View {
     }
 
     private func save() {
-        guard canSave else { return }
-        if let profile {
-            profile.name = trimmedName
-            profile.preset = draftPreset
-            profile.updateEquipment(draftEquipment)
-        } else {
-            let isFirst: Bool
-            do {
-                isFirst = try modelContext.fetchCount(FetchDescriptor<GymProfile>()) == 0
-            } catch {
-                assertionFailure("Failed to count gym profiles: \(error)")
-                isFirst = false
-            }
-            let newProfile = GymProfile(
-                name: trimmedName,
-                preset: draftPreset,
-                availableEquipment: draftEquipment,
-                isActive: isFirst
-            )
-            newProfile.updateEquipment(draftEquipment)
-            modelContext.insert(newProfile)
-        }
+        guard canSave, let inventory = draftInventory.inventory(for: draftEquipment) else { return }
         do {
+            if let profile {
+                profile.name = trimmedName
+                profile.preset = draftPreset
+                profile.updateEquipment(draftEquipment)
+                profile.updateInventory(inventory)
+            } else {
+                let isFirst = try modelContext.fetchCount(FetchDescriptor<GymProfile>()) == 0
+                let newProfile = GymProfile(
+                    name: trimmedName,
+                    preset: draftPreset,
+                    availableEquipment: draftEquipment,
+                    isActive: isFirst
+                )
+                newProfile.updateEquipment(draftEquipment)
+                newProfile.updateInventory(inventory)
+                modelContext.insert(newProfile)
+            }
             try modelContext.save()
+            dismiss()
         } catch {
-            assertionFailure("Failed to save gym profile: \(error)")
+            Self.logger.error("Failed to save gym profile: \(String(describing: error), privacy: .public)")
+            modelContext.rollback()
+            showingSaveError = true
         }
-        dismiss()
+    }
+
+    // MARK: - Loading inventory
+
+    private var showsLoadingCard: Bool {
+        LoadingInventoryDraft.showsBarsAndPlates(for: draftEquipment)
+            || LoadingInventoryDraft.showsDumbbellStep(for: draftEquipment)
+            || LoadingInventoryDraft.showsMachineStep(for: draftEquipment)
+    }
+
+    private var unitSymbol: String { UnitConversion.weightUnitSymbol(units) }
+
+    private var loadingCard: some View {
+        card("Loading") {
+            VStack(alignment: .leading, spacing: DesignSystem.Spacing.md) {
+                if LoadingInventoryDraft.showsBarsAndPlates(for: draftEquipment) {
+                    barsSection
+                    platesSection
+                }
+                if LoadingInventoryDraft.showsDumbbellStep(for: draftEquipment) {
+                    stepRow("Dumbbell step", field: $draftInventory.dumbbellIncrement)
+                }
+                if LoadingInventoryDraft.showsMachineStep(for: draftEquipment) {
+                    stepRow("Machine step", field: $draftInventory.machineIncrement)
+                }
+                standardSetButton("Use standard kg set", units: .metric)
+                standardSetButton("Use standard lb set", units: .imperial)
+            }
+        }
+    }
+
+    private var barsSection: some View {
+        VStack(alignment: .leading, spacing: DesignSystem.Spacing.sm) {
+            sectionTitle("Bars")
+            ForEach($draftInventory.bars) { $bar in
+                if bar.isShown(for: draftEquipment) {
+                    HStack(spacing: DesignSystem.Spacing.sm) {
+                        TextField("Name", text: $bar.name)
+                            .font(DesignSystem.Typography.body)
+                            .textInputAutocapitalization(.words)
+                            .autocorrectionDisabled()
+                            .accessibilityLabel("Bar name")
+                        weightField($bar.weight, label: "Bar weight")
+                        // A Smith machine always has its bar; 0 covers counterbalanced.
+                        if bar.kind == .free {
+                            removeButton(label: "Remove \(bar.name)") {
+                                draftInventory.bars.removeAll { $0.id == bar.id }
+                            }
+                        }
+                    }
+                }
+            }
+            if draftEquipment.contains(.smithMachine) {
+                Text("Enter 0 for a counterbalanced Smith bar.")
+                    .font(DesignSystem.Typography.caption)
+                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+            }
+            if LoadingInventoryDraft.showsFreeBarActions(for: draftEquipment) {
+                addButton("Add Bar") { draftInventory.addBar() }
+            }
+        }
+    }
+
+    private var platesSection: some View {
+        VStack(alignment: .leading, spacing: DesignSystem.Spacing.sm) {
+            sectionTitle("Plates")
+            ForEach($draftInventory.plates) { $plate in
+                HStack(spacing: DesignSystem.Spacing.sm) {
+                    weightField($plate.weight, label: "Plate weight")
+                    Stepper(
+                        "\(plate.pairCount) \(plate.pairCount == 1 ? "pair" : "pairs")",
+                        value: $plate.pairCount,
+                        in: LoadingInventoryDraft.PlateRow.pairRange
+                    )
+                    .font(DesignSystem.Typography.caption)
+                    .foregroundStyle(DesignSystem.Colors.textPrimary)
+                    removeButton(label: "Remove \(plate.weight.text) \(unitSymbol) plates") {
+                        draftInventory.plates.removeAll { $0.id == plate.id }
+                    }
+                }
+            }
+            addButton("Add Plate") { draftInventory.addPlate() }
+        }
+    }
+
+    private func stepRow(_ title: String, field: Binding<LoadingInventoryDraft.WeightField>) -> some View {
+        HStack {
+            Text(title)
+                .font(DesignSystem.Typography.body)
+                .foregroundStyle(DesignSystem.Colors.textPrimary)
+            Spacer()
+            weightField(field, label: title)
+        }
+    }
+
+    private func sectionTitle(_ title: String) -> some View {
+        Text(title)
+            .font(DesignSystem.Typography.headline)
+            .foregroundStyle(DesignSystem.Colors.textPrimary)
+    }
+
+    private func weightField(_ field: Binding<LoadingInventoryDraft.WeightField>, label: String) -> some View {
+        HStack(spacing: DesignSystem.Spacing.xs) {
+            TextField("0", text: field.text)
+                .keyboardType(.decimalPad)
+                .multilineTextAlignment(.center)
+                .font(DesignSystem.Typography.body)
+                .foregroundStyle(DesignSystem.Colors.textPrimary)
+                .padding(.vertical, 6)
+                .frame(width: 64)
+                .background(DesignSystem.Colors.background)
+                .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.small))
+                .accessibilityLabel("\(label) in \(UnitConversion.spokenWeightUnit(units))")
+            Text(unitSymbol)
+                .font(DesignSystem.Typography.caption)
+                .foregroundStyle(DesignSystem.Colors.textSecondary)
+        }
+    }
+
+    private func removeButton(label: String, action: @escaping () -> Void) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.15), action)
+        } label: {
+            Image(systemName: "minus.circle")
+                .foregroundStyle(DesignSystem.Colors.textSecondary)
+                .frame(width: 32, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+
+    private func addButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.15), action)
+        } label: {
+            Label(title, systemImage: "plus")
+                .font(DesignSystem.Typography.caption)
+                .foregroundStyle(DesignSystem.Colors.accent)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Replaces this gym's plates and steps with a full standard set. Kept
+    /// separate from the display unit: someone who reads lb can still train
+    /// on kg plates.
+    private func standardSetButton(_ title: String, units setUnits: UnitSystem) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                draftInventory = LoadingInventoryDraft(
+                    inventory: LoadingInventory.standard(units: setUnits)
+                        .addingSmithBar(ifIn: draftEquipment, units: setUnits),
+                    units: units
+                )
+            }
+        } label: {
+            Text(title)
+                .font(DesignSystem.Typography.caption)
+                .fontWeight(.semibold)
+                .foregroundStyle(DesignSystem.Colors.accent)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .background(DesignSystem.Colors.background)
+                .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.small))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func card(_ title: String, @ViewBuilder content: () -> some View) -> some View {

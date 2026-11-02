@@ -9,13 +9,13 @@ import Foundation
 
 enum UnitConversion {
     static let cmPerInch = 2.54
-    static let poundsPerKg = 2.20462
+    nonisolated static let poundsPerKg = 2.20462
 
     static func pounds(fromKg kg: Double) -> Double {
         kg * poundsPerKg
     }
 
-    static func kg(fromPounds pounds: Double) -> Double {
+    nonisolated static func kg(fromPounds pounds: Double) -> Double {
         pounds / poundsPerKg
     }
 

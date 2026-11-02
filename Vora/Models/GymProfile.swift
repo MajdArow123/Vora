@@ -8,7 +8,7 @@
 import Foundation
 import SwiftData
 
-enum GymPreset: String, Codable, CaseIterable, Identifiable {
+nonisolated enum GymPreset: String, Codable, CaseIterable, Identifiable {
     case commercial
     case homeDumbbells
     case hotel
@@ -53,18 +53,41 @@ final class GymProfile {
     private var equipmentRawValues: [String]
     var isActive: Bool
     var createdAt: Date
+    /// Nil until the user's units are known (see GymInventoryBackfill).
+    /// Once written, these change only when the user edits them: a later
+    /// switch of `preferredUnits` affects display, never the gym's plates.
+    private var storedBars: [GymBar]?
+    private var storedPlates: [PlateStock]?
+    private var storedDumbbellIncrementKg: Double?
+    private var storedMachineIncrementKg: Double?
 
     var availableEquipment: Set<EquipmentType> {
         get { Set(equipmentRawValues.compactMap(EquipmentType.init(rawValue:))) }
         set { equipmentRawValues = newValue.map(\.rawValue).sorted() }
     }
 
+    /// The gym's loading inventory, or nil if it hasn't been filled yet.
+    var loadingInventory: LoadingInventory? {
+        guard let storedBars, let storedPlates,
+              let storedDumbbellIncrementKg, let storedMachineIncrementKg
+        else { return nil }
+        return LoadingInventory(
+            bars: storedBars,
+            plates: storedPlates,
+            dumbbellIncrementKg: storedDumbbellIncrementKg,
+            machineIncrementKg: storedMachineIncrementKg
+        )
+    }
+
+    /// Pass `inventoryUnits` when the user's units are known; without them
+    /// the inventory stays nil until the backfill or onboarding fills it.
     init(
         name: String,
         preset: GymPreset,
         availableEquipment: Set<EquipmentType>? = nil,
         isActive: Bool = false,
-        createdAt: Date = .now
+        createdAt: Date = .now,
+        inventoryUnits: UnitSystem? = nil
     ) {
         self.name = name
         self.preset = preset
@@ -73,15 +96,42 @@ final class GymProfile {
             .sorted()
         self.isActive = isActive
         self.createdAt = createdAt
+        if let inventoryUnits {
+            updateInventory(preset.defaultInventory(units: inventoryUnits, equipment: self.availableEquipment))
+        }
     }
 
-    /// Applies a preset, replacing the equipment with the preset's
-    /// defaults as a starting point for further edits.
-    func applyPreset(_ newPreset: GymPreset) {
+    /// Applies a preset, replacing the equipment and inventory with the
+    /// preset's defaults as a starting point for further edits. Custom keeps
+    /// both, as it is what a profile becomes once hand-edited.
+    func applyPreset(_ newPreset: GymPreset, units: UnitSystem) {
         preset = newPreset
-        if newPreset != .custom {
+        if newPreset == .custom {
+            fillInventoryIfNeeded(units: units)
+        } else {
             availableEquipment = newPreset.defaultEquipment
+            updateInventory(newPreset.defaultInventory(units: units, equipment: availableEquipment))
         }
+    }
+
+    func updateInventory(_ inventory: LoadingInventory) {
+        storedBars = inventory.bars
+        storedPlates = inventory.plates
+        storedDumbbellIncrementKg = inventory.dumbbellIncrementKg
+        storedMachineIncrementKg = inventory.machineIncrementKg
+    }
+
+    /// Writes the preset's defaults into whichever fields are still nil.
+    /// Returns whether anything was written.
+    @discardableResult
+    func fillInventoryIfNeeded(units: UnitSystem) -> Bool {
+        guard loadingInventory == nil else { return false }
+        let defaults = preset.defaultInventory(units: units, equipment: availableEquipment)
+        storedBars = storedBars ?? defaults.bars
+        storedPlates = storedPlates ?? defaults.plates
+        storedDumbbellIncrementKg = storedDumbbellIncrementKg ?? defaults.dumbbellIncrementKg
+        storedMachineIncrementKg = storedMachineIncrementKg ?? defaults.machineIncrementKg
+        return true
     }
 
     /// Replaces the equipment set. Hand-editing away from the preset's

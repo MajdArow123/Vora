@@ -85,6 +85,25 @@ final class ActiveSessionViewModel {
         let targets: TemplateTargets?
 
         var repRange: ClosedRange<Int>? { targets?.repRange }
+
+        /// What the plate calculator loads for this exercise, if it applies.
+        /// Custom exercises have no library entry, so no known equipment.
+        var plateLoadedEquipment: EquipmentType? {
+            exerciseId
+                .flatMap { ExerciseLibrary.definition(id: $0) }
+                .flatMap { LoadingInventory.plateLoadedEquipment(in: $0.equipment) }
+        }
+    }
+
+    /// Names a set for the plate calculator. It holds no weight on purpose:
+    /// a tap can land after the text changed but before the row re-rendered,
+    /// so a value captured by the row's button would be out of date. The
+    /// sheet reads `plateCalculatorWeightKg(for:)` instead.
+    struct PlateCalculatorRequest: Identifiable {
+        let setID: DraftSet.ID
+        let exerciseID: DraftExercise.ID
+
+        var id: DraftSet.ID { setID }
     }
 
     private static let logger = Logger(subsystem: "com.majdarow.Vora", category: "Workout")
@@ -316,6 +335,13 @@ final class ActiveSessionViewModel {
     }
 
     // MARK: - Rest timer
+
+    /// The set's current weight, or nil if it has none or no longer exists.
+    func plateCalculatorWeightKg(for request: PlateCalculatorRequest) -> Double? {
+        exercises.first { $0.id == request.exerciseID }?
+            .sets.first { $0.id == request.setID }?
+            .weightKg
+    }
 
     func startRest(duration: TimeInterval) {
         restEndDate = now().addingTimeInterval(duration)

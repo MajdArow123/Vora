@@ -21,7 +21,7 @@ enum GoalType: String, Codable, CaseIterable {
     }
 }
 
-enum UnitSystem: String, Codable, CaseIterable {
+nonisolated enum UnitSystem: String, Codable, CaseIterable {
     case metric
     case imperial
 

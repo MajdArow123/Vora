@@ -34,7 +34,7 @@ nonisolated enum SchemaV2: VersionedSchema {
             RecipeIngredient.self,
             Supplement.self,
             SupplementLog.self,
-            GymProfile.self,
+            SchemaV2.GymProfile.self,
         ]
     }
 }
@@ -185,6 +185,61 @@ extension SchemaV2 {
             self.rpm = rpm
             self.distanceKm = distanceKm
             self.pace = pace
+        }
+    }
+}
+
+// Verbatim copy of the live GymProfile as of SchemaV2. Do not edit. It has
+// no relationships, so nothing else joins it.
+extension SchemaV2 {
+    @Model
+    final class GymProfile {
+        var name: String
+        var preset: GymPreset
+        /// Raw values persisted as a plain string array so the schema stays a
+        /// lightweight, additive change. Unknown values from future app
+        /// versions are dropped on read rather than crashing.
+        private var equipmentRawValues: [String]
+        var isActive: Bool
+        var createdAt: Date
+
+        var availableEquipment: Set<EquipmentType> {
+            get { Set(equipmentRawValues.compactMap(EquipmentType.init(rawValue:))) }
+            set { equipmentRawValues = newValue.map(\.rawValue).sorted() }
+        }
+
+        init(
+            name: String,
+            preset: GymPreset,
+            availableEquipment: Set<EquipmentType>? = nil,
+            isActive: Bool = false,
+            createdAt: Date = .now
+        ) {
+            self.name = name
+            self.preset = preset
+            self.equipmentRawValues = (availableEquipment ?? preset.defaultEquipment)
+                .map(\.rawValue)
+                .sorted()
+            self.isActive = isActive
+            self.createdAt = createdAt
+        }
+
+        /// Applies a preset, replacing the equipment with the preset's
+        /// defaults as a starting point for further edits.
+        func applyPreset(_ newPreset: GymPreset) {
+            preset = newPreset
+            if newPreset != .custom {
+                availableEquipment = newPreset.defaultEquipment
+            }
+        }
+
+        /// Replaces the equipment set. Hand-editing away from the preset's
+        /// defaults flips the preset to custom; matching them again keeps it.
+        func updateEquipment(_ newValue: Set<EquipmentType>) {
+            availableEquipment = newValue
+            if preset != .custom, newValue != preset.defaultEquipment {
+                preset = .custom
+            }
         }
     }
 }

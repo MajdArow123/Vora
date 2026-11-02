@@ -27,17 +27,20 @@ final class AppDataStore {
     private let open: () throws -> ModelContainer
     private let backfillExerciseIDs: (ModelContext) throws -> Int
     private let migrateTemplates: (ModelContext) throws -> TemplateDefaultsMigration.Outcome
+    private let backfillGymInventories: (ModelContext) throws -> Int
 
     init(
         open: @escaping () throws -> ModelContainer = { try PersistenceController.makeContainer() },
         backfillExerciseIDs: @escaping (ModelContext) throws -> Int = { try ExerciseIDBackfill.run(in: $0) },
         migrateTemplates: @escaping (ModelContext) throws -> TemplateDefaultsMigration.Outcome = {
             try TemplateDefaultsMigration.run(in: $0, defaults: .standard)
-        }
+        },
+        backfillGymInventories: @escaping (ModelContext) throws -> Int = { try GymInventoryBackfill.run(in: $0) }
     ) {
         self.open = open
         self.backfillExerciseIDs = backfillExerciseIDs
         self.migrateTemplates = migrateTemplates
+        self.backfillGymInventories = backfillGymInventories
     }
 
     var container: ModelContainer? {
@@ -59,6 +62,7 @@ final class AppDataStore {
             GymProfileService.ensureDefaultProfile(context: ModelContext(container))
             runExerciseIDBackfill(in: container)
             runTemplateMigration(in: container)
+            runGymInventoryBackfill(in: container)
             state = .ready(container)
         } catch {
             PersistenceController.logger.error(
@@ -101,6 +105,21 @@ final class AppDataStore {
         } catch {
             PersistenceController.logger.error(
                 "Template migration failed: \(String(describing: error), privacy: .public)"
+            )
+        }
+    }
+
+    /// Never blocks launch: an unfilled gym shows an empty plate calculator
+    /// until a later launch fills it.
+    private func runGymInventoryBackfill(in container: ModelContainer) {
+        do {
+            let filled = try backfillGymInventories(ModelContext(container))
+            if filled > 0 {
+                PersistenceController.logger.info("Filled loading inventory on \(filled, privacy: .public) gyms")
+            }
+        } catch {
+            PersistenceController.logger.error(
+                "Gym inventory backfill failed: \(String(describing: error), privacy: .public)"
             )
         }
     }

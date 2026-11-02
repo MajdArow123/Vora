@@ -72,6 +72,7 @@ struct ActiveSessionView: View {
                             exercise: exercise,
                             viewModel: viewModel,
                             isUnavailable: isUnavailable(exercise.name),
+                            inventory: activeProfiles.first?.loadingInventory,
                             onSetCompleted: {
                                 viewModel.startRest(duration: TimeInterval(exercise.restSeconds))
                             },
@@ -300,9 +301,15 @@ struct ExerciseSessionCard: View {
     let exercise: ActiveSessionViewModel.DraftExercise
     let viewModel: ActiveSessionViewModel
     var isUnavailable = false
+    /// The active gym's inventory; nil if it hasn't been filled yet.
+    var inventory: LoadingInventory?
     let onSetCompleted: () -> Void
     var onSwap: () -> Void = {}
     var onInfo: () -> Void = {}
+
+    @State private var plateRequest: ActiveSessionViewModel.PlateCalculatorRequest?
+    /// Stays for this exercise while the session is open; not persisted.
+    @State private var selectedBarName: String?
 
     /// "8–12", or "8" when the range is a single rep count.
     static func repRangeText(_ range: ClosedRange<Int>) -> String {
@@ -390,6 +397,10 @@ struct ExerciseSessionCard: View {
                     targetRIR: exercise.targets?.targetRIR,
                     exerciseID: exercise.id,
                     viewModel: viewModel,
+                    plateCaption: plateCaption(for: set),
+                    onPlatesTapped: {
+                        plateRequest = .init(setID: set.id, exerciseID: exercise.id)
+                    },
                     onCompleted: onSetCompleted
                 )
             }
@@ -415,16 +426,46 @@ struct ExerciseSessionCard: View {
         .padding(DesignSystem.Spacing.md)
         .background(DesignSystem.Colors.card)
         .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
+        .sheet(item: $plateRequest) { request in
+            PlateCalculatorSheet(
+                totalKg: viewModel.plateCalculatorWeightKg(for: request) ?? 0,
+                equipment: exercise.plateLoadedEquipment ?? .barbell,
+                inventory: inventory ?? .withoutBarbell(units: viewModel.units),
+                units: viewModel.units,
+                selectedBarName: $selectedBarName
+            )
+        }
+    }
+
+    /// Nil unless this is a plate-loaded exercise with a weight entered.
+    private func plateCaption(for set: ActiveSessionViewModel.DraftSet) -> SetRow.PlateCaption? {
+        guard let equipment = exercise.plateLoadedEquipment,
+              let totalKg = set.weightKg, totalKg > 0
+        else { return nil }
+        let bars = inventory?.bars(for: equipment) ?? []
+        guard let inventory, let bar = bars.first(where: { $0.name == selectedBarName }) ?? bars.first else {
+            return SetRow.PlateCaption(text: "Plate calculator", isLoadable: true)
+        }
+        guard let stack = LoadCalculator.plateBreakdown(totalKg: totalKg, bar: bar, profile: inventory) else {
+            return SetRow.PlateCaption(text: "Can't load this weight", isLoadable: false)
+        }
+        let summary = PlateStackText.summary(stack, units: viewModel.units)
+        return SetRow.PlateCaption(text: stack.isEmpty ? summary : "Per side: \(summary)", isLoadable: true)
     }
 }
 
 // MARK: - Set row
 
-private struct SetRow: View {
+fileprivate struct SetRow: View {
     // Sized so a weight like 102.25 stays readable beside the RIR column.
     static let columnSpacing: CGFloat = 6
     static let setNumberWidth: CGFloat = 22
     static let rirWidth: CGFloat = 32
+
+    struct PlateCaption {
+        let text: String
+        let isLoadable: Bool
+    }
 
     let setNumber: Int
     let set: ActiveSessionViewModel.DraftSet
@@ -433,9 +474,56 @@ private struct SetRow: View {
     let targetRIR: Int?
     let exerciseID: ActiveSessionViewModel.DraftExercise.ID
     let viewModel: ActiveSessionViewModel
+    let plateCaption: PlateCaption?
+    let onPlatesTapped: () -> Void
     let onCompleted: () -> Void
 
     var body: some View {
+        VStack(spacing: 0) {
+            controls
+            if let plateCaption {
+                plateButton(plateCaption)
+            }
+        }
+        .padding(.vertical, 2)
+        .padding(.horizontal, DesignSystem.Spacing.xs)
+        .background(
+            RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.small)
+                .fill(set.isCompleted ? DesignSystem.Colors.accent.opacity(0.08) : .clear)
+        )
+        .contextMenu {
+            Button(role: .destructive) {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    viewModel.removeSet(set.id, from: exerciseID)
+                }
+            } label: {
+                Label("Delete Set", systemImage: "trash")
+            }
+        }
+    }
+
+    private func plateButton(_ caption: PlateCaption) -> some View {
+        Button(action: onPlatesTapped) {
+            HStack(spacing: DesignSystem.Spacing.xs) {
+                Image(systemName: caption.isLoadable ? "circle.circle" : "exclamationmark.triangle")
+                    .accessibilityHidden(true)
+                Text(caption.text)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Spacer(minLength: 0)
+            }
+            .font(DesignSystem.Typography.caption)
+            .foregroundStyle(caption.isLoadable ? DesignSystem.Colors.accent : DesignSystem.Colors.warning)
+            .frame(minHeight: 32)
+            .padding(.leading, Self.setNumberWidth + Self.columnSpacing)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(caption.text)
+        .accessibilityHint("Opens the plate calculator")
+    }
+
+    private var controls: some View {
         HStack(spacing: Self.columnSpacing) {
             Text("\(setNumber)")
                 .font(DesignSystem.Typography.headline)
@@ -475,21 +563,6 @@ private struct SetRow: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(set.isCompleted ? "Mark set incomplete" : "Mark set complete")
-        }
-        .padding(.vertical, 2)
-        .padding(.horizontal, DesignSystem.Spacing.xs)
-        .background(
-            RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.small)
-                .fill(set.isCompleted ? DesignSystem.Colors.accent.opacity(0.08) : .clear)
-        )
-        .contextMenu {
-            Button(role: .destructive) {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    viewModel.removeSet(set.id, from: exerciseID)
-                }
-            } label: {
-                Label("Delete Set", systemImage: "trash")
-            }
         }
     }
 

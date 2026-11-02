@@ -68,10 +68,33 @@ struct SchemaMigrationTests {
         #expect(Self.shapes(Schema(versionedSchema: SchemaV2.self)) == expected)
     }
 
-    @Test func schemaV4IsCurrent() {
-        #expect(SchemaV4.versionIdentifier == Schema.Version(4, 0, 0))
-        #expect(CurrentSchema.versionIdentifier == SchemaV4.versionIdentifier)
-        #expect(SchemaV4.models.count == 20)
+    @Test func schemaV5IsCurrent() {
+        #expect(SchemaV5.versionIdentifier == Schema.Version(5, 0, 0))
+        #expect(CurrentSchema.versionIdentifier == SchemaV5.versionIdentifier)
+        #expect(SchemaV5.models.count == 20)
+    }
+
+    /// V5 changes exactly these columns and nothing else.
+    @Test func schemaV5AddsOnlyTheLoadingInventory() {
+        var expected = Self.shapes(Schema(versionedSchema: SchemaV4.self))
+        expected["GymProfile", default: []].formUnion([
+            "storedBars", "storedPlates", "storedDumbbellIncrementKg", "storedMachineIncrementKg",
+        ])
+        #expect(Self.shapes(PersistenceController.schema) == expected)
+    }
+
+    /// Every version that listed the live GymProfile now lists a frozen one.
+    @Test(arguments: [
+        SchemaV1.self as any VersionedSchema.Type,
+        SchemaV2.self as any VersionedSchema.Type,
+        SchemaV3.self as any VersionedSchema.Type,
+        SchemaV4.self as any VersionedSchema.Type,
+    ])
+    func earlierVersionsListAFrozenGymProfile(version: any VersionedSchema.Type) {
+        let gymModels = version.models.map { String(reflecting: $0) }.filter { $0.hasSuffix(".GymProfile") }
+        #expect(gymModels == ["Vora.\(version).GymProfile"])
+        let gym = Self.shapes(Schema(versionedSchema: version))["GymProfile"] ?? []
+        #expect(gym == ["name", "preset", "equipmentRawValues", "isActive", "createdAt"])
     }
 
     /// V4 changes exactly these columns and nothing else.
@@ -81,7 +104,7 @@ struct SchemaMigrationTests {
         expected["SetEntry", default: []].insert("rir")
         expected["WorkoutSession", default: []].insert("healthKitWorkoutID")
         expected["CardioEntry", default: []].insert("healthKitWorkoutID")
-        #expect(Self.shapes(PersistenceController.schema) == expected)
+        #expect(Self.shapes(Schema(versionedSchema: SchemaV4.self)) == expected)
     }
 
     /// The freeze held: every earlier version still describes what its
@@ -115,8 +138,9 @@ struct SchemaMigrationTests {
         let versions = VoraMigrationPlan.schemas.map { $0.versionIdentifier }
         #expect(versions == [
             Schema.Version(1, 0, 0), Schema.Version(2, 0, 0), Schema.Version(3, 0, 0), Schema.Version(4, 0, 0),
+            Schema.Version(5, 0, 0),
         ])
-        #expect(VoraMigrationPlan.stages.count == 3)
+        #expect(VoraMigrationPlan.stages.count == 4)
     }
 
     // MARK: - Container
@@ -178,7 +202,7 @@ struct SchemaMigrationTests {
                 totalVolumeKg: 2040, exercises: [bench, curl, sled]
             ))
             context.insert(WeightEntry(date: sessionDate, weightKg: 72.4, bodyFatPercent: 21))
-            context.insert(GymProfile(name: "Home", preset: .homeDumbbells, isActive: true))
+            context.insert(SchemaV1.GymProfile(name: "Home", preset: .homeDumbbells, isActive: true))
             let supplement = Supplement(name: "Creatine", dose: "5 g", orderIndex: 0)
             context.insert(supplement)
             context.insert(SupplementLog(
@@ -569,6 +593,164 @@ struct SchemaMigrationTests {
         #expect(HealthWorkoutTarget(session: session) == .id(workoutID))
     }
 
+    // MARK: - V4 -> V5 (frozen types)
+
+    @Test @MainActor func v4StoreOpensWithUnfilledInventoryUntilTheBackfillRuns() throws {
+        let storeURL = Self.temporaryStoreURL()
+        defer { Self.removeStore(at: storeURL) }
+
+        try {
+            let schema = Schema(versionedSchema: SchemaV4.self)
+            let container = try ModelContainer(
+                for: schema,
+                configurations: [ModelConfiguration(schema: schema, url: storeURL)]
+            )
+            let gym = SchemaV4.GymProfile(name: "Garage", preset: .homeDumbbells, isActive: true)
+            gym.updateEquipment([.barbell, .bench])
+            container.mainContext.insert(gym)
+            container.mainContext.insert(SchemaV4.GymProfile(name: "Hotel", preset: .hotel))
+            try container.mainContext.save()
+        }()
+
+        let container = try PersistenceController.makeContainer(url: storeURL)
+        let context = container.mainContext
+        let gyms = try context.fetch(FetchDescriptor<GymProfile>(sortBy: [SortDescriptor(\.name)]))
+
+        #expect(gyms.map(\.name) == ["Garage", "Hotel"])
+        #expect(gyms.map(\.preset) == [.custom, .hotel])
+        #expect(gyms.first?.availableEquipment == [.barbell, .bench])
+        #expect(gyms.first?.isActive == true)
+        #expect(gyms.allSatisfy { $0.loadingInventory == nil })
+
+        // No user yet: still unfilled. Once there is one, filled in their units.
+        #expect(try GymInventoryBackfill.run(in: context) == 0)
+        context.insert(UserProfile(
+            name: "User", dateOfBirth: .distantPast, heightCm: 180, biologicalSex: .female,
+            goalType: .maintain, activityLevel: .moderatelyActive, trainingSplit: .ppl,
+            dailyCalorieTarget: 2000, proteinTargetG: 120, carbsTargetG: 220, fatTargetG: 70,
+            preferredUnits: .imperial
+        ))
+        try context.save()
+        #expect(try GymInventoryBackfill.run(in: context) == 2)
+        #expect(gyms.first?.loadingInventory == .standard(units: .imperial))
+        #expect(gyms.last?.loadingInventory == .withoutBarbell(units: .imperial))
+    }
+
+    // MARK: - V4 -> V5 (real store from commit 2b8a20e)
+
+    /// `Fixtures/v4-fixture.store` was written by the shipped V4 code
+    /// (commit 2b8a20e) for an imperial user: 2 Push sessions saved through
+    /// `ActiveSessionViewModel.finish()` with typed lb weights, each with
+    /// Barbell Bench Press (3 sets, RIRs including nil) and the custom Sled
+    /// Push (1 set), the second with a HealthKit workout ID; 2 cardio entries,
+    /// one with an ID; one template with target RIRs of 2, 0 and nil; and
+    /// 3 gyms: Commercial Gym (active), Home, and Garage, hand-edited to
+    /// custom.
+    @Test @MainActor func realV4FixtureMigratesWithoutLoss() throws {
+        let fixture = try Self.copyFixtureStore(named: "v4-fixture")
+        defer { removeTestItem(at: fixture.directory) }
+        let storeURL = fixture.store
+
+        let store = AppDataStore(
+            open: { try PersistenceController.makeContainer(url: storeURL) },
+            migrateTemplates: { _ in TemplateDefaultsMigration.Outcome() }
+        )
+        store.load()
+        let context = try #require(store.container).mainContext
+
+        let user = try #require(try context.fetch(FetchDescriptor<UserProfile>()).first)
+        #expect(user.name == "Fixture User")
+        #expect(user.preferredUnits == .imperial)
+
+        // Gyms keep everything, and load() filled them in the user's units.
+        let gyms = try context.fetch(FetchDescriptor<GymProfile>(sortBy: [SortDescriptor(\.createdAt)]))
+        #expect(gyms.map(\.name) == ["Commercial Gym", "Home", "Garage"])
+        #expect(gyms.map(\.preset) == [.commercial, .homeDumbbells, .custom])
+        #expect(gyms.map(\.isActive) == [true, false, false])
+        #expect(gyms[0].availableEquipment == Set(EquipmentType.allCases))
+        #expect(gyms[1].availableEquipment == GymPreset.homeDumbbells.defaultEquipment)
+        #expect(gyms[2].availableEquipment == [.barbell, .bench, .bodyweight])
+        #expect(gyms[0].loadingInventory
+                == GymPreset.commercial.defaultInventory(units: .imperial, equipment: Set(EquipmentType.allCases)))
+        #expect(gyms[0].loadingInventory?.bars(for: .smithMachine).count == 1)
+        #expect(gyms[1].loadingInventory == .withoutBarbell(units: .imperial))
+        #expect(gyms[2].loadingInventory == .standard(units: .imperial))
+        #expect(try GymInventoryBackfill.run(in: context) == 0)
+
+        // Workouts, RIR and HealthKit IDs are untouched.
+        let sessions = try context.fetch(FetchDescriptor<WorkoutSession>(sortBy: [SortDescriptor(\.date)]))
+        #expect(sessions.map(\.date) == [
+            Date(timeIntervalSince1970: 1_794_470_400),
+            Date(timeIntervalSince1970: 1_795_075_200),
+        ])
+        #expect(sessions.map(\.durationSeconds) == [3000, 3000])
+        #expect(sessions.first?.healthKitWorkoutID == nil)
+        #expect(sessions.last?.healthKitWorkoutID == UUID(uuidString: "11111111-2222-3333-4444-555555555555"))
+        #expect(try context.fetchCount(FetchDescriptor<ExerciseLog>()) == 4)
+        #expect(try context.fetchCount(FetchDescriptor<SetEntry>()) == 8)
+        for session in sessions {
+            let logs = session.exercises.sorted { $0.orderIndex < $1.orderIndex }
+            #expect(logs.map(\.exerciseName) == ["Barbell Bench Press", "Sled Push"])
+            #expect(logs.map(\.exerciseId) == ["barbell-bench-press", nil])
+        }
+        let firstBench = try #require(sessions.first?.exercises.first { $0.orderIndex == 0 })
+            .sets.sorted { $0.setNumber < $1.setNumber }
+        #expect(firstBench.map(\.weightKg) == [185, 185, 175].map(UnitConversion.kg(fromPounds:)))
+        #expect(firstBench.map(\.reps) == [10, 8, 9])
+        #expect(firstBench.map(\.rir) == [2, 1, nil])
+        let lastBench = try #require(sessions.last?.exercises.first { $0.orderIndex == 0 })
+            .sets.sorted { $0.setNumber < $1.setNumber }
+        #expect(lastBench.map(\.weightKg) == [190, 190, 185].map(UnitConversion.kg(fromPounds:)))
+        #expect(lastBench.map(\.rir) == [1, 0, 2])
+
+        let records = WorkoutHomeViewModel.computePersonalRecords(from: context)
+        let benchPR = try #require(records.first { $0.exerciseId == "barbell-bench-press" })
+        #expect(benchPR.weightKg == UnitConversion.kg(fromPounds: 190))
+        #expect(records.first { $0.exerciseName == "Sled Push" }?.weightKg == UnitConversion.kg(fromPounds: 245))
+
+        let cardio = try context.fetch(FetchDescriptor<CardioEntry>(sortBy: [SortDescriptor(\.date)]))
+        #expect(cardio.map(\.type) == [.treadmill, .stationaryBike])
+        #expect(cardio.first?.healthKitWorkoutID == UUID(uuidString: "66666666-7777-8888-9999-000000000000"))
+        #expect(cardio.last?.healthKitWorkoutID == nil)
+        #expect(cardio.last?.resistanceLevel == 8)
+
+        let push = try #require(try WorkoutTemplateService.template(for: .ppl, dayIndex: 0, context: context))
+        #expect(push.orderedExercises.map(\.exerciseId) == ["barbell-bench-press", "lateral-raise", nil])
+        #expect(push.orderedExercises.map(\.targetRIR) == [2, 0, nil])
+        #expect(push.orderedExercises.map(\.customName) == [nil, nil, "Sled Push"])
+
+        // The new columns save and reread on migrated rows.
+        let edited = LoadingInventory(
+            bars: [GymBar(name: "Rusty", weightKg: 18)],
+            plates: [PlateStock(weightKg: 20, pairCount: 1)],
+            dumbbellIncrementKg: 2,
+            machineIncrementKg: 4
+        )
+        gyms[2].updateInventory(edited)
+        try context.save()
+        let reread = try ModelContext(context.container).fetch(FetchDescriptor<GymProfile>())
+        #expect(reread.first { $0.name == "Garage" }?.loadingInventory == edited)
+    }
+
+    /// Older stores reach V5 through the whole chain and fill the same way.
+    @Test @MainActor func realV3FixtureReachesV5WithAFilledGym() throws {
+        let fixture = try Self.copyFixtureStore(named: "v3-fixture")
+        defer { removeTestItem(at: fixture.directory) }
+        let storeURL = fixture.store
+
+        let store = AppDataStore(
+            open: { try PersistenceController.makeContainer(url: storeURL) },
+            migrateTemplates: { _ in TemplateDefaultsMigration.Outcome() }
+        )
+        store.load()
+        let context = try #require(store.container).mainContext
+        let units = try #require(try context.fetch(FetchDescriptor<UserProfile>()).first).preferredUnits
+
+        let gym = try #require(try context.fetch(FetchDescriptor<GymProfile>()).first)
+        #expect(gym.loadingInventory
+                == gym.preset.defaultInventory(units: units, equipment: gym.availableEquipment))
+    }
+
     @Test @MainActor func versionedStoreReopensRepeatedly() throws {
         let storeURL = Self.temporaryStoreURL()
         defer { Self.removeStore(at: storeURL) }
@@ -700,6 +882,26 @@ struct AppDataStoreTests {
         let profiles = try container.mainContext.fetch(FetchDescriptor<GymProfile>())
         #expect(profiles.count == 1)
         #expect(profiles.first?.isActive == true)
+    }
+
+    /// A new install has no user yet, so nothing is known about its plates.
+    @Test func freshInstallLeavesTheSeededGymUnfilled() throws {
+        let store = AppDataStore(open: { try PersistenceController.makeContainer(inMemory: true) }, migrateTemplates: Self.noTemplateMigration)
+        store.load()
+
+        let container = try #require(store.container)
+        let gym = try #require(try container.mainContext.fetch(FetchDescriptor<GymProfile>()).first)
+        #expect(gym.loadingInventory == nil)
+    }
+
+    @Test func gymInventoryBackfillFailureDoesNotBlockLaunch() {
+        let store = AppDataStore(
+            open: { try PersistenceController.makeContainer(inMemory: true) },
+            migrateTemplates: Self.noTemplateMigration,
+            backfillGymInventories: { _ in throw OpenFailure() }
+        )
+        store.load()
+        #expect(store.container != nil)
     }
 }
 

@@ -7,6 +7,7 @@
 
 import Foundation
 import Observation
+import OSLog
 import SwiftData
 
 enum OnboardingStep: Int, CaseIterable {
@@ -20,6 +21,8 @@ enum OnboardingStep: Int, CaseIterable {
 
 @Observable
 final class OnboardingViewModel {
+    private static let logger = Logger(subsystem: "com.majdarow.Vora", category: "Onboarding")
+
     var step: OnboardingStep = .welcome
 
     // Basics
@@ -193,7 +196,16 @@ final class OnboardingViewModel {
         do {
             try context.save()
         } catch {
-            assertionFailure("Failed to save onboarding data: \(error)")
+            Self.logger.error("Failed to save onboarding data: \(String(describing: error), privacy: .public)")
+            return
+        }
+
+        // Gyms seeded before onboarding had no units to take their plates
+        // from. On failure, the next launch's backfill retries.
+        do {
+            try GymInventoryBackfill.run(in: context)
+        } catch {
+            Self.logger.error("Failed to fill gym inventories: \(String(describing: error), privacy: .public)")
         }
     }
 }

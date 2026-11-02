@@ -11,10 +11,12 @@ a migration stage. Never edit an existing version.
 | `Vora/Models/Schema/ExerciseIDBackfill.swift` | Post-open fill of `exerciseId` for pre-V2 rows |
 | `Vora/Models/Schema/SchemaV3.swift` | Adds the `WorkoutTemplate` and `TemplateExercise` entities (lightweight stage); frozen copies of the same four models |
 | `Vora/Models/Schema/SchemaV4.swift` | Replaces `SetEntry.rpe` with the optional `SetEntry.rir`, and adds the optional `healthKitWorkoutID` to WorkoutSession and CardioEntry (lightweight stage) |
+| `Vora/Models/Schema/SchemaV5.swift` | Adds GymProfile's optional loading inventory: `storedBars`, `storedPlates`, `storedDumbbellIncrementKg`, `storedMachineIncrementKg` (lightweight stage); V1–V4 each hold a frozen copy of GymProfile |
+| `Vora/Models/Schema/GymInventoryBackfill.swift` | Post-open fill of unfilled gym inventories from the preset and the user's units; skips when no user profile exists yet, and runs again when onboarding completes |
 | `Vora/Models/Schema/TemplateDefaultsMigration.swift` | Post-open move of the pre-V3 `vora.workoutTemplates` UserDefaults dictionary into SwiftData; removes the key only after a successful save |
 | `Vora/Models/Schema/VoraMigrationPlan.swift` | Ordered `schemas` and `stages`; `CurrentSchema` alias |
 | `Vora/Services/PersistenceController.swift` | Builds the container on `CurrentSchema` with the plan |
-| `Vora/Services/AppDataStore.swift` | Opens the store at launch and runs post-open backfills and data moves (exercise IDs, then templates); failures show `DataStoreErrorView` (Retry / Export data) instead of crashing |
+| `Vora/Services/AppDataStore.swift` | Opens the store at launch and runs post-open backfills and data moves (exercise IDs, templates, then gym inventories); failures show `DataStoreErrorView` (Retry / Export data) instead of crashing |
 
 ## Adding a schema version (SchemaV2 shown; same steps for every Vn)
 
@@ -31,6 +33,9 @@ a migration stage. Never edit an existing version.
    previous one.** V1, V2 and V3 all listed the live `CardioEntry`, and V2
    and V3 the live workout cluster, so V4 froze them into each. Missing one
    silently gives that older version the new shape.
+   Schema enums are `nonisolated`, so frozen copies inside them can only use
+   nonisolated members. Types a frozen copy touches (`GymPreset`,
+   `EquipmentType`) must be `nonisolated` too, or the freeze adds warnings.
 2. **Change the live model** (the top-level class) and create
    `SchemaV2.swift` listing all models, with
    `versionIdentifier = Schema.Version(2, 0, 0)`.
@@ -65,12 +70,25 @@ a migration stage. Never edit an existing version.
      `v2-fixture.store` and `v2-fixture-templates.plist` (the UserDefaults
      domain written by the shipped `WorkoutTemplateStore`) from commit
      712aea5; `v3-fixture.store` and `v1-session-draft.json` (a version 1
-     `ActiveSessionDraft`) from commit 07190d1. When data outside the store
+     `ActiveSessionDraft`) from commit 07190d1; `v4-fixture.store` from commit
+     2b8a20e. When data outside the store
      moves into it (UserDefaults, files), fixture that data too and test
      the move against it.
+   - Read fixtures only through a copy, including with `sqlite3`. Opening a
+     WAL store in place rewrites its `-shm` sidecar, which dirties the repo.
    - Post-open moves and backfills run through `AppDataStore` with their
      inputs injected (e.g. a test `UserDefaults` suite), never the host
      app's real `UserDefaults.standard`.
+
+## Why gym inventories are written, not resolved on read
+
+The V5 columns are optional only so the stage stays lightweight. Default plates
+depend on the user's units, which a fresh install doesn't have when it seeds
+"My Gym" (before onboarding), so `nil` means "not filled yet". Defaults are
+written once units are known: at the end of onboarding, by the post-open
+backfill for existing users, and immediately for new gyms and `applyPreset`.
+After that, changing `preferredUnits` only changes how weights are displayed,
+never which plates a gym has. Code treats a nil inventory as an empty gym.
 
 ## Why removing `SetEntry.rpe` lost no data
 

@@ -117,7 +117,7 @@ struct GymProfileTests {
 
     @Test func applyPresetReseedsEquipment() {
         let profile = GymProfile(name: "Trip", preset: .commercial)
-        profile.applyPreset(.bodyweightOnly)
+        profile.applyPreset(.bodyweightOnly, units: .metric)
         #expect(profile.preset == .bodyweightOnly)
         #expect(profile.availableEquipment == [.bodyweight, .pullUpBar])
     }
@@ -213,7 +213,7 @@ struct GymProfileTests {
     @Test @MainActor func addingGymProfileToExistingStoreMigratesCleanly() throws {
         let storeURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("GymProfileMigration-\(UUID().uuidString).store")
-        defer { try? FileManager.default.removeItem(at: storeURL) }
+        defer { removeTestItem(at: storeURL) }
 
         let oldSchema = Schema([UserProfile.self])
         let oldContainer = try ModelContainer(

@@ -10,7 +10,7 @@ import Foundation
 /// A piece of gym equipment an exercise can require and a gym profile can
 /// offer. An exercise is available in a gym when its equipment set is a
 /// subset of the gym's available equipment.
-enum EquipmentType: String, Codable, CaseIterable, Identifiable {
+nonisolated enum EquipmentType: String, Codable, CaseIterable, Identifiable {
     case barbell
     case dumbbell
     case machine

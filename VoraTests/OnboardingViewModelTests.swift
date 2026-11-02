@@ -17,6 +17,7 @@ struct OnboardingViewModelTests {
             WorkoutSession.self, ExerciseLog.self, SetEntry.self,
             WeightEntry.self, WaterEntry.self, CardioEntry.self, SplitDay.self,
             SavedMeal.self, SavedMealItem.self, Recipe.self, RecipeIngredient.self,
+            GymProfile.self,
         ])
         let container = try ModelContainer(
             for: schema,
@@ -217,5 +218,35 @@ struct OnboardingViewModelTests {
 
         #expect(try context.fetch(FetchDescriptor<UserProfile>()).isEmpty)
         #expect(try context.fetch(FetchDescriptor<WeightEntry>()).isEmpty)
+    }
+
+    // MARK: - Gym inventory
+
+    @Test(arguments: [UnitSystem.metric, .imperial])
+    func preOnboardingGymIsFilledWhenOnboardingCompletes(units: UnitSystem) throws {
+        let context = try makeContext()
+        GymProfileService.ensureDefaultProfile(context: context)
+        let gym = try #require(try context.fetch(FetchDescriptor<GymProfile>()).first)
+        #expect(gym.loadingInventory == nil)
+
+        let vm = filledViewModel()
+        vm.preferredUnits = units
+        vm.completeOnboarding(in: context)
+
+        #expect(gym.loadingInventory
+                == gym.preset.defaultInventory(units: units, equipment: gym.availableEquipment))
+        #expect(gym.loadingInventory?.bars(for: .smithMachine) == [LoadingInventory.smithBar(units: units)])
+    }
+
+    @Test func incompleteOnboardingLeavesTheGymUnfilled() throws {
+        let context = try makeContext()
+        GymProfileService.ensureDefaultProfile(context: context)
+        let vm = filledViewModel()
+        vm.trainingSplit = nil
+
+        vm.completeOnboarding(in: context)
+
+        let gym = try #require(try context.fetch(FetchDescriptor<GymProfile>()).first)
+        #expect(gym.loadingInventory == nil)
     }
 }
