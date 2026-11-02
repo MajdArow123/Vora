@@ -94,9 +94,10 @@ Later or never: auto-generated programs, spreadsheet import.
 - The PR card's "Peak strength" is an estimated 1RM (Epley), not the weight lifted; label it clearly (e.g. "Est. 1RM"). Revisit in Prompt 7.
 - Pluralization: "1 exercises" in History and elsewhere.
 - Duration format "1:48" is ambiguous; show "1m 48s" / "1h 12m".
-- No way to delete a test or accidental session: History and the session detail have no delete action for workouts or cardio, and nothing in the app deletes a `WorkoutSession`.
+- ~~No way to delete a test or accidental session: History and the session detail have no delete action for workouts or cardio, and nothing in the app deletes a `WorkoutSession`.~~ Done: swipe to delete in History and Delete buttons in the session detail, with a confirmation alert, for workouts and cardio. No schema change. The matching HealthKit workout is removed when exactly one fits; otherwise it's logged and the local delete still happens.
 - Long exercise names wrap ("Barbell / Bench Press") when the muscle tag sits beside them in TemplateEditorView.
 - Free provisioning: the app expires on the iPhone after 7 days until I join the Apple Developer Program.
+- Fixed sleeps left in tests: `discardClearsTheDraftAndStopsAutosave` (300 ms, could pass without proving anything; check `pendingDraftSave == nil` after the edit instead) and `FoodSearchViewModelTests.swift:161` (50 ms, not yet assessed).
 
 ## Claude Code prompts
 

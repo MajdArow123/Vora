@@ -243,12 +243,19 @@ struct ActiveSessionDraftTests {
         let store = makeStore(clock)
         let viewModel = makeViewModel(clock, store: store, debounce: .milliseconds(50))
         viewModel.addExercise(name: "Bench Press", muscleGroups: ["chest"], context: context)
+        let superseded = try #require(viewModel.pendingDraftSave)
         for reps in 1...5 {
             viewModel.exercises[0].sets[0].repsText = String(reps)
         }
+        // The save tasks share this test's main actor, so none can have run yet.
         #expect(!FileManager.default.fileExists(atPath: store.fileURL.path))
+        #expect(superseded.isCancelled)
 
-        try await Task.sleep(for: .milliseconds(500))
+        let latest = try #require(viewModel.pendingDraftSave)
+        #expect(!latest.isCancelled)
+        await latest.value
+
+        #expect(viewModel.pendingDraftSave == nil)
         let draft = try #require(store.loadResumable())
         #expect(draft.exercises[0].sets[0].reps == 5)
     }

@@ -12,6 +12,17 @@ struct WorkoutHistoryView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var viewModel = WorkoutHistoryViewModel()
     @Query private var profiles: [UserProfile]
+    @State private var pendingDeletion: HistoryDeletionPrompt?
+    @State private var showingDeleteError = false
+
+    private var rowInsets: EdgeInsets {
+        EdgeInsets(
+            top: DesignSystem.Spacing.xs,
+            leading: DesignSystem.Spacing.lg,
+            bottom: DesignSystem.Spacing.xs,
+            trailing: DesignSystem.Spacing.lg
+        )
+    }
 
     var body: some View {
         ZStack {
@@ -32,31 +43,81 @@ struct WorkoutHistoryView: View {
                         .foregroundStyle(DesignSystem.Colors.textSecondary)
                 }
             } else {
-                ScrollView {
-                    LazyVStack(spacing: DesignSystem.Spacing.sm) {
-                        ForEach(viewModel.items) { item in
-                            switch item {
-                            case .lifting(let session):
-                                NavigationLink {
-                                    WorkoutSessionDetailView(session: session)
+                List {
+                    ForEach(viewModel.items) { item in
+                        row(item)
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(rowInsets)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    pendingDeletion = HistoryDeletionPrompt(item: item)
                                 } label: {
-                                    liftingRow(session)
+                                    Label("Delete", systemImage: "trash")
                                 }
-                                .buttonStyle(.plain)
-                            case .cardio(let entry):
-                                cardioRow(entry)
+                                .tint(DesignSystem.Colors.negative)
                             }
-                        }
                     }
-                    .padding(.horizontal, DesignSystem.Spacing.lg)
-                    .padding(.vertical, DesignSystem.Spacing.md)
                 }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
             }
         }
         .navigationTitle("History")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             viewModel.load(from: modelContext)
+        }
+        .alert(
+            pendingDeletion?.title ?? "",
+            isPresented: Binding(
+                get: { pendingDeletion != nil },
+                set: { if !$0 { pendingDeletion = nil } }
+            ),
+            presenting: pendingDeletion
+        ) { prompt in
+            Button("Delete", role: .destructive) {
+                confirmDeletion(prompt)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { prompt in
+            Text(prompt.message)
+        }
+        .alert("Couldn't Delete", isPresented: $showingDeleteError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Nothing was removed. Please try again.")
+        }
+    }
+
+    private func confirmDeletion(_ prompt: HistoryDeletionPrompt) {
+        pendingDeletion = nil
+        do {
+            try viewModel.delete(prompt.item, context: modelContext)
+        } catch {
+            // The view model has logged it and restored the row.
+            showingDeleteError = true
+        }
+    }
+
+    @ViewBuilder
+    private func row(_ item: HistoryItem) -> some View {
+        switch item {
+        case .lifting(let session):
+            ZStack {
+                NavigationLink {
+                    WorkoutSessionDetailView(session: session) { deleted in
+                        try viewModel.delete(deleted, context: modelContext)
+                    }
+                } label: {
+                    EmptyView()
+                }
+                .opacity(0)
+
+                liftingRow(session)
+            }
+        case .cardio(let entry):
+            cardioRow(entry)
         }
     }
 

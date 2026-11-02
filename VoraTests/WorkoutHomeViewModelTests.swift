@@ -54,6 +54,33 @@ struct WorkoutHomeViewModelTests {
         context.insert(WorkoutSession(date: date, sessionName: "Session", exercises: [log]))
     }
 
+    // MARK: - Deleted sessions
+
+    @Test func weekStateAndHasTrainedTodayUpdateAfterDeletingTodaysSession() throws {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        insertProfile(context)
+        insertSession(context, exercise: "Custom Press", sets: [(100, 5, true)])
+        try context.save()
+
+        let viewModel = WorkoutHomeViewModel()
+        viewModel.load(from: context)
+        let today = try #require(viewModel.todaySplitDay)
+        #expect(viewModel.hasTrainedToday)
+        #expect(viewModel.state(for: today) == .done)
+
+        let session = try #require(try context.fetch(FetchDescriptor<WorkoutSession>()).first)
+        context.delete(session)
+        try context.save()
+
+        // Reading before the reload must not touch the deleted session.
+        #expect(viewModel.hasTrainedToday)
+
+        viewModel.load(from: context)
+        #expect(!viewModel.hasTrainedToday)
+        #expect(viewModel.state(for: today) != .done)
+    }
+
     // MARK: - Personal records
 
     @Test func bestWeightPerExerciseWins() throws {

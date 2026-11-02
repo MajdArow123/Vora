@@ -49,10 +49,12 @@ struct WorkoutView: View {
                 }
             }
             .navigationBarHidden(true)
-        }
-        .onAppear {
-            viewModel.load(from: modelContext)
-            presentResumedSession()
+            // On the root, not the stack, so this also runs on the way back
+            // from History, where sessions can be deleted.
+            .onAppear {
+                viewModel.load(from: modelContext)
+                presentResumedSession()
+            }
         }
         .onChange(of: resumeDraft) {
             presentResumedSession()

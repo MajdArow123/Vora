@@ -53,7 +53,9 @@ final class WorkoutHomeViewModel {
 
     private(set) var profile: UserProfile?
     private(set) var splitDays: [SplitDay] = []
-    private(set) var weekSessions: [WorkoutSession] = []
+    /// Dates, not sessions: this outlives the History screen, where a
+    /// session can be deleted, and is read before the next reload.
+    private var weekSessionDates: [Date] = []
     private(set) var personalRecords: [PersonalRecord] = []
 
     /// Monday-based index of today (0 = Monday).
@@ -83,7 +85,7 @@ final class WorkoutHomeViewModel {
     }
 
     var hasTrainedToday: Bool {
-        weekSessions.contains { Calendar.current.isDateInToday($0.date) }
+        weekSessionDates.contains { Calendar.current.isDateInToday($0) }
     }
 
     // MARK: - Loading
@@ -130,14 +132,19 @@ final class WorkoutHomeViewModel {
             predicate: #Predicate { $0.date >= weekStart && $0.date < weekEnd },
             sortBy: [SortDescriptor(\.date)]
         )
-        weekSessions = (try? context.fetch(descriptor)) ?? []
+        do {
+            weekSessionDates = try context.fetch(descriptor).map(\.date)
+        } catch {
+            Self.logger.error("Failed to fetch this week's sessions: \(String(describing: error), privacy: .public)")
+            weekSessionDates = []
+        }
     }
 
     // MARK: - Week states
 
     func state(for day: SplitDay) -> SplitDayState {
-        let trained = weekSessions.contains {
-            (Calendar.current.component(.weekday, from: $0.date) + 5) % 7 == day.dayIndex
+        let trained = weekSessionDates.contains {
+            (Calendar.current.component(.weekday, from: $0) + 5) % 7 == day.dayIndex
         }
         if trained { return .done }
         if day.isRest { return .rest }

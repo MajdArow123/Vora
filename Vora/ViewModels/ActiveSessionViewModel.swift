@@ -110,7 +110,8 @@ final class ActiveSessionViewModel {
     @ObservationIgnored private var draftStore: SessionDraftStore?
     @ObservationIgnored private let draftDebounce: Duration
     @ObservationIgnored private let now: () -> Date
-    @ObservationIgnored private var pendingDraftSave: Task<Void, Never>?
+    /// Readable so tests can await the save instead of guessing how long it takes.
+    @ObservationIgnored private(set) var pendingDraftSave: Task<Void, Never>?
 
     init(
         sessionName: String,

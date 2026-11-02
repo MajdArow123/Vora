@@ -5,46 +5,116 @@
 //  Created by Majd Arow on 2026-07-24.
 //
 
+import OSLog
 import SwiftUI
 import SwiftData
 
 struct WorkoutSessionDetailView: View {
+    private static let logger = Logger(subsystem: "com.majdarow.Vora", category: "Workout")
+
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
     let session: WorkoutSession
+    /// Deletes through History so its row goes before the model does.
+    let onDelete: (HistoryItem) throws -> Void
     @Query private var profiles: [UserProfile]
 
     @State private var cardioEntries: [CardioEntry] = []
+    @State private var pendingDeletion: HistoryDeletionPrompt?
+    @State private var showingDeleteError = false
+    /// Once set, nothing below may read `session`: it no longer exists.
+    @State private var didDelete = false
 
     var body: some View {
         ZStack {
             DesignSystem.Colors.background
                 .ignoresSafeArea()
 
-            ScrollView {
-                VStack(spacing: DesignSystem.Spacing.md) {
-                    Text(session.date.formatted(.dateTime.weekday(.wide).day().month().year()))
-                        .font(DesignSystem.Typography.caption)
-                        .foregroundStyle(DesignSystem.Colors.textSecondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+            if !didDelete {
+                ScrollView {
+                    VStack(spacing: DesignSystem.Spacing.md) {
+                        Text(session.date.formatted(.dateTime.weekday(.wide).day().month().year()))
+                            .font(DesignSystem.Typography.caption)
+                            .foregroundStyle(DesignSystem.Colors.textSecondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
 
-                    statsRow
+                        statsRow
 
-                    ForEach(sortedExercises) { exercise in
-                        exerciseCard(exercise)
+                        ForEach(sortedExercises) { exercise in
+                            exerciseCard(exercise)
+                        }
+
+                        ForEach(cardioEntries) { entry in
+                            cardioCard(entry)
+                        }
                     }
-
-                    ForEach(cardioEntries) { entry in
-                        cardioCard(entry)
-                    }
+                    .padding(.horizontal, DesignSystem.Spacing.lg)
+                    .padding(.vertical, DesignSystem.Spacing.md)
                 }
-                .padding(.horizontal, DesignSystem.Spacing.lg)
-                .padding(.vertical, DesignSystem.Spacing.md)
             }
         }
-        .navigationTitle(session.sessionName)
+        .navigationTitle(didDelete ? "" : session.sessionName)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                if !didDelete {
+                    Button(role: .destructive) {
+                        pendingDeletion = HistoryDeletionPrompt(item: .lifting(session))
+                    } label: {
+                        Label("Delete Workout", systemImage: "trash")
+                    }
+                    .tint(DesignSystem.Colors.negative)
+                }
+            }
+        }
         .onAppear {
             loadCardio()
+        }
+        .alert(
+            pendingDeletion?.title ?? "",
+            isPresented: Binding(
+                get: { pendingDeletion != nil },
+                set: { if !$0 { pendingDeletion = nil } }
+            ),
+            presenting: pendingDeletion
+        ) { prompt in
+            Button("Delete", role: .destructive) {
+                confirmDeletion(prompt)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { prompt in
+            Text(prompt.message)
+        }
+        .alert("Couldn't Delete", isPresented: $showingDeleteError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Nothing was removed. Please try again.")
+        }
+    }
+
+    // MARK: - Delete
+
+    private func confirmDeletion(_ prompt: HistoryDeletionPrompt) {
+        pendingDeletion = nil
+        switch prompt.item {
+        case .lifting:
+            didDelete = true
+            do {
+                try onDelete(prompt.item)
+                dismiss()
+            } catch {
+                didDelete = false
+                showingDeleteError = true
+            }
+        case .cardio(let entry):
+            let previousEntries = cardioEntries
+            cardioEntries.removeAll { $0.id == entry.id }
+            do {
+                try onDelete(prompt.item)
+            } catch {
+                cardioEntries = previousEntries
+                showingDeleteError = true
+            }
         }
     }
 
@@ -170,30 +240,42 @@ struct WorkoutSessionDetailView: View {
 
     private func cardioCard(_ entry: CardioEntry) -> some View {
         HStack(spacing: DesignSystem.Spacing.md) {
-            Image(systemName: entry.type.iconName)
-                .foregroundStyle(DesignSystem.Colors.macroCarbs)
-                .frame(width: 32)
-                .accessibilityHidden(true)
+            HStack(spacing: DesignSystem.Spacing.md) {
+                Image(systemName: entry.type.iconName)
+                    .foregroundStyle(DesignSystem.Colors.macroCarbs)
+                    .frame(width: 32)
+                    .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(entry.type.displayName)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(entry.type.displayName)
+                        .font(DesignSystem.Typography.headline)
+                        .foregroundStyle(DesignSystem.Colors.textPrimary)
+                    Text(entry.statsLine)
+                        .font(DesignSystem.Typography.caption)
+                        .foregroundStyle(DesignSystem.Colors.textSecondary)
+                }
+
+                Spacer()
+
+                Text("\(Int(entry.estimatedCalories.rounded())) kcal")
                     .font(DesignSystem.Typography.headline)
                     .foregroundStyle(DesignSystem.Colors.textPrimary)
-                Text(entry.statsLine)
-                    .font(DesignSystem.Typography.caption)
-                    .foregroundStyle(DesignSystem.Colors.textSecondary)
             }
+            .accessibilityElement(children: .combine)
 
-            Spacer()
-
-            Text("\(Int(entry.estimatedCalories.rounded())) kcal")
-                .font(DesignSystem.Typography.headline)
-                .foregroundStyle(DesignSystem.Colors.textPrimary)
+            Button(role: .destructive) {
+                pendingDeletion = HistoryDeletionPrompt(item: .cardio(entry))
+            } label: {
+                Image(systemName: "trash")
+                    .foregroundStyle(DesignSystem.Colors.negative)
+                    .frame(width: 32, height: 32)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Delete \(entry.type.displayName)")
         }
         .padding(DesignSystem.Spacing.md)
         .background(DesignSystem.Colors.card)
         .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
-        .accessibilityElement(children: .combine)
     }
 
     // MARK: - Helpers
@@ -216,6 +298,7 @@ struct WorkoutSessionDetailView: View {
     }
 
     private func loadCardio() {
+        guard !didDelete else { return }
         let calendar = Calendar.current
         let dayStart = calendar.startOfDay(for: session.date)
         guard let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) else { return }
@@ -223,7 +306,12 @@ struct WorkoutSessionDetailView: View {
             predicate: #Predicate { $0.date >= dayStart && $0.date < dayEnd },
             sortBy: [SortDescriptor(\.date)]
         )
-        cardioEntries = (try? modelContext.fetch(descriptor)) ?? []
+        do {
+            cardioEntries = try modelContext.fetch(descriptor)
+        } catch {
+            Self.logger.error("Failed to load cardio for session: \(String(describing: error), privacy: .public)")
+            cardioEntries = []
+        }
     }
 }
 
@@ -246,7 +334,7 @@ struct WorkoutSessionDetailView: View {
                     ]
                 )
             ]
-        ))
+        ), onDelete: { _ in })
     }
     .modelContainer(for: [WorkoutSession.self, CardioEntry.self], inMemory: true)
 }
