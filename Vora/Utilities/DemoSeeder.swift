@@ -26,8 +26,14 @@ enum DemoSeeder {
     static func seedIfRequested(container: ModelContainer) {
         guard ProcessInfo.processInfo.arguments.contains("--seed-demo") else { return }
         let context = ModelContext(container)
-        let existing = (try? context.fetchCount(FetchDescriptor<UserProfile>())) ?? 0
-        guard existing == 0 else { return }
+        do {
+            guard try context.fetchCount(FetchDescriptor<UserProfile>()) == 0 else { return }
+        } catch {
+            // Can't tell whether the store has a profile, so leave it alone.
+            Logger(subsystem: "com.majdarow.Vora", category: "DemoSeeder")
+                .error("Failed to check for a profile: \(String(describing: error), privacy: .public)")
+            return
+        }
         seed(into: context)
     }
 
@@ -256,15 +262,35 @@ enum DemoSeeder {
             var totalVolume = 0.0
             let logs = exercises.enumerated().map { index, exercise in
                 let progressed = Swift.max((exercise.1 * progressFactor / 2.5).rounded() * 2.5, 2.5)
-                let sets = (1...3).map { setNumber in
+                var sets = (1...3).map { setNumber in
                     SetEntry(setNumber: setNumber, weightKg: progressed, reps: 8, isCompleted: true)
                 }
                 totalVolume += progressed * 8 * 3
+                // One of each set type per session, so history shows them all.
+                switch index {
+                case 0:
+                    sets.insert(contentsOf: [
+                        SetEntry(setNumber: -1, weightKg: progressed * 0.5, reps: 5, isCompleted: true, setType: .warmUp),
+                        SetEntry(setNumber: 0, weightKg: progressed * 0.7, reps: 3, isCompleted: true, setType: .warmUp),
+                    ], at: 0)
+                case 2:
+                    sets[0].sideRawValue = SetSide.left.rawValue
+                    sets[1].sideRawValue = SetSide.right.rawValue
+                case 3:
+                    sets[2].setTypeRawValue = SetType.failure.rawValue
+                case 4:
+                    let dropKg = progressed * 0.7
+                    sets.append(SetEntry(setNumber: 4, weightKg: dropKg, reps: 10, isCompleted: true, setType: .drop))
+                    totalVolume += dropKg * 10
+                default:
+                    break
+                }
                 return ExerciseLog(
                     exerciseName: exercise.0,
                     exerciseId: ExerciseIdentity.libraryID(forName: exercise.0),
                     muscleGroups: exercise.2,
                     orderIndex: index,
+                    supersetGroup: index >= 3 ? 1 : nil,
                     sets: sets
                 )
             }

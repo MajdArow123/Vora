@@ -32,6 +32,13 @@ enum SessionPrefillMode: String, CaseIterable, Identifiable {
     }
 }
 
+/// Whether compound lifts get generated warm-ups. Lives in UserDefaults like
+/// the settings above.
+enum SmartWarmUpSettings {
+    static let storageKey = "vora.smartWarmUps"
+    static let defaultEnabled = true
+}
+
 extension ProgressionMode {
     static let storageKey = "vora.progressionMode"
 

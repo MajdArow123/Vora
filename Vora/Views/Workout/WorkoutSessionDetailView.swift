@@ -154,9 +154,16 @@ struct WorkoutSessionDetailView: View {
 
     private func exerciseCard(_ exercise: ExerciseLog) -> some View {
         VStack(alignment: .leading, spacing: DesignSystem.Spacing.sm) {
-            Text(exercise.displayName)
-                .font(DesignSystem.Typography.headline)
-                .foregroundStyle(DesignSystem.Colors.textPrimary)
+            HStack(spacing: DesignSystem.Spacing.xs) {
+                Text(exercise.displayName)
+                    .font(DesignSystem.Typography.headline)
+                    .foregroundStyle(DesignSystem.Colors.textPrimary)
+                if exercise.supersetGroup != nil {
+                    Label("Superset", systemImage: "link")
+                        .font(DesignSystem.Typography.caption)
+                        .foregroundStyle(DesignSystem.Colors.accent)
+                }
+            }
 
             if !exercise.muscleGroups.isEmpty {
                 muscleChips(exercise.muscleGroups)
@@ -176,8 +183,10 @@ struct WorkoutSessionDetailView: View {
             .font(.system(size: 10, weight: .semibold))
             .foregroundStyle(DesignSystem.Colors.textSecondary)
 
-            ForEach(exercise.sets.sorted { $0.setNumber < $1.setNumber }) { set in
-                setRow(set)
+            let sets = exercise.sets.sorted { $0.setNumber < $1.setNumber }
+            let labels = SetCounting.labels(sets.map(\.setType))
+            ForEach(Array(sets.enumerated()), id: \.element.id) { index, set in
+                setRow(set, label: labels[index])
             }
         }
         .padding(DesignSystem.Spacing.md)
@@ -185,11 +194,9 @@ struct WorkoutSessionDetailView: View {
         .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
     }
 
-    private func setRow(_ set: SetEntry) -> some View {
+    private func setRow(_ set: SetEntry, label: String) -> some View {
         HStack {
-            Text("\(set.setNumber)")
-                .font(DesignSystem.Typography.headline)
-                .foregroundStyle(DesignSystem.Colors.textSecondary)
+            SetLabel(text: label, type: set.setType, side: set.side)
                 .frame(width: 34, alignment: .leading)
 
             Text(UnitConversion.weightNumberText(kg: set.weightKg, units: units))
@@ -202,7 +209,7 @@ struct WorkoutSessionDetailView: View {
                 .foregroundStyle(DesignSystem.Colors.textPrimary)
                 .frame(maxWidth: .infinity, alignment: .center)
 
-            Text(set.rir.map { RIRScale.text($0) } ?? "–")
+            Text(set.effectiveRIR.map { RIRScale.text($0) } ?? "–")
                 .font(DesignSystem.Typography.headline)
                 .foregroundStyle(set.rir == nil
                                  ? DesignSystem.Colors.textSecondary
@@ -221,11 +228,13 @@ struct WorkoutSessionDetailView: View {
         .padding(.horizontal, DesignSystem.Spacing.xs)
         .background(
             RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.small)
-                .fill(set.isCompleted ? DesignSystem.Colors.accent.opacity(0.08) : .clear)
+                .fill(set.setType == .warmUp
+                      ? set.setType.tint.opacity(0.1)
+                      : set.isCompleted ? DesignSystem.Colors.accent.opacity(0.08) : .clear)
         )
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
-            "Set \(set.setNumber), \(UnitConversion.weightNumberText(kg: set.weightKg, units: units)) \(UnitConversion.spokenWeightUnit(units)), \(set.reps) reps\(set.rir.map { ", \(RIRScale.spokenText($0))" } ?? "")\(set.isCompleted ? ", completed" : "")"
+            "\(SetLabel.spokenText(label: label, type: set.setType, side: set.side)), \(UnitConversion.weightNumberText(kg: set.weightKg, units: units)) \(UnitConversion.spokenWeightUnit(units)), \(set.reps) reps\(set.effectiveRIR.map { ", \(RIRScale.spokenText($0))" } ?? "")\(set.isCompleted ? ", completed" : "")"
         )
     }
 
@@ -295,7 +304,7 @@ struct WorkoutSessionDetailView: View {
 
     private var completedSetCount: Int {
         session.exercises.reduce(0) { total, exercise in
-            total + exercise.sets.filter(\.isCompleted).count
+            total + exercise.sets.count { $0.isCompleted && $0.setType.countsAsTrainingSet }
         }
     }
 

@@ -180,6 +180,46 @@ struct LevelsViewModelTests {
         }
     }
 
+    private func sets(in viewModel: LevelsViewModel, exerciseId: String) -> Int? {
+        viewModel.result.levels.flatMap(\.contributors).first { $0.exerciseKey == exerciseId }?.completedSets
+    }
+
+    private func loadBench(_ sets: [SetEntry]) throws -> LevelsViewModel {
+        let log = ExerciseLog(
+            exerciseName: "Barbell Bench Press", exerciseId: "barbell-bench-press", muscleGroups: ["chest"], orderIndex: 0, sets: sets
+        )
+        context.insert(WorkoutSession(date: day(-1), sessionName: "Session", exercises: [log]))
+        try context.save()
+        let viewModel = LevelsViewModel()
+        viewModel.load(from: context, now: now, calendar: calendar)
+        return viewModel
+    }
+
+    private func bench(_ number: Int, type: SetType = .normal, side: SetSide? = nil) -> SetEntry {
+        SetEntry(setNumber: number, weightKg: 50, reps: 8, isCompleted: true, setType: type, side: side)
+    }
+
+    @Test func warmUpsDontCountButDropAndMyoRepsDo() throws {
+        let viewModel = try loadBench([
+            bench(1, type: .warmUp),
+            bench(2),
+            bench(3, type: .failure),
+            bench(4, type: .drop),
+            bench(5, type: .myoRep),
+        ])
+        #expect(sets(in: viewModel, exerciseId: "barbell-bench-press") == 4)
+    }
+
+    @Test func aWarmUpOnlySessionAddsNoSets() throws {
+        let viewModel = try loadBench([bench(1, type: .warmUp)])
+        #expect(sets(in: viewModel, exerciseId: "barbell-bench-press") == nil)
+    }
+
+    @Test func aLeftAndRightPairCountsOnce() throws {
+        let viewModel = try loadBench([bench(1, side: .left), bench(2, side: .right), bench(3, side: .left)])
+        #expect(sets(in: viewModel, exerciseId: "barbell-bench-press") == 2)
+    }
+
     @Test func everySeededExerciseResolvesToTheLibrary() throws {
         // The seed is dated from the real clock, so load against it too.
         DemoSeeder.seed(into: context)

@@ -13,7 +13,10 @@ struct SetDetail: Identifiable {
     let setNumber: Int
     let weightKg: Double
     let reps: Int
+    /// Logged RIR, else what the set type implies.
     var rir: Int? = nil
+    var setType = SetType.normal
+    var side: SetSide? = nil
 }
 
 /// Per-session best set for a single exercise.
@@ -39,8 +42,9 @@ struct ExerciseSessionStat: Identifiable {
         StrengthProgression.spokenSetsSummary(count: completedSets, minReps: minReps, maxReps: maxReps)
     }
 
-    private var minReps: Int { sets.map(\.reps).min() ?? bestReps }
-    private var maxReps: Int { sets.map(\.reps).max() ?? bestReps }
+    private var trainingReps: [Int] { sets.filter(\.setType.countsAsTrainingSet).map(\.reps) }
+    private var minReps: Int { trainingReps.min() ?? bestReps }
+    private var maxReps: Int { trainingReps.max() ?? bestReps }
 }
 
 /// Pure aggregation over fetched sessions, shared by the exercise
@@ -63,8 +67,9 @@ enum StrengthProgression {
 
     /// Best completed set per session for the exercise with the given
     /// identity key, oldest session first. A set qualifies when completed
-    /// with positive weight and reps; the best set is the heaviest, ties
-    /// broken by higher reps.
+    /// with positive weight and reps; the best set is the heaviest that can
+    /// set a record, ties broken by higher reps. `sets` lists every qualifying
+    /// set, and `completedSets` leaves warm-ups out.
     static func sessionStats(
         forKey key: String,
         sessions: [WorkoutSession]
@@ -76,8 +81,9 @@ enum StrengthProgression {
                 .filter { $0.matchKey == key }
                 .flatMap(\.sets)
                 .filter { $0.isCompleted && $0.weightKg > 0 && $0.reps > 0 }
-            guard var best = sets.first else { continue }
-            for set in sets where set.weightKg > best.weightKg
+            let eligible = sets.filter(\.setType.countsTowardRecords)
+            guard var best = eligible.first else { continue }
+            for set in eligible where set.weightKg > best.weightKg
                 || (set.weightKg == best.weightKg && set.reps > best.reps) {
                 best = set
             }
@@ -86,9 +92,18 @@ enum StrengthProgression {
                 date: session.date,
                 bestWeightKg: best.weightKg,
                 bestReps: best.reps,
-                completedSets: sets.count,
+                completedSets: sets.count(where: \.setType.countsAsTrainingSet),
                 sets: sets.sorted { $0.setNumber < $1.setNumber }
-                    .map { SetDetail(setNumber: $0.setNumber, weightKg: $0.weightKg, reps: $0.reps, rir: $0.rir) }
+                    .map {
+                        SetDetail(
+                            setNumber: $0.setNumber,
+                            weightKg: $0.weightKg,
+                            reps: $0.reps,
+                            rir: $0.effectiveRIR,
+                            setType: $0.setType,
+                            side: $0.side
+                        )
+                    }
             ))
         }
         return stats
@@ -125,7 +140,7 @@ enum StrengthProgression {
             for exercise in session.exercises {
                 let key = exercise.matchKey
                 guard seen[key] == nil,
-                      exercise.sets.contains(where: { $0.isCompleted && $0.weightKg > 0 && $0.reps > 0 })
+                      exercise.sets.contains(where: { $0.isCompleted && $0.setType.countsTowardRecords && $0.weightKg > 0 && $0.reps > 0 })
                 else { continue }
                 seen[key] = exercise.displayName
             }

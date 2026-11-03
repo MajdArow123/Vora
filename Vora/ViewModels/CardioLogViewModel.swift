@@ -91,9 +91,10 @@ final class CardioLogViewModel {
     @discardableResult
     func save(
         in context: ModelContext,
+        now: Date = .now,
         save: (ModelContext) throws -> Void = { try $0.save() }
     ) -> Task<Void, Never>? {
-        let end = Date.now
+        let end = now
         let seconds = durationMinutes * 60
         let start = end.addingTimeInterval(-Double(seconds))
         let calories = estimatedCalories

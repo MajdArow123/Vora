@@ -552,6 +552,7 @@ private struct ProgressionSettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage(SessionPrefillMode.storageKey) private var prefillMode: SessionPrefillMode = .smart
     @AppStorage(ProgressionMode.storageKey) private var progressionMode: ProgressionMode = .repsFirst
+    @AppStorage(SmartWarmUpSettings.storageKey) private var smartWarmUps = SmartWarmUpSettings.defaultEnabled
 
     var body: some View {
         NavigationStack {
@@ -577,6 +578,26 @@ private struct ProgressionSettingsSheet: View {
                                 }
                             }
                         }
+                        Text("Warm-ups")
+                            .font(DesignSystem.Typography.caption)
+                            .foregroundStyle(DesignSystem.Colors.textSecondary)
+                            .textCase(.uppercase)
+                            .padding(.top, DesignSystem.Spacing.md)
+                        Toggle(isOn: $smartWarmUps) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Smart warm-ups")
+                                    .font(DesignSystem.Typography.body)
+                                    .foregroundStyle(DesignSystem.Colors.textPrimary)
+                                Text("Adds ramp-up sets above the first working set of compound lifts.")
+                                    .font(DesignSystem.Typography.caption)
+                                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        .tint(DesignSystem.Colors.accent)
+                        .padding(DesignSystem.Spacing.md)
+                        .background(DesignSystem.Colors.card)
+                        .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
                     }
                     .padding(.horizontal, DesignSystem.Spacing.lg)
                     .padding(.vertical, DesignSystem.Spacing.md)

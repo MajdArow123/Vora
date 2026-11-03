@@ -191,7 +191,7 @@ final class WorkoutHomeViewModel {
 
         for session in sessions {
             for exercise in session.exercises {
-                for set in exercise.sets where set.isCompleted && set.weightKg > 0 && set.reps > 0 {
+                for set in exercise.sets where set.isCompleted && set.setType.countsTowardRecords && set.weightKg > 0 && set.reps > 0 {
                     let key = exercise.matchKey
                     bestE1RM[key] = max(
                         bestE1RM[key] ?? 0,
@@ -220,7 +220,7 @@ final class WorkoutHomeViewModel {
             let reps = session.exercises
                 .filter { $0.matchKey == key }
                 .flatMap(\.sets)
-                .filter { $0.isCompleted && $0.weightKg > 0 && $0.reps > 0 }
+                .filter { $0.isCompleted && $0.setType.countsAsTrainingSet && $0.weightKg > 0 && $0.reps > 0 }
                 .map(\.reps)
             record.totalSets = reps.count
             record.minReps = reps.min() ?? 0

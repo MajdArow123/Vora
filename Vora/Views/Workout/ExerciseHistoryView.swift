@@ -54,7 +54,7 @@ struct ExerciseHistoryView: View {
     // MARK: - Records
 
     private var records: ExerciseRecords {
-        StrengthProgression.records(from: entries.flatMap(\.sets).map {
+        StrengthProgression.records(from: entries.flatMap(\.sets).filter(\.setType.countsTowardRecords).map {
             RecordSet(weightKg: $0.weightKg, reps: $0.reps)
         })
     }
@@ -188,8 +188,9 @@ struct ExerciseHistoryView: View {
             }
 
             VStack(spacing: 2) {
-                ForEach(entry.sets) { set in
-                    setRow(set)
+                let labels = SetCounting.labels(entry.sets.map(\.setType))
+                ForEach(Array(entry.sets.enumerated()), id: \.element.id) { index, set in
+                    setRow(set, label: labels[index])
                 }
             }
         }
@@ -205,6 +206,12 @@ struct ExerciseHistoryView: View {
         )
     }
 
+    /// "Set 2", or the type's name for other types, with the side's letter.
+    private func setCaption(_ set: SetDetail, label: String) -> String {
+        let name = set.setType == .normal ? "Set \(label)" : set.setType.displayName
+        return set.side.map { "\(name) \($0.badge)" } ?? name
+    }
+
     /// Only the sets with RIR logged, e.g. ", set 1 2 reps in reserve".
     private static func spokenRIR(_ sets: [SetDetail]) -> String {
         sets.compactMap { set in
@@ -212,11 +219,13 @@ struct ExerciseHistoryView: View {
         }.joined()
     }
 
-    private func setRow(_ set: SetDetail) -> some View {
+    private func setRow(_ set: SetDetail, label: String) -> some View {
         HStack(spacing: DesignSystem.Spacing.md) {
-            Text("Set \(set.setNumber)")
+            Text(setCaption(set, label: label))
                 .font(DesignSystem.Typography.caption)
-                .foregroundStyle(DesignSystem.Colors.textSecondary)
+                .foregroundStyle(set.setType.tint)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
                 .frame(width: 52, alignment: .leading)
 
             Text(UnitConversion.liftWeightText(kg: set.weightKg, units: units))

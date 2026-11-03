@@ -427,7 +427,7 @@ struct SmartPrefillTests {
         vm.flushDraft()
 
         let draft = try #require(store.loadResumable())
-        #expect(draft.version == 3)
+        #expect(draft.version == ActiveSessionDraft.currentVersion)
         #expect(draft.templateSlot == TemplateSlot(split: .ppl, dayIndex: 0))
 
         let resumed = viewModel()

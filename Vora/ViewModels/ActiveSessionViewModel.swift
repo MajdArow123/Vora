@@ -52,6 +52,8 @@ final class ActiveSessionViewModel {
         /// Logged reps in reserve. nil until the user picks one; a template
         /// target is only ever shown as a placeholder.
         var rir: Int?
+        var setType = SetType.normal
+        var side: SetSide?
         /// What the engine suggests for this set now; retargeting changes it.
         var recommendation: Recommendation?
         /// What it suggested before set 1, to go back to if set 1 is undone.
@@ -72,6 +74,9 @@ final class ActiveSessionViewModel {
 
         var reps: Int? { Int(repsText) }
 
+        /// Logged RIR, else what the set type implies.
+        var effectiveRIR: Int? { setType.effectiveRIR(logged: rir) }
+
         /// A fresh, incomplete set with this set's weight and reps. RIR is
         /// not copied: effort belongs to the set that was performed.
         func copyingValues() -> DraftSet {
@@ -87,10 +92,10 @@ final class ActiveSessionViewModel {
             source = (weightText, kg)
         }
 
-        /// The recommendation, unless the weight was changed away from it.
-        /// A typed weight always wins.
+        /// The recommendation, unless the weight was changed away from it or
+        /// this isn't a working set. A typed weight always wins.
         var activeRecommendation: Recommendation? {
-            guard let recommendation, let weightKg,
+            guard setType.isWorkingSet, let recommendation, let weightKg,
                   abs(weightKg - recommendation.weightKg) < 0.005
             else { return nil }
             return recommendation
@@ -131,6 +136,8 @@ final class ActiveSessionViewModel {
         /// Weights ever logged for this exercise on step equipment, which
         /// count as loadable. Read from history, so not kept in the draft.
         var loggedLoadsKg: [Double] = []
+        /// Consecutive exercises sharing a number are a superset.
+        var supersetGroup: Int?
 
         var repRange: ClosedRange<Int>? { targets?.repRange }
 
@@ -144,8 +151,43 @@ final class ActiveSessionViewModel {
 
         /// Warnings and fixes the next set to do still carries.
         var activeWarningRecommendation: Recommendation? {
-            sets.first { !$0.isCompleted }?.activeRecommendation.flatMap { $0.warnings.isEmpty ? nil : $0 }
+            sets.first { $0.setType.isWorkingSet && !$0.isCompleted }?
+                .activeRecommendation.flatMap { $0.warnings.isEmpty ? nil : $0 }
         }
+
+        /// How many working sets come before the set at `index`. History and
+        /// recommendations are in working sets, so they line up by this.
+        func workingSetOrdinal(at index: Int) -> Int {
+            sets[..<index].count { $0.setType.isWorkingSet }
+        }
+
+        /// What this set did last time. Only working sets have a counterpart.
+        func previousSet(at index: Int) -> PreviousSet? {
+            guard sets[index].setType.isWorkingSet else { return nil }
+            let ordinal = workingSetOrdinal(at: index)
+            return ordinal < previousSets.count ? previousSets[ordinal] : nil
+        }
+
+        /// A plate caption shows on the next set to do, whatever its type,
+        /// and on the one set whose weight was tapped.
+        func showsPlateCaption(for setID: DraftSet.ID, revealed: DraftSet.ID?) -> Bool {
+            setID == revealed || setID == nextSetID
+        }
+
+        /// The first set not yet completed.
+        var nextSetID: DraftSet.ID? {
+            sets.first { !$0.isCompleted }?.id
+        }
+
+        /// The weight warm-ups ramp up to.
+        var firstWorkingWeightKg: Double? {
+            sets.first { $0.setType.isWorkingSet }?.weightKg
+        }
+    }
+
+    /// Where an exercise sits in its superset, for the bracket.
+    enum SupersetPosition: Equatable {
+        case first, middle, last
     }
 
     /// Names a set for the plate calculator. It holds no weight on purpose:
@@ -186,6 +228,9 @@ final class ActiveSessionViewModel {
     private(set) var workoutInterval: DateInterval?
     /// The saved session's ID. nil until `finish` has saved successfully.
     private(set) var savedSessionID: UUID?
+    /// The gym's loads to build warm-ups from. nil when smart warm-ups are off
+    /// or the gym has no inventory yet, and then none are generated.
+    var warmUpInventory: LoadingInventory?
 
     @ObservationIgnored private let health: any HealthWorkoutWriting
     @ObservationIgnored private var draftStore: SessionDraftStore?
@@ -226,7 +271,9 @@ final class ActiveSessionViewModel {
     var totalVolumeKg: Double {
         exercises.reduce(0) { total, exercise in
             total + exercise.sets.reduce(0) { setTotal, set in
-                guard set.isCompleted, let w = set.weightKg, let r = set.reps else { return setTotal }
+                guard set.isCompleted, set.setType.countsTowardVolume,
+                      let w = set.weightKg, let r = set.reps
+                else { return setTotal }
                 return setTotal + w * Double(r)
             }
         }
@@ -288,12 +335,13 @@ final class ActiveSessionViewModel {
                 }
                 return set
             }
+            let warmUps = warmUpSets(exerciseId: exerciseId, workingKg: sets.first?.weightKg, loggedLoads: loggedLoads)
             return DraftExercise(
                 name: name,
                 exerciseId: exerciseId,
                 muscleGroups: exerciseId.flatMap { ExerciseLibrary.definition(id: $0) }
                     .map { [$0.muscleGroup.rawValue] } ?? [],
-                sets: sets,
+                sets: warmUps + sets,
                 previousSets: previous,
                 restSeconds: spec.restSeconds,
                 targets: targets,
@@ -336,7 +384,7 @@ final class ActiveSessionViewModel {
     /// stay exact, and an unknown stack has no grid to add them to.
     private static func loggedStepLoads(exerciseId: String?, name: String, context: ModelContext) -> [Double] {
         guard let equipment = loadEquipment(exerciseId: exerciseId), LoadCalculator.usesStepLoads(equipment) else { return [] }
-        return recentHistory(exerciseId: exerciseId, name: name, limit: .max, context: context)
+        return recentHistory(exerciseId: exerciseId, name: name, limit: .max, includingAllSetTypes: true, context: context)
             .flatMap { $0.sets.map(\.weightKg) }
     }
 
@@ -358,15 +406,16 @@ final class ActiveSessionViewModel {
         guard let progression,
               let targets = exercises[e].targets,
               let predicted = exercises[e].predictedE1RMKg,
-              let first = exercises[e].sets.first
+              let firstIndex = exercises[e].sets.firstIndex(where: { $0.setType.isWorkingSet })
         else { return }
+        let first = exercises[e].sets[firstIndex]
 
         var updates: [Recommendation]?
         if first.isCompleted, let weightKg = first.weightKg, let reps = first.reps {
-            let plan = exercises[e].sets.compactMap(\.plannedRecommendation)
+            let plan = exercises[e].sets.filter(\.setType.isWorkingSet).compactMap(\.plannedRecommendation)
             updates = ProgressionEngine.retarget(
                 plan: plan,
-                firstSet: ProgressionSet(weightKg: weightKg, reps: reps, rir: first.rir),
+                firstSet: ProgressionSet(weightKg: weightKg, reps: reps, rir: first.effectiveRIR),
                 predictedE1RMKg: predicted,
                 input: engineInput(
                     exerciseId: exercises[e].exerciseId,
@@ -379,7 +428,7 @@ final class ActiveSessionViewModel {
             )
         }
 
-        for s in exercises[e].sets.indices.dropFirst() {
+        for s in exercises[e].sets.indices where s > firstIndex && exercises[e].sets[s].setType.isWorkingSet {
             guard !exercises[e].sets[s].isCompleted,
                   exercises[e].sets[s].activeRecommendation != nil,
                   let planned = exercises[e].sets[s].plannedRecommendation
@@ -442,13 +491,15 @@ final class ActiveSessionViewModel {
             loggedLoads: exercises[e].loggedLoadsKg,
             progression
         ))
-        for s in exercises[e].sets.indices {
-            guard s < recommendations.count, exercises[e].sets[s].recommendation != nil else { continue }
+        for s in exercises[e].sets.indices where exercises[e].sets[s].setType.isWorkingSet {
+            let ordinal = exercises[e].workingSetOrdinal(at: s)
+            guard ordinal < recommendations.count, exercises[e].sets[s].recommendation != nil else { continue }
+            let recommendation = recommendations[ordinal]
             if exercises[e].sets[s].isCompleted || exercises[e].sets[s].activeRecommendation == nil {
-                exercises[e].sets[s].recommendation = recommendations[s]
-                exercises[e].sets[s].plannedRecommendation = recommendations[s]
+                exercises[e].sets[s].recommendation = recommendation
+                exercises[e].sets[s].plannedRecommendation = recommendation
             } else {
-                exercises[e].sets[s].apply(recommendations[s], asPlan: true)
+                exercises[e].sets[s].apply(recommendation, asPlan: true)
             }
         }
     }
@@ -490,7 +541,7 @@ final class ActiveSessionViewModel {
             name: name,
             exerciseId: exerciseId,
             muscleGroups: muscleGroups,
-            sets: [firstSet],
+            sets: warmUpSets(exerciseId: exerciseId, workingKg: firstSet.weightKg, loggedLoads: []) + [firstSet],
             previousSets: previous,
             restSeconds: ExerciseLibrary.defaultRestSeconds(exerciseId: exerciseId),
             targets: nil
@@ -499,6 +550,7 @@ final class ActiveSessionViewModel {
 
     func removeExercise(_ id: DraftExercise.ID) {
         exercises.removeAll { $0.id == id }
+        normalizeSupersets()
     }
 
     /// Swaps an exercise for another in place, keeping its slot in the
@@ -524,10 +576,11 @@ final class ActiveSessionViewModel {
             name: name,
             exerciseId: exerciseId,
             muscleGroups: muscleGroups,
-            sets: [firstSet],
+            sets: warmUpSets(exerciseId: exerciseId, workingKg: firstSet.weightKg, loggedLoads: []) + [firstSet],
             previousSets: previous,
             restSeconds: replaced.restSeconds,
-            targets: replaced.targets
+            targets: replaced.targets,
+            supersetGroup: replaced.supersetGroup
         )
     }
 
@@ -540,7 +593,103 @@ final class ActiveSessionViewModel {
         }.reversed()
         let insertAt = destination - offsets.count(where: { $0 < destination })
         exercises.insert(contentsOf: moving, at: insertAt)
+        normalizeSupersets()
     }
+
+    // MARK: - Supersets
+
+    /// Links an exercise with the one after it. If either is already in a
+    /// superset, the other joins it, and two supersets merge.
+    func linkWithNext(_ id: DraftExercise.ID) {
+        guard let e = exercises.firstIndex(where: { $0.id == id }), e + 1 < exercises.count else { return }
+        let current = exercises[e].supersetGroup
+        let next = exercises[e + 1].supersetGroup
+        let group = current ?? next ?? (exercises.compactMap(\.supersetGroup).max() ?? 0) + 1
+        for index in exercises.indices where index == e || index == e + 1
+            || (exercises[index].supersetGroup != nil
+                && (exercises[index].supersetGroup == current || exercises[index].supersetGroup == next)) {
+            exercises[index].supersetGroup = group
+        }
+        normalizeSupersets()
+    }
+
+    /// Takes one exercise out of its superset. Leaving from the middle splits
+    /// it, and any exercise left alone loses its link.
+    func unlinkFromSuperset(_ id: DraftExercise.ID) {
+        guard let e = exercises.firstIndex(where: { $0.id == id }) else { return }
+        exercises[e].supersetGroup = nil
+        normalizeSupersets()
+    }
+
+    func supersetPosition(of id: DraftExercise.ID) -> SupersetPosition? {
+        guard let e = exercises.firstIndex(where: { $0.id == id }),
+              let group = exercises[e].supersetGroup
+        else { return nil }
+        let linkedBefore = e > 0 && exercises[e - 1].supersetGroup == group
+        let linkedAfter = e + 1 < exercises.count && exercises[e + 1].supersetGroup == group
+        switch (linkedBefore, linkedAfter) {
+        case (false, true): return .first
+        case (true, true): return .middle
+        case (true, false): return .last
+        case (false, false): return nil
+        }
+    }
+
+    private func normalizeSupersets() {
+        let groups = SetCounting.normalizedSupersetGroups(exercises.map(\.supersetGroup))
+        for index in exercises.indices where exercises[index].supersetGroup != groups[index] {
+            exercises[index].supersetGroup = groups[index]
+        }
+    }
+
+    // MARK: - Warm-ups
+
+    private func warmUpSets(exerciseId: String?, workingKg: Double?, loggedLoads: [Double]) -> [DraftSet] {
+        // Custom exercises have no known mechanics or equipment, so get none.
+        guard let warmUpInventory, let workingKg,
+              let definition = exerciseId.flatMap({ ExerciseLibrary.definition(id: $0) }),
+              let equipment = LoadingInventory.loadEquipment(in: definition.equipment)
+        else { return [] }
+        return WarmUpGenerator.sets(
+            workingKg: workingKg,
+            mechanics: definition.mechanics,
+            equipment: equipment,
+            inventory: warmUpInventory,
+            loggedKg: loggedLoads
+        ).map { warmUp in
+            var set = DraftSet(units: units)
+            set.setType = .warmUp
+            set.setWeight(kg: warmUp.weightKg)
+            // Filled in, unlike working sets: a warm-up counts toward nothing,
+            // so one tap should be enough.
+            set.repsText = String(warmUp.reps)
+            return set
+        }
+    }
+
+    private func suggestedWarmUps(for exercise: DraftExercise) -> [DraftSet] {
+        guard !exercise.sets.contains(where: { $0.setType == .warmUp }) else { return [] }
+        return warmUpSets(
+            exerciseId: exercise.exerciseId,
+            workingKg: exercise.firstWorkingWeightKg,
+            loggedLoads: exercise.loggedLoadsKg
+        )
+    }
+
+    /// Whether warm-ups can be added now: an exercise with no weight when the
+    /// session opened has none until one is typed, and a deleted ramp can be
+    /// rebuilt from the current weight.
+    func canAddWarmUps(to exerciseID: DraftExercise.ID) -> Bool {
+        guard let exercise = exercises.first(where: { $0.id == exerciseID }) else { return false }
+        return !suggestedWarmUps(for: exercise).isEmpty
+    }
+
+    func addWarmUps(to exerciseID: DraftExercise.ID) {
+        guard let e = exercises.firstIndex(where: { $0.id == exerciseID }) else { return }
+        exercises[e].sets.insert(contentsOf: suggestedWarmUps(for: exercises[e]), at: 0)
+    }
+
+    // MARK: - Set types
 
     func addSet(to exerciseID: DraftExercise.ID) {
         guard let index = exercises.firstIndex(where: { $0.id == exerciseID }) else { return }
@@ -555,6 +704,30 @@ final class ActiveSessionViewModel {
     func removeSet(_ setID: DraftSet.ID, from exerciseID: DraftExercise.ID) {
         guard let index = exercises.firstIndex(where: { $0.id == exerciseID }) else { return }
         exercises[index].sets.removeAll { $0.id == setID }
+    }
+
+    /// Changes a set's type. Warm-ups always sit above working sets, so a set
+    /// entering or leaving the warm-ups moves to the boundary between them.
+    func setType(_ type: SetType, setID: DraftSet.ID, in exerciseID: DraftExercise.ID) {
+        guard let e = exercises.firstIndex(where: { $0.id == exerciseID }),
+              let s = exercises[e].sets.firstIndex(where: { $0.id == setID })
+        else { return }
+        let old = exercises[e].sets[s].setType
+        guard old != type else { return }
+        exercises[e].sets[s].setType = type
+        if (old == .warmUp) != (type == .warmUp) {
+            let moved = exercises[e].sets.remove(at: s)
+            let boundary = exercises[e].sets.firstIndex { $0.setType != .warmUp } ?? exercises[e].sets.count
+            exercises[e].sets.insert(moved, at: boundary)
+        }
+        retargetRemainingSets(exerciseIndex: e)
+    }
+
+    func setSide(_ side: SetSide?, setID: DraftSet.ID, in exerciseID: DraftExercise.ID) {
+        guard let e = exercises.firstIndex(where: { $0.id == exerciseID }),
+              let s = exercises[e].sets.firstIndex(where: { $0.id == setID })
+        else { return }
+        exercises[e].sets[s].side = side
     }
 
     /// Toggles completion. Completing requires parseable reps ≥ 1
@@ -603,6 +776,25 @@ final class ActiveSessionViewModel {
         restEndDate = now().addingTimeInterval(duration)
     }
 
+    /// Starts the exercise's rest after a set, unless the next thing to do
+    /// follows without one: warm-ups run straight on, drop and myo-rep sets
+    /// follow immediately, and a superset rests only once a round is done.
+    func startRestIfDue(afterCompleting setID: DraftSet.ID, in exerciseID: DraftExercise.ID) {
+        guard let e = exercises.firstIndex(where: { $0.id == exerciseID }),
+              let s = exercises[e].sets.firstIndex(where: { $0.id == setID }),
+              exercises[e].sets[s].setType != .warmUp
+        else { return }
+        if s + 1 < exercises[e].sets.count {
+            let next = exercises[e].sets[s + 1].setType
+            if next == .drop || next == .myoRep { return }
+        }
+        if let group = exercises[e].supersetGroup {
+            let laterInSuperset = exercises[(e + 1)...].prefix { $0.supersetGroup == group }
+            if laterInSuperset.contains(where: { $0.sets.contains { !$0.isCompleted } }) { return }
+        }
+        startRest(duration: TimeInterval(exercises[e].restSeconds))
+    }
+
     func cancelRest() {
         restEndDate = nil
     }
@@ -631,6 +823,7 @@ final class ActiveSessionViewModel {
         var newPRs: [SessionPR] = []
         var savedExerciseCount = 0
         var savedSetCount = 0
+        var savedLogs: [(log: ExerciseLog, group: Int?)] = []
 
         for (order, draft) in exercises.enumerated() {
             let completed = draft.sets.filter { $0.isCompleted && $0.weightKg != nil && ($0.reps ?? 0) >= 1 }
@@ -644,6 +837,7 @@ final class ActiveSessionViewModel {
                 targets: draft.targets
             )
             session.exercises.append(log)
+            savedLogs.append((log, draft.supersetGroup))
             savedExerciseCount += 1
 
             for (setIndex, set) in completed.enumerated() {
@@ -652,16 +846,20 @@ final class ActiveSessionViewModel {
                     weightKg: set.weightKg ?? 0,
                     reps: set.reps ?? 0,
                     isCompleted: true,
-                    rir: set.rir
+                    rir: set.rir,
+                    setType: set.setType,
+                    side: set.side
                 ))
-                savedSetCount += 1
+                if set.setType.countsAsTrainingSet { savedSetCount += 1 }
             }
 
             guard let priorSets else { continue }
             let key = ExerciseIdentity.key(exerciseId: draft.exerciseId, name: draft.name)
             let records = StrengthProgression.newRecords(
                 prior: priorSets[key] ?? [],
-                session: completed.map { RecordSet(weightKg: $0.weightKg ?? 0, reps: $0.reps ?? 0) }
+                session: completed.filter(\.setType.countsTowardRecords).map {
+                    RecordSet(weightKg: $0.weightKg ?? 0, reps: $0.reps ?? 0)
+                }
             )
             newPRs += records.map {
                 SessionPR(
@@ -672,6 +870,13 @@ final class ActiveSessionViewModel {
                     reps: $0.reps
                 )
             }
+        }
+
+        // Exercises with nothing completed aren't saved, which can leave a
+        // superset with one exercise.
+        let groups = SetCounting.normalizedSupersetGroups(savedLogs.map(\.group))
+        for (saved, group) in zip(savedLogs, groups) {
+            saved.log.supersetGroup = group
         }
 
         do {
@@ -733,10 +938,18 @@ final class ActiveSessionViewModel {
     }
 
     /// The most recent sessions that logged the exercise with at least one
-    /// completed set, newest first. Fetches candidate sessions newest first,
+    /// completed working set, newest first, in working sets only (failure sets
+    /// carry their implied RIR). With `includingAllSetTypes`, every completed
+    /// set counts, for what has been lifted rather than how. Fetches candidate sessions newest first,
     /// one page at a time, and confirms each match by identity key so
     /// renamed and legacy rows resolve the same way.
-    static func recentHistory(exerciseId: String?, name: String, limit: Int, context: ModelContext) -> [ExerciseHistoryEntry] {
+    static func recentHistory(
+        exerciseId: String?,
+        name: String,
+        limit: Int,
+        includingAllSetTypes: Bool = false,
+        context: ModelContext
+    ) -> [ExerciseHistoryEntry] {
         let key = ExerciseIdentity.key(exerciseId: exerciseId, name: name)
         var descriptor = ExerciseIdentity.candidateSessions(exerciseId: exerciseId ?? ExerciseIdentity.libraryID(forName: name))
         descriptor.fetchLimit = historyPageSize
@@ -750,9 +963,9 @@ final class ActiveSessionViewModel {
                 for session in page {
                     guard let match = session.exercises.first(where: { $0.matchKey == key }) else { continue }
                     let sets = match.sets
-                        .filter(\.isCompleted)
+                        .filter { $0.isCompleted && (includingAllSetTypes || $0.setType.isWorkingSet) }
                         .sorted { $0.setNumber < $1.setNumber }
-                        .map { ProgressionSet(weightKg: $0.weightKg, reps: $0.reps, rir: $0.rir) }
+                        .map { ProgressionSet(weightKg: $0.weightKg, reps: $0.reps, rir: $0.effectiveRIR) }
                     guard !sets.isEmpty else { continue }
                     found.append(ExerciseHistoryEntry(date: session.date, sets: sets, targets: match.targetSnapshot))
                     if found.count == limit { return found }
@@ -766,7 +979,7 @@ final class ActiveSessionViewModel {
         }
     }
 
-    /// Every completed set so far, by exercise identity key. nil when the
+    /// Every set that can set a record so far, by exercise identity key. nil when the
     /// history can't be read: no comparison is better than calling everything
     /// a record.
     private static func priorRecordSets(context: ModelContext) -> [String: [RecordSet]]? {
@@ -780,7 +993,9 @@ final class ActiveSessionViewModel {
         var sets: [String: [RecordSet]] = [:]
         for session in sessions {
             for exercise in session.exercises {
-                let completed = exercise.sets.filter(\.isCompleted).map { RecordSet(weightKg: $0.weightKg, reps: $0.reps) }
+                let completed = exercise.sets
+                    .filter { $0.isCompleted && $0.setType.countsTowardRecords }
+                    .map { RecordSet(weightKg: $0.weightKg, reps: $0.reps) }
                 sets[exercise.matchKey, default: []] += completed
             }
         }
@@ -811,11 +1026,14 @@ final class ActiveSessionViewModel {
                             isCompleted: $0.isCompleted,
                             rir: $0.rir,
                             recommendation: $0.recommendation,
-                            plannedRecommendation: $0.plannedRecommendation
+                            plannedRecommendation: $0.plannedRecommendation,
+                            setType: $0.setType == .normal ? nil : $0.setType,
+                            side: $0.side
                         )
                     },
                     predictedE1RMKg: exercise.predictedE1RMKg,
-                    daysSinceLastSession: exercise.daysSinceLastSession
+                    daysSinceLastSession: exercise.daysSinceLastSession,
+                    supersetGroup: exercise.supersetGroup
                 )
             },
             templateSlot: templateSlot
@@ -847,6 +1065,8 @@ final class ActiveSessionViewModel {
                 set.rir = RIRScale.validated(savedSet.rir)
                 set.recommendation = savedSet.recommendation
                 set.plannedRecommendation = savedSet.plannedRecommendation
+                set.setType = savedSet.setType ?? .normal
+                set.side = savedSet.side
                 return set
             }
             return DraftExercise(
@@ -859,7 +1079,8 @@ final class ActiveSessionViewModel {
                 targets: saved.targets,
                 predictedE1RMKg: saved.predictedE1RMKg,
                 daysSinceLastSession: saved.daysSinceLastSession,
-                loggedLoadsKg: progression == nil ? [] : Self.loggedStepLoads(exerciseId: saved.exerciseId, name: name, context: context)
+                loggedLoadsKg: progression == nil ? [] : Self.loggedStepLoads(exerciseId: saved.exerciseId, name: name, context: context),
+                supersetGroup: saved.supersetGroup
             )
         }
         restEndDate = draft.restEndDate.flatMap { $0 > resumedAt ? $0 : nil }

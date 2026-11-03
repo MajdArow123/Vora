@@ -174,7 +174,8 @@ struct CardioLogViewModelTests {
     @Test func saveTreadmillPersistsMachineFields() async throws {
         let container = try makeContainer()
         let context = ModelContext(container)
-        context.insert(WeightEntry(date: .now, weightKg: 80))
+        let now = Date(timeIntervalSinceReferenceDate: 815_780_000)
+        context.insert(WeightEntry(date: now, weightKg: 80))
         try context.save()
 
         let writer = RecordingCardioWriter()
@@ -185,7 +186,7 @@ struct CardioLogViewModelTests {
         viewModel.inclinePercent = 2
         viewModel.durationMinutes = 30
 
-        await viewModel.save(in: context)?.value
+        await viewModel.save(in: context, now: now)?.value
 
         let entries = try context.fetch(FetchDescriptor<CardioEntry>())
         #expect(entries.count == 1)
@@ -194,7 +195,7 @@ struct CardioLogViewModelTests {
         #expect(entry.durationSeconds == 1800)
         // 8.85 MET + 1.0 incline = 9.85 × 80 kg × 0.5 h = 394 kcal.
         #expect(abs(entry.estimatedCalories - 394) < 0.001)
-        #expect(abs(entry.date.timeIntervalSinceNow) < 5)
+        #expect(entry.date == now)
         #expect(entry.speedKmh == 8.5)
         #expect(entry.inclinePercent == 2)
         #expect(abs(try #require(entry.distanceKm) - 4.25) < 0.001)

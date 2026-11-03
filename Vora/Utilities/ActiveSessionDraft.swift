@@ -35,8 +35,9 @@ nonisolated struct TemplateSlot: Codable, Equatable {
 /// killed app can resume the workout. Weights are kilograms.
 nonisolated struct ActiveSessionDraft: Codable, Equatable {
     /// Version 2 added `Set.rir`. Version 3 added recommendations and the
-    /// template slot. Older drafts decode as they are, with none of them.
-    static let currentVersion = 3
+    /// template slot. Version 4 added set types, sides and superset groups.
+    /// Older drafts decode as they are, with none of them.
+    static let currentVersion = 4
     static let readableVersions = 1...currentVersion
 
     struct Exercise: Codable, Equatable {
@@ -50,6 +51,7 @@ nonisolated struct ActiveSessionDraft: Codable, Equatable {
         var sets: [Set]
         var predictedE1RMKg: Double?
         var daysSinceLastSession: Int?
+        var supersetGroup: Int?
     }
 
     struct Set: Codable, Equatable {
@@ -59,6 +61,9 @@ nonisolated struct ActiveSessionDraft: Codable, Equatable {
         var rir: Int?
         var recommendation: Recommendation?
         var plannedRecommendation: Recommendation?
+        /// nil means normal.
+        var setType: SetType?
+        var side: SetSide?
     }
 
     var version = Self.currentVersion

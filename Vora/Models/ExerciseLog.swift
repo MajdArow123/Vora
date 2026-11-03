@@ -23,6 +23,9 @@ final class ExerciseLog {
     var repRangeMax: Int?
     var targetRIR: Int?
     var targetSets: Int?
+    /// Exercises of a session sharing a number were done as a superset; they
+    /// are always consecutive. nil when not linked and on pre-V8 rows.
+    var supersetGroup: Int?
 
     @Relationship(deleteRule: .cascade, inverse: \SetEntry.parent)
     var sets: [SetEntry]
@@ -36,6 +39,7 @@ final class ExerciseLog {
         muscleGroups: [String] = [],
         orderIndex: Int,
         targets: TemplateTargets? = nil,
+        supersetGroup: Int? = nil,
         sets: [SetEntry] = []
     ) {
         self.id = id
@@ -47,6 +51,7 @@ final class ExerciseLog {
         self.repRangeMax = targets?.repRangeMax
         self.targetRIR = targets?.targetRIR
         self.targetSets = targets?.targetSets
+        self.supersetGroup = supersetGroup
         self.sets = sets
     }
 }

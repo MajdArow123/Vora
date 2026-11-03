@@ -10,6 +10,67 @@ import SwiftData
 import Testing
 @testable import Vora
 
+struct SetTypeRecordTests {
+    private let container: ModelContainer
+    private let context: ModelContext
+
+    init() throws {
+        container = try PersistenceController.makeContainer(inMemory: true)
+        context = container.mainContext
+    }
+
+    private func set(_ number: Int, _ weight: Double, _ reps: Int = 8, rir: Int? = nil, type: SetType = .normal) -> SetEntry {
+        SetEntry(setNumber: number, weightKg: weight, reps: reps, isCompleted: true, rir: rir, setType: type)
+    }
+
+    private func session(_ sets: [SetEntry]) throws -> [WorkoutSession] {
+        let log = ExerciseLog(
+            exerciseName: "Barbell Bench Press", exerciseId: "barbell-bench-press", muscleGroups: ["chest"], orderIndex: 0, sets: sets
+        )
+        let session = WorkoutSession(date: Date(timeIntervalSince1970: 1_795_075_200), sessionName: "Push", exercises: [log])
+        context.insert(session)
+        try context.save()
+        return [session]
+    }
+
+    @Test func personalRecordsUseStraightSetsOnly() throws {
+        _ = try session([
+            set(1, 300, type: .warmUp),
+            set(2, 100, 5),
+            set(3, 280, type: .drop),
+            set(4, 260, type: .myoRep),
+        ])
+        let record = try #require(WorkoutHomeViewModel.computePersonalRecords(from: context).first)
+        #expect(record.weightKg == 100)
+        #expect(record.bestE1RMKg == StrengthProgression.epley(weightKg: 100, repsToFailure: 5))
+        // The summary counts what was trained, which leaves only warm-ups out.
+        #expect(record.totalSets == 3)
+    }
+
+    @Test func aFailureSetCanBeARecord() throws {
+        _ = try session([set(1, 100), set(2, 110, 3, type: .failure)])
+        #expect(WorkoutHomeViewModel.computePersonalRecords(from: context).first?.weightKg == 110)
+    }
+
+    @Test func sessionStatsListEverySetButJudgeStraightOnes() throws {
+        let sessions = try session([set(1, 300, type: .warmUp), set(2, 100, 5), set(3, 90, 6, type: .failure), set(4, 200, 12, type: .drop)])
+        let stat = try #require(StrengthProgression.sessionStats(forKey: "barbell-bench-press", sessions: sessions).first)
+        #expect(stat.bestWeightKg == 100)
+        #expect(stat.bestReps == 5)
+        #expect(stat.completedSets == 3)
+        #expect(stat.sets.map(\.setType) == [.warmUp, .normal, .failure, .drop])
+        #expect(stat.sets.map(\.rir) == [nil, nil, 0, nil])
+        // Reps in the summary leave the warm-up's out.
+        #expect(stat.setsSummary == "3 sets × 5–12 reps")
+    }
+
+    @Test func sessionsWithoutStraightSetsHaveNoStat() throws {
+        let sessions = try session([set(1, 100, type: .warmUp), set(2, 50, type: .drop)])
+        #expect(StrengthProgression.sessionStats(forKey: "barbell-bench-press", sessions: sessions).isEmpty)
+        #expect(StrengthProgression.distinctExerciseNames(in: sessions).isEmpty)
+    }
+}
+
 struct NewRecordDetectionTests {
     private func set(_ weight: Double, _ reps: Int) -> RecordSet { RecordSet(weightKg: weight, reps: reps) }
 

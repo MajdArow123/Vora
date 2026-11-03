@@ -23,6 +23,7 @@ struct ActiveSessionView: View {
     @State private var editMode: EditMode = .inactive
     @AppStorage(SessionPrefillMode.storageKey) private var prefillMode: SessionPrefillMode = .smart
     @AppStorage(ProgressionMode.storageKey) private var progressionMode: ProgressionMode = .repsFirst
+    @AppStorage(SmartWarmUpSettings.storageKey) private var smartWarmUps = SmartWarmUpSettings.defaultEnabled
 
     private let templatePlan: [TemplateExerciseSpec]
     private let restoredDraft: ActiveSessionDraft?
@@ -77,9 +78,6 @@ struct ActiveSessionView: View {
                             viewModel: viewModel,
                             isUnavailable: isUnavailable(exercise.name),
                             inventory: activeProfiles.first?.loadingInventory,
-                            onSetCompleted: {
-                                viewModel.startRest(duration: TimeInterval(exercise.restSeconds))
-                            },
                             onSwap: {
                                 swappingExercise = exercise
                             },
@@ -94,7 +92,7 @@ struct ActiveSessionView: View {
                                 }
                             }
                         )
-                        .listRowBackground(Color.clear)
+                        .listRowBackground(SupersetBracket(position: viewModel.supersetPosition(of: exercise.id)))
                         .listRowSeparator(.hidden)
                         .listRowInsets(rowInsets)
                         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
@@ -188,6 +186,7 @@ struct ActiveSessionView: View {
         .onAppear {
             guard !didPrefill else { return }
             didPrefill = true
+            viewModel.warmUpInventory = smartWarmUps ? activeProfiles.first?.loadingInventory : nil
             if let restoredDraft {
                 viewModel.restore(from: restoredDraft, context: modelContext, progression: progressionContext)
             } else {
@@ -324,13 +323,15 @@ struct ExerciseSessionCard: View {
     var isUnavailable = false
     /// The active gym's inventory; nil if it hasn't been filled yet.
     var inventory: LoadingInventory?
-    let onSetCompleted: () -> Void
     var onSwap: () -> Void = {}
     var onInfo: () -> Void = {}
     var onFix: (ProgressionFix) -> Void = { _ in }
 
     @State private var plateRequest: ActiveSessionViewModel.PlateCalculatorRequest?
     @State private var whySetID: ActiveSessionViewModel.DraftSet.ID?
+    /// The set whose plate caption was asked for by tapping its weight.
+    /// Clears once the next set to do changes.
+    @State private var revealedPlatesSetID: ActiveSessionViewModel.DraftSet.ID?
     /// A fix chosen in the why sheet, applied once it has closed, since a
     /// swap opens a sheet of its own.
     @State private var pendingFix: ProgressionFix?
@@ -365,6 +366,12 @@ struct ExerciseSessionCard: View {
                     .clipShape(Capsule())
                     .accessibilityLabel("Not available at your active gym")
                 }
+                if exercise.supersetGroup != nil {
+                    Image(systemName: "link")
+                        .font(.caption)
+                        .foregroundStyle(DesignSystem.Colors.accent)
+                        .accessibilityLabel("In a superset")
+                }
                 Spacer()
                 Button(action: onInfo) {
                     Image(systemName: "info.circle")
@@ -379,6 +386,29 @@ struct ExerciseSessionCard: View {
                         onSwap()
                     } label: {
                         Label("Swap Exercise", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    if viewModel.canAddWarmUps(to: exercise.id) {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                viewModel.addWarmUps(to: exercise.id)
+                            }
+                        } label: {
+                            Label("Add Warm-Ups", systemImage: "flame")
+                        }
+                    }
+                    if canLinkWithNext {
+                        Button {
+                            viewModel.linkWithNext(exercise.id)
+                        } label: {
+                            Label("Superset with Next", systemImage: "link")
+                        }
+                    }
+                    if exercise.supersetGroup != nil {
+                        Button {
+                            viewModel.unlinkFromSuperset(exercise.id)
+                        } label: {
+                            Label("Remove from Superset", systemImage: "personalhotspot.slash")
+                        }
                     }
                     Button(role: .destructive) {
                         withAnimation(.easeInOut(duration: 0.2)) {
@@ -416,27 +446,28 @@ struct ExerciseSessionCard: View {
             .font(.system(size: 10, weight: .semibold))
             .foregroundStyle(DesignSystem.Colors.textSecondary)
 
+            let labels = SetCounting.labels(exercise.sets.map(\.setType))
             ForEach(Array(exercise.sets.enumerated()), id: \.element.id) { index, set in
                 SetRow(
-                    setNumber: index + 1,
+                    label: labels[index],
                     set: set,
-                    previousText: index < exercise.previousSets.count
-                        ? exercise.previousSets[index].text(units: viewModel.units)
-                        : "—",
-                    repsPlaceholder: set.activeRecommendation.map { "\($0.targetReps)" }
-                        ?? exercise.repRange.map { Self.repRangeText($0) }
-                        ?? "0",
-                    targetRIR: exercise.targets?.targetRIR,
+                    previousText: exercise.previousSet(at: index)?.text(units: viewModel.units) ?? "—",
+                    repsPlaceholder: repsPlaceholder(for: set),
+                    targetRIR: set.setType.isWorkingSet ? exercise.targets?.targetRIR : nil,
                     exerciseID: exercise.id,
                     viewModel: viewModel,
-                    plateCaption: plateCaption(for: set),
+                    plateCaption: exercise.showsPlateCaption(for: set.id, revealed: revealedPlatesSetID)
+                        ? plateCaption(for: set)
+                        : nil,
                     onPlatesTapped: {
                         plateRequest = .init(setID: set.id, exerciseID: exercise.id)
                     },
+                    onWeightTapped: {
+                        revealedPlatesSetID = set.id
+                    },
                     onWhyTapped: {
                         whySetID = set.id
-                    },
-                    onCompleted: onSetCompleted
+                    }
                 )
             }
 
@@ -461,6 +492,9 @@ struct ExerciseSessionCard: View {
         .padding(DesignSystem.Spacing.md)
         .background(DesignSystem.Colors.card)
         .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
+        .onChange(of: exercise.nextSetID) {
+            revealedPlatesSetID = nil
+        }
         .sheet(item: $plateRequest) { request in
             PlateCalculatorSheet(
                 totalKg: viewModel.plateCalculatorWeightKg(for: request) ?? 0,
@@ -489,6 +523,23 @@ struct ExerciseSessionCard: View {
         }
     }
 
+    /// Whether the next exercise is outside this one's superset.
+    private var canLinkWithNext: Bool {
+        guard let index = viewModel.exercises.firstIndex(where: { $0.id == exercise.id }),
+              index + 1 < viewModel.exercises.count
+        else { return false }
+        return exercise.supersetGroup == nil
+            || viewModel.exercises[index + 1].supersetGroup != exercise.supersetGroup
+    }
+
+    /// Targets are for working sets; other types have no rep range to hit.
+    private func repsPlaceholder(for set: ActiveSessionViewModel.DraftSet) -> String {
+        guard set.setType.isWorkingSet else { return "0" }
+        return set.activeRecommendation.map { "\($0.targetReps)" }
+            ?? exercise.repRange.map { Self.repRangeText($0) }
+            ?? "0"
+    }
+
     private struct WhyRequest: Identifiable {
         let id: ActiveSessionViewModel.DraftSet.ID
         let setNumber: Int
@@ -503,7 +554,7 @@ struct ExerciseSessionCard: View {
                       let index = exercise.sets.firstIndex(where: { $0.id == whySetID }),
                       let recommendation = exercise.sets[index].activeRecommendation
                 else { return nil }
-                return WhyRequest(id: whySetID, setNumber: index + 1, recommendation: recommendation)
+                return WhyRequest(id: whySetID, setNumber: exercise.workingSetOrdinal(at: index) + 1, recommendation: recommendation)
             },
             set: { whySetID = $0?.id }
         )
@@ -558,7 +609,7 @@ fileprivate struct SetRow: View {
         let isLoadable: Bool
     }
 
-    let setNumber: Int
+    let label: String
     let set: ActiveSessionViewModel.DraftSet
     let previousText: String
     let repsPlaceholder: String
@@ -567,8 +618,10 @@ fileprivate struct SetRow: View {
     let viewModel: ActiveSessionViewModel
     let plateCaption: PlateCaption?
     let onPlatesTapped: () -> Void
+    let onWeightTapped: () -> Void
     let onWhyTapped: () -> Void
-    let onCompleted: () -> Void
+
+    @FocusState private var isWeightFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -580,7 +633,7 @@ fileprivate struct SetRow: View {
         .padding(.horizontal, DesignSystem.Spacing.xs)
         .background(
             RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.small)
-                .fill(set.isCompleted ? DesignSystem.Colors.accent.opacity(0.08) : .clear)
+                .fill(rowBackground)
         )
         .contextMenu {
             Button(role: .destructive) {
@@ -591,6 +644,11 @@ fileprivate struct SetRow: View {
                 Label("Delete Set", systemImage: "trash")
             }
         }
+    }
+
+    private var rowBackground: Color {
+        if set.isCompleted { return DesignSystem.Colors.accent.opacity(0.08) }
+        return set.setType == .warmUp ? set.setType.tint.opacity(0.1) : .clear
     }
 
     /// Side by side when they fit, so a set doesn't take three lines.
@@ -663,10 +721,7 @@ fileprivate struct SetRow: View {
 
     private var controls: some View {
         HStack(spacing: Self.columnSpacing) {
-            Text("\(setNumber)")
-                .font(DesignSystem.Typography.headline)
-                .foregroundStyle(DesignSystem.Colors.textSecondary)
-                .frame(width: Self.setNumberWidth, alignment: .leading)
+            setTypeMenu
 
             Text(previousText)
                 .font(DesignSystem.Typography.caption)
@@ -675,6 +730,15 @@ fileprivate struct SetRow: View {
                 .lineLimit(1)
 
             field(binding(\.weightText), placeholder: "0")
+                .focused($isWeightFocused)
+                .onChange(of: isWeightFocused) { _, isFocused in
+                    if isFocused { onWeightTapped() }
+                }
+                // A completed set's field is disabled, so it can't take focus.
+                .simultaneousGesture(
+                    TapGesture().onEnded { onWeightTapped() },
+                    including: set.isCompleted ? .all : .subviews
+                )
                 .accessibilityLabel("Weight in \(UnitConversion.spokenWeightUnit(set.units))")
             field(binding(\.repsText), placeholder: repsPlaceholder)
                 .accessibilityLabel("Reps")
@@ -687,7 +751,7 @@ fileprivate struct SetRow: View {
                 }
                 if completed {
                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                    onCompleted()
+                    viewModel.startRestIfDue(afterCompleting: set.id, in: exerciseID)
                 }
             } label: {
                 Image(systemName: set.isCompleted ? "checkmark.circle.fill" : "circle")
@@ -704,9 +768,57 @@ fileprivate struct SetRow: View {
         }
     }
 
+    /// Tap the number to change the set's type or side. Stays enabled on
+    /// completed sets, so a set can be corrected after doing it.
+    private var setTypeMenu: some View {
+        Menu {
+            Picker("Set type", selection: typeBinding) {
+                ForEach(SetType.allCases) { type in
+                    Text(type.displayName).tag(type)
+                }
+            }
+            Picker("Side", selection: sideBinding) {
+                Text("Both sides").tag(SetSide?.none)
+                ForEach(SetSide.allCases) { side in
+                    Text(side.displayName).tag(SetSide?.some(side))
+                }
+            }
+        } label: {
+            SetLabel(text: label, type: set.setType, side: set.side)
+                .frame(width: Self.setNumberWidth, height: 40, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel(SetLabel.spokenText(label: label, type: set.setType, side: set.side))
+        .accessibilityHint("Changes the set type or side")
+    }
+
+    private var typeBinding: Binding<SetType> {
+        Binding(
+            get: {
+                viewModel.exercises.first { $0.id == exerciseID }?
+                    .sets.first { $0.id == set.id }?.setType ?? .normal
+            },
+            set: { type in
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    viewModel.setType(type, setID: set.id, in: exerciseID)
+                }
+            }
+        )
+    }
+
+    private var sideBinding: Binding<SetSide?> {
+        Binding(
+            get: {
+                viewModel.exercises.first { $0.id == exerciseID }?
+                    .sets.first { $0.id == set.id }?.side
+            },
+            set: { viewModel.setSide($0, setID: set.id, in: exerciseID) }
+        )
+    }
+
     /// Stays enabled on completed sets, since effort is usually rated right
     /// after finishing. An untouched picker shows the target dimmed and logs
-    /// nothing.
+    /// nothing, and so does an implied value.
     private var rirPicker: some View {
         Menu {
             Picker("Reps in reserve", selection: rirBinding) {
@@ -717,7 +829,7 @@ fileprivate struct SetRow: View {
                 }
             }
         } label: {
-            Text((set.rir ?? targetRIR).map { RIRScale.text($0) } ?? "–")
+            Text((set.effectiveRIR ?? targetRIR).map { RIRScale.text($0) } ?? "–")
                 .font(DesignSystem.Typography.headline)
                 .foregroundStyle(set.rir == nil
                                  ? DesignSystem.Colors.textSecondary.opacity(0.6)
@@ -731,8 +843,13 @@ fileprivate struct SetRow: View {
                 .contentShape(Rectangle())
         }
         .accessibilityLabel("Reps in reserve")
-        .accessibilityValue(set.rir.map { RIRScale.spokenText($0) } ?? "Not logged")
+        .accessibilityValue(rirSpokenValue)
         .accessibilityHint(targetRIR.map { "Target: \(RIRScale.spokenText($0))" } ?? "")
+    }
+
+    private var rirSpokenValue: String {
+        if let rir = set.rir { return RIRScale.spokenText(rir) }
+        return set.setType.impliedRIR.map { "\(RIRScale.spokenText($0)), implied by the set type" } ?? "Not logged"
     }
 
     private var rirBinding: Binding<Int?> {
@@ -750,7 +867,7 @@ fileprivate struct SetRow: View {
             .keyboardType(.decimalPad)
             .multilineTextAlignment(.center)
             .font(DesignSystem.Typography.headline)
-            .foregroundStyle(DesignSystem.Colors.textPrimary)
+            .foregroundStyle(set.setType == .warmUp ? DesignSystem.Colors.textSecondary : DesignSystem.Colors.textPrimary)
             .minimumScaleFactor(0.7)
             .padding(.vertical, 6)
             .frame(maxWidth: .infinity)
@@ -774,6 +891,49 @@ fileprivate struct SetRow: View {
                 viewModel.exercises[e].sets[s][keyPath: keyPath] = newValue
             }
         )
+    }
+}
+
+// MARK: - Superset bracket
+
+/// Joins a superset's cards in the left gutter. Lives in the row background,
+/// which spans the row's insets, so its lines meet across rows.
+private struct SupersetBracket: View {
+    let position: ActiveSessionViewModel.SupersetPosition?
+
+    var body: some View {
+        if let position {
+            BracketShape(position: position)
+                .stroke(DesignSystem.Colors.accent, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                .accessibilityHidden(true)
+        } else {
+            Color.clear
+        }
+    }
+
+    private struct BracketShape: Shape {
+        let position: ActiveSessionViewModel.SupersetPosition
+
+        func path(in rect: CGRect) -> Path {
+            let lineX = DesignSystem.Spacing.sm
+            let tickEndX = DesignSystem.Spacing.lg
+            let tickInset = DesignSystem.Spacing.lg + DesignSystem.Spacing.sm
+            var path = Path()
+            switch position {
+            case .first:
+                path.move(to: CGPoint(x: tickEndX, y: rect.minY + tickInset))
+                path.addLine(to: CGPoint(x: lineX, y: rect.minY + tickInset))
+                path.addLine(to: CGPoint(x: lineX, y: rect.maxY))
+            case .middle:
+                path.move(to: CGPoint(x: lineX, y: rect.minY))
+                path.addLine(to: CGPoint(x: lineX, y: rect.maxY))
+            case .last:
+                path.move(to: CGPoint(x: lineX, y: rect.minY))
+                path.addLine(to: CGPoint(x: lineX, y: rect.maxY - tickInset))
+                path.addLine(to: CGPoint(x: tickEndX, y: rect.maxY - tickInset))
+            }
+            return path
+        }
     }
 }
 

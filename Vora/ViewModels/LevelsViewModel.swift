@@ -78,7 +78,9 @@ final class LevelsViewModel {
         return sessions.flatMap { session -> [LevelsCalculator.CompletedSet] in
             let dayOffset = dayOffset(of: session.date, today: today, calendar: calendar)
             return session.exercises.flatMap { log -> [LevelsCalculator.CompletedSet] in
-                let completed = log.sets.filter(\.isCompleted).count
+                let completed = SetCounting.trainingSetCount(
+                    log.sets.filter(\.isCompleted).map { ($0.setType, $0.side) }
+                )
                 let set = LevelsCalculator.CompletedSet(
                     exerciseKey: log.matchKey,
                     displayName: log.displayName,
