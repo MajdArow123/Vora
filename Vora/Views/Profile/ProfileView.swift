@@ -17,6 +17,7 @@ struct ProfileView: View {
     @AppStorage(SessionPrefillMode.storageKey) private var prefillMode: SessionPrefillMode = .smart
     @AppStorage(CheckInWeekday.storageKey) private var checkInWeekday: CheckInWeekday = .monday
     @AppStorage(WeightImportService.enabledKey) private var importsHealthWeight = false
+    @AppStorage(CalorieCyclingSettings.storageKey) private var calorieCycling = CalorieCyclingSettings.defaultEnabled
     @State private var showingSupplements = false
     @State private var showingGymProfiles = false
     @Query(filter: #Predicate<GymProfile> { $0.isActive })
@@ -149,6 +150,12 @@ struct ProfileView: View {
             row("Fat", "\(profile.fatTargetG) g")
             Divider()
             row("Water", "\(Int(profile.waterTargetMl)) ml")
+            if calorieCycling {
+                Text("With calorie cycling on, these are your daily average. Training days get more and rest days fewer.")
+                    .font(DesignSystem.Typography.caption)
+                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
 
         card("Preferences") {
@@ -160,6 +167,8 @@ struct ProfileView: View {
             Divider()
             checkInDayRow
             Divider()
+            calorieCyclingRow
+            Divider()
             supplementsRow
             Divider()
             healthWeightImportRow
@@ -170,6 +179,22 @@ struct ProfileView: View {
 
     /// Asks for HealthKit access when turned on; Home and Progress import
     /// from then on.
+    private var calorieCyclingRow: some View {
+        VStack(alignment: .leading, spacing: DesignSystem.Spacing.xs) {
+            Toggle(isOn: $calorieCycling) {
+                Text("Calorie cycling")
+                    .font(DesignSystem.Typography.body)
+                    .foregroundStyle(DesignSystem.Colors.textPrimary.opacity(0.6))
+            }
+            .tint(DesignSystem.Colors.accent)
+            .frame(minHeight: 44)
+            Text("More calories on training days and fewer on rest days, with the same weekly total. Protein stays the same.")
+                .font(DesignSystem.Typography.caption)
+                .foregroundStyle(DesignSystem.Colors.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
     private var healthWeightImportRow: some View {
         Toggle(isOn: $importsHealthWeight) {
             Text("Import weight from Apple Health")

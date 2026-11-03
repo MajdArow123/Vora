@@ -36,6 +36,21 @@ struct SessionDraftStore {
         try data.write(to: fileURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }
 
+    /// When the session in the saved draft started, if there is a live one.
+    /// Only reads, unlike `loadResumable`, so anything can ask at any time; a
+    /// draft that can't be read just means no session in progress.
+    func activeSessionStart() -> Date? {
+        guard let data = fileManager.contents(atPath: fileURL.path) else { return nil }
+        do {
+            let draft = try JSONDecoder().decode(ActiveSessionDraft.self, from: data)
+            guard !draft.exercises.isEmpty, now().timeIntervalSince(draft.savedAt) < Self.maxAge else { return nil }
+            return draft.startDate
+        } catch {
+            Self.logger.error("Unreadable session draft: \(String(describing: error), privacy: .public)")
+            return nil
+        }
+    }
+
     /// The saved draft if it exists, is readable and is under `maxAge`.
     func loadResumable() -> ActiveSessionDraft? {
         guard fileManager.fileExists(atPath: fileURL.path) else { return nil }

@@ -24,7 +24,7 @@ enum ProgressionExplanation {
             "Up to \(weight(toKg, units))"
         case .addRep:
             "Add a rep"
-        case .repeatTop, .atTopOfRange, .holdTooHard, .finishSets:
+        case .repeatTop, .atTopOfRange, .holdTooHard, .holdForDeficit, .finishSets:
             "Same weight"
         case .dropLoad(_, let toKg):
             "Down to \(weight(toKg, units))"
@@ -41,7 +41,19 @@ enum ProgressionExplanation {
 
     /// Why the set has these numbers.
     static func why(_ recommendation: Recommendation, units: UnitSystem) -> String {
+        let base = baseWhy(recommendation, units: units)
+        guard let percent = recommendation.deficitPercent else { return base }
         switch recommendation.reason {
+        case .addRep, .repeatTop, .holdTooHard, .finishSets:
+            return "\(base) You're eating about \(percent)% below what you burn, so holding weight is normal right now, and keeping the load is what protects your muscle."
+        default:
+            return base
+        }
+    }
+
+    private static func baseWhy(_ recommendation: Recommendation, units: UnitSystem) -> String {
+        let inDeficit = recommendation.deficitPercent != nil
+        return switch recommendation.reason {
         case .raiseLoad(_, let toKg, let topReps):
             "You hit \(reps(topReps)), the top of your range, on every set at your target effort. So the weight goes up to \(weight(toKg, units)), and reps start again from the bottom of the range."
         case .raiseLoadEarly(_, let toKg, let predicted):
@@ -53,9 +65,14 @@ enum ProgressionExplanation {
         case .atTopOfRange(let topReps):
             "You've reached \(reps(topReps)), the top of your range, and there's no good next step in weight. Stay at this weight for now."
         case .holdTooHard(let struggling, let total):
-            "\(struggling) of your \(total) sets last time fell below your range or were harder than your target effort. Stay at this weight and try to settle in. If it happens again, the weight comes down."
+            "\(struggling) of your \(total) sets last time fell below your range or were harder than your target effort. Stay at this weight and try to settle in. "
+                + (inDeficit ? "If it happens in your next two sessions too, the weight comes down." : "If it happens again, the weight comes down.")
+        case .holdForDeficit(let struggling, let total):
+            "\(struggling) of your \(total) sets last time fell below your range or were harder than your target effort, for the second session in a row. Normally the weight would come down now, but you're eating about \(recommendation.deficitPercent ?? 0)% below what you burn, so holding weight is normal and it gets one more session. If the next one is too hard as well, the weight comes down."
         case .dropLoad(let fromKg, let toKg):
-            "Your last two sessions at this range were too hard. Dropping from \(weight(fromKg, units)) to \(weight(toKg, units)) gives you room to build back up with good reps."
+            inDeficit
+                ? "Your last three sessions at this range were too hard, even allowing for your deficit. Dropping from \(weight(fromKg, units)) to \(weight(toKg, units)) gives you room to build back up with good reps."
+                : "Your last two sessions at this range were too hard. Dropping from \(weight(fromKg, units)) to \(weight(toKg, units)) gives you room to build back up with good reps."
         case .finishSets(let done, let target):
             "You did \(done) of \(target) sets at this weight last time. Stay here and complete them all before moving on."
         case .welcomeBack(let days):

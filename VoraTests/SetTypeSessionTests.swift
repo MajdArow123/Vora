@@ -675,6 +675,25 @@ struct SetTypeSessionTests {
         #expect(rewritten.templateSlot == draft.templateSlot)
     }
 
+    /// `Fixtures/v5-session-draft.json` was written by the shipped code (commit
+    /// f83582a): a cycle-day bench press with recommendations from before they
+    /// could carry a deficit.
+    @Test func realV5DraftRestoresWithItsRecommendations() throws {
+        let source = try #require(Bundle(for: BundleToken.self).url(forResource: "v5-session-draft", withExtension: "json"))
+        let draft = try JSONDecoder().decode(ActiveSessionDraft.self, from: Data(contentsOf: source))
+        #expect(draft.version == 5)
+        #expect(ActiveSessionDraft.readableVersions.contains(draft.version))
+        #expect(draft.templateSlot?.cycleDayID != nil)
+        let recommendation = try #require(draft.exercises[0].sets[1].recommendation)
+        #expect(recommendation.reason == .holdTooHard(struggling: 2, total: 3))
+        #expect(recommendation.deficitPercent == nil)
+
+        let vm = viewModel()
+        vm.restore(from: draft, context: context)
+        #expect(vm.exercises[0].sets[1].activeRecommendation?.reason == .holdTooHard(struggling: 2, total: 3))
+        #expect(vm.snapshot().version == ActiveSessionDraft.currentVersion)
+    }
+
     @Test func aCycleSlotRoundTripsThroughADraft() throws {
         let id = UUID()
         let slot = TemplateSlot(cycleDayID: id)

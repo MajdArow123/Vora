@@ -196,6 +196,13 @@ struct FoodDiaryView: View {
                     targetG: viewModel.fatTarget,
                     color: DesignSystem.Colors.macroFat
                 )
+                if let dayNote = viewModel.dayTargets.flatMap({ CoachingExplanation.dayNote($0) }) {
+                    Text(dayNote)
+                        .font(DesignSystem.Typography.caption)
+                        .foregroundStyle(DesignSystem.Colors.textSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
         .padding(DesignSystem.Spacing.md)

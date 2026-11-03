@@ -1,0 +1,105 @@
+{
+  "excludedSeconds" : 0,
+  "exercises" : [
+    {
+      "daysSinceLastSession" : 3,
+      "exerciseId" : "barbell-bench-press",
+      "muscleGroups" : [
+        "chest"
+      ],
+      "predictedE1RMKg" : 130,
+      "restSeconds" : 120,
+      "sets" : [
+        {
+          "isCompleted" : true,
+          "plannedRecommendation" : {
+            "fixes" : [
+
+            ],
+            "reason" : {
+              "holdTooHard" : {
+                "struggling" : 2,
+                "total" : 3
+              }
+            },
+            "targetReps" : 9,
+            "warnings" : [
+
+            ],
+            "weightKg" : 100
+          },
+          "recommendation" : {
+            "fixes" : [
+
+            ],
+            "reason" : {
+              "holdTooHard" : {
+                "struggling" : 2,
+                "total" : 3
+              }
+            },
+            "targetReps" : 9,
+            "warnings" : [
+
+            ],
+            "weightKg" : 100
+          },
+          "reps" : 8,
+          "rir" : 2,
+          "weightKg" : 100
+        },
+        {
+          "isCompleted" : false,
+          "plannedRecommendation" : {
+            "fixes" : [
+
+            ],
+            "reason" : {
+              "holdTooHard" : {
+                "struggling" : 2,
+                "total" : 3
+              }
+            },
+            "targetReps" : 9,
+            "warnings" : [
+
+            ],
+            "weightKg" : 100
+          },
+          "recommendation" : {
+            "fixes" : [
+
+            ],
+            "reason" : {
+              "holdTooHard" : {
+                "struggling" : 2,
+                "total" : 3
+              }
+            },
+            "targetReps" : 9,
+            "warnings" : [
+
+            ],
+            "weightKg" : 100
+          },
+          "weightKg" : 100
+        }
+      ],
+      "targets" : {
+        "repRangeMax" : 12,
+        "repRangeMin" : 8,
+        "targetRIR" : 2,
+        "targetSets" : 2
+      }
+    }
+  ],
+  "savedAt" : 814693400,
+  "sessionName" : "Day 1 · Push",
+  "startDate" : 814692800,
+  "templateSlot" : {
+    "cycleDayID" : "6F1C2B7A-3D4E-4A5B-8C9D-0E1F2A3B4C5D",
+    "dayIndex" : -1,
+    "splitRawValue" : "cycle"
+  },
+  "version" : 5
+}

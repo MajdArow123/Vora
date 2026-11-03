@@ -39,6 +39,8 @@ struct SessionPR: Identifiable {
 struct ProgressionContext {
     let mode: ProgressionMode
     let inventory: LoadingInventory?
+    /// Whole percent below expenditure in a meaningful deficit; nil otherwise.
+    var deficitPercent: Int?
 }
 
 @Observable
@@ -396,7 +398,8 @@ final class ActiveSessionViewModel {
             equipment: Self.loadEquipment(exerciseId: exerciseId),
             inventory: progression.inventory,
             mode: progression.mode,
-            loggedLoadsKg: loggedLoads
+            loggedLoadsKg: loggedLoads,
+            deficitPercent: progression.deficitPercent
         )
     }
 

@@ -14,10 +14,18 @@ struct WeeklyCheckInSheet: View {
 
     let proposal: ExpenditureProposal
     let units: UnitSystem
-    let onApply: () throws -> Void
+    /// Receives whether the Training adjustment was chosen.
+    let onApply: (Bool) throws -> Void
     let onSkip: () throws -> Void
 
     @State private var saveFailed = false
+    /// Off until the user taps it: nothing changes silently.
+    @State private var includesAdjustment = false
+
+    private var effectiveTargets: ExpenditureTargets {
+        guard includesAdjustment, let adjusted = proposal.coaching?.adjustment?.targets else { return proposal.proposedTargets }
+        return adjusted
+    }
 
     var body: some View {
         NavigationStack {
@@ -31,8 +39,11 @@ struct WeeklyCheckInSheet: View {
                         ForEach(ExpenditureExplanation.notes(proposal), id: \.self) { note in
                             InfoCallout(text: note)
                         }
+                        if let coaching = proposal.coaching {
+                            trainingCard(coaching)
+                        }
                         targetsCard
-                        PrimaryButton(title: "Apply new targets") { answer(onApply) }
+                        PrimaryButton(title: "Apply new targets") { answer { try onApply(includesAdjustment) } }
                         GhostButton(title: "Skip this week") { answer(onSkip) }
                     }
                     .padding(.horizontal, DesignSystem.Spacing.md)
@@ -114,9 +125,41 @@ struct WeeklyCheckInSheet: View {
         .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
     }
 
+    /// How training is going and, when a rule offers one, an optional change
+    /// on top of the proposed targets.
+    private func trainingCard(_ coaching: CoachingEngine.Advice) -> some View {
+        VStack(alignment: .leading, spacing: DesignSystem.Spacing.sm) {
+            Text("Training")
+                .font(DesignSystem.Typography.headline)
+                .foregroundStyle(DesignSystem.Colors.textPrimary)
+            Text(CoachingExplanation.strengthSummary(coaching.strength))
+                .font(DesignSystem.Typography.body)
+                .foregroundStyle(DesignSystem.Colors.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(CoachingExplanation.detail(coaching, units: units))
+                .font(DesignSystem.Typography.caption)
+                .foregroundStyle(DesignSystem.Colors.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let adjustment = coaching.adjustment {
+                let amount = CoachingExplanation.adjustmentText(adjustment)
+                Toggle(isOn: $includesAdjustment) {
+                    Text("Apply \(amount) on top of these targets")
+                        .font(DesignSystem.Typography.body)
+                        .foregroundStyle(DesignSystem.Colors.textPrimary)
+                }
+                .tint(DesignSystem.Colors.accent)
+                .frame(minHeight: 44)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(DesignSystem.Spacing.md)
+        .background(DesignSystem.Colors.card)
+        .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
+    }
+
     private var targetsCard: some View {
         let current = proposal.currentTargets
-        let proposed = proposal.proposedTargets
+        let proposed = effectiveTargets
         return VStack(alignment: .leading, spacing: DesignSystem.Spacing.sm) {
             Text("Proposed targets")
                 .font(DesignSystem.Typography.headline)

@@ -87,6 +87,42 @@ enum CalorieCalculator {
         )
     }
 
+    /// `targets` with a coaching adjustment on top. Protein stays constant,
+    /// floors still apply, and neither direction can cross expenditure: easing
+    /// a deficit stops at maintenance, and so does trimming a surplus. nil when
+    /// those limits leave nothing to change.
+    static func adjusted(
+        _ targets: ExpenditureTargets,
+        byKcal delta: Int,
+        expenditure: Double,
+        weightKg: Double,
+        goal: GoalType,
+        bmr: Double
+    ) -> ExpenditureTargets? {
+        let floor = Int((max(bmr, minimumCalories) / 10).rounded(.up) * 10)
+        let maintenance = roundedCalories(expenditure)
+        let moved = targets.calories + delta
+        let calories = delta > 0
+            ? min(moved, max(maintenance, targets.calories))
+            : min(targets.calories, max(moved, maintenance, floor))
+        guard calories != targets.calories else { return nil }
+        let split = macros(calories: Double(calories), weightKg: weightKg, goal: goal)
+
+        return ExpenditureTargets(
+            calories: calories,
+            proteinG: split.proteinG,
+            carbsG: split.carbsG,
+            fatG: split.fatG,
+            isFloored: false
+        )
+    }
+
+    /// The weekly weight change a goal's calorie multiplier aims for at this
+    /// expenditure, in kg: negative for loss, positive for gain, 0 at maintenance.
+    static func goalWeeklyRateKg(expenditure: Double, goal: GoalType) -> Double {
+        expenditure * (goal.calorieMultiplier - 1) * 7 / ExpenditureEstimator.energyDensityKcalPerKg
+    }
+
     /// Protein per kg of body weight by goal, fat at 25% of calories, carbs
     /// from the remainder.
     private static func macros(calories: Double, weightKg: Double, goal: GoalType) -> (proteinG: Int, carbsG: Int, fatG: Int) {

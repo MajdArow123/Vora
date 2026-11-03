@@ -80,7 +80,8 @@ a migration stage. Never edit an existing version.
      5228197; `v7-fixture.store` and `v3-session-draft.json` (a version 3
      `ActiveSessionDraft`) from commit 0dbc46f; `v8-fixture.store` and
      `v4-session-draft.json` (a version 4 `ActiveSessionDraft`) from commit
-     2517af9. When data outside the store
+     2517af9; `v5-session-draft.json` (a version 5 `ActiveSessionDraft`) from
+     commit f83582a. When data outside the store
      moves into it (UserDefaults, files), fixture that data too and test
      the move against it.
    - Read fixtures only through a copy, including with `sqlite3`. Opening a

@@ -47,6 +47,9 @@ nonisolated struct ProgressionInput: Equatable {
     /// Every weight ever logged for the exercise, beyond `history`. On step
     /// equipment these count as loadable, so a lifted weight is never snapped.
     var loggedLoadsKg: [Double] = []
+    /// Whole percent below expenditure when the user is in a meaningful
+    /// deficit (see CoachingEngine); nil otherwise.
+    var deficitPercent: Int?
 }
 
 /// Why a set got its numbers. Holds values rather than text, so the wording
@@ -59,6 +62,8 @@ nonisolated enum ProgressionReason: Codable, Equatable {
     case repeatTop(topReps: Int)
     case atTopOfRange(topReps: Int)
     case holdTooHard(struggling: Int, total: Int)
+    /// A second struggling session, which holds rather than drops in a deficit.
+    case holdForDeficit(struggling: Int, total: Int)
     case dropLoad(fromKg: Double, toKg: Double)
     case finishSets(done: Int, target: Int)
     case welcomeBack(days: Int)
@@ -95,6 +100,9 @@ nonisolated struct Recommendation: Codable, Equatable {
     var reason: ProgressionReason
     var warnings: [ProgressionWarning] = []
     var fixes: [ProgressionFix] = []
+    /// Set when a deficit changes what this reason means, so the "why" can say
+    /// so. Older drafts decode as nil.
+    var deficitPercent: Int?
 }
 
 /// Rule-based double progression with RIR. Pure and deterministic: plain
@@ -121,6 +129,25 @@ nonisolated enum ProgressionEngine {
 
     /// One recommendation per target set, or [] with no usable history.
     static func recommend(_ input: ProgressionInput) -> [Recommendation] {
+        rules(input).map { recommendation in
+            var tagged = recommendation
+            if explainsDeficit(recommendation.reason) { tagged.deficitPercent = input.deficitPercent }
+            return tagged
+        }
+    }
+
+    /// The reasons a deficit changes the meaning of: holding weight, or a drop
+    /// that took longer to come.
+    private static func explainsDeficit(_ reason: ProgressionReason) -> Bool {
+        switch reason {
+        case .addRep, .repeatTop, .holdTooHard, .holdForDeficit, .finishSets, .dropLoad:
+            true
+        case .raiseLoad, .raiseLoadEarly, .atTopOfRange, .welcomeBack, .rangeChanged, .retargeted, .extendedReps:
+            false
+        }
+    }
+
+    private static func rules(_ input: ProgressionInput) -> [Recommendation] {
         let sessions = usableSessions(input.history)
         guard let latest = sessions.first else { return [] }
 
@@ -190,10 +217,15 @@ nonisolated enum ProgressionEngine {
             return uniform(weightKg: rebased, reps: targets.repRange.lowerBound, reason: reason(rebased))
         }
 
-        // Too hard: hold once, drop when it happens twice under this range.
+        // Too hard: hold once, drop when it happens twice under this range. In
+        // a deficit a poor session is more likely recovery than lost strength,
+        // and keeping the load is what protects muscle, so it takes three.
         let strugglingCount = working.filter { isStruggling($0, judge) }.count
         if strugglingCount * 2 > working.count {
             if isStruggling(sessions.dropFirst().first, current: targets) {
+                if input.deficitPercent != nil, !isStruggling(sessions.dropFirst(2).first, current: targets) {
+                    return holding(reason: .holdForDeficit(struggling: strugglingCount, total: working.count))
+                }
                 if let lighter = dropLoad(from: held, in: loads) {
                     return uniform(
                         weightKg: lighter,

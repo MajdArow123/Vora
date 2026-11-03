@@ -19,6 +19,8 @@ struct ExpenditureProposal: Equatable {
     let proposedTargets: ExpenditureTargets
     /// The floor `proposedTargets` is held at, when it is.
     let floorCalories: Double
+    /// The Training section. Its adjustment only applies if the user asks.
+    var coaching: CoachingEngine.Advice?
 }
 
 enum WeeklyCheckInState: Equatable {
@@ -96,6 +98,30 @@ enum ExpenditureCheckInService {
             return needsMoreData(intakeDays: intakeDays, weighIns: weighIns, isCheckInDay: checkInDate == today)
         }
 
+        let proposed = CalorieCalculator.targets(
+            fromExpenditure: result.estimate,
+            weightKg: trend.currentKg,
+            goal: profile.goalType,
+            bmr: bmr
+        )
+        let strength = try CoachingService.strengthTrends(context: context, now: now, calendar: calendar)
+        let coaching = result.averageIntake.flatMap { intake in
+            result.slopeKgPerDay.map { slope in
+                CoachingEngine.advise(CoachingEngine.Input(
+                    goal: profile.goalType,
+                    expenditure: result.estimate,
+                    currentCalories: profile.dailyCalorieTarget,
+                    proposedTargets: proposed,
+                    averageIntake: intake,
+                    weightKgPerWeek: slope * 7,
+                    strength: strength.current,
+                    previousStrength: strength.previous,
+                    weightKg: trend.currentKg,
+                    bmr: bmr
+                ))
+            }
+        }
+
         return .ready(ExpenditureProposal(
             checkInDate: checkInDate,
             previousEstimate: latest?.estimateKcal ?? formula,
@@ -106,34 +132,33 @@ enum ExpenditureCheckInService {
                 carbsG: profile.carbsTargetG,
                 fatG: profile.fatTargetG
             ),
-            proposedTargets: CalorieCalculator.targets(
-                fromExpenditure: result.estimate,
-                weightKg: trend.currentKg,
-                goal: profile.goalType,
-                bmr: bmr
-            ),
-            floorCalories: max(bmr, CalorieCalculator.minimumCalories)
+            proposedTargets: proposed,
+            floorCalories: max(bmr, CalorieCalculator.minimumCalories),
+            coaching: coaching
         ))
     }
 
-    /// Saves the check-in and writes its targets to the profile. A second
+    /// Saves the check-in and writes its targets to the profile, with the
+    /// Training section's adjustment only when the user chose it. A second
     /// answer for the same day changes nothing.
-    static func apply(_ proposal: ExpenditureProposal, context: ModelContext) throws {
+    static func apply(_ proposal: ExpenditureProposal, includingAdjustment: Bool = false, context: ModelContext) throws {
         guard try !hasCheckIn(on: proposal.checkInDate, context: context) else { return }
-        let targets = proposal.proposedTargets
+        let targets = includingAdjustment
+            ? proposal.coaching?.adjustment?.targets ?? proposal.proposedTargets
+            : proposal.proposedTargets
         if let profile = try context.fetch(FetchDescriptor<UserProfile>()).first {
             profile.dailyCalorieTarget = targets.calories
             profile.proteinTargetG = targets.proteinG
             profile.carbsTargetG = targets.carbsG
             profile.fatTargetG = targets.fatG
         }
-        try record(proposal, applied: true, context: context)
+        try record(proposal, applied: targets, context: context)
     }
 
     /// Saves the check-in and leaves the targets alone.
     static func skip(_ proposal: ExpenditureProposal, context: ModelContext) throws {
         guard try !hasCheckIn(on: proposal.checkInDate, context: context) else { return }
-        try record(proposal, applied: false, context: context)
+        try record(proposal, applied: nil, context: context)
     }
 
     private static func needsMoreData(intakeDays: Int, weighIns: Int, isCheckInDay: Bool) -> WeeklyCheckInState {
@@ -150,9 +175,9 @@ enum ExpenditureCheckInService {
         try context.fetchCount(FetchDescriptor<ExpenditureCheckIn>(predicate: #Predicate { $0.date == date })) > 0
     }
 
-    private static func record(_ proposal: ExpenditureProposal, applied: Bool, context: ModelContext) throws {
+    /// `applied` is what went on the profile; nil when skipped.
+    private static func record(_ proposal: ExpenditureProposal, applied: ExpenditureTargets?, context: ModelContext) throws {
         let result = proposal.result
-        let targets = proposal.proposedTargets
         context.insert(ExpenditureCheckIn(
             date: proposal.checkInDate,
             estimateKcal: result.estimate,
@@ -160,11 +185,11 @@ enum ExpenditureCheckInService {
             avgIntakeKcal: result.averageIntake ?? 0,
             slopeKgPerDay: result.slopeKgPerDay ?? 0,
             daysUsed: result.daysUsed,
-            applied: applied,
-            appliedCalories: applied ? targets.calories : nil,
-            appliedProteinG: applied ? targets.proteinG : nil,
-            appliedCarbsG: applied ? targets.carbsG : nil,
-            appliedFatG: applied ? targets.fatG : nil
+            applied: applied != nil,
+            appliedCalories: applied?.calories,
+            appliedProteinG: applied?.proteinG,
+            appliedCarbsG: applied?.carbsG,
+            appliedFatG: applied?.fatG
         ))
         do {
             try context.save()

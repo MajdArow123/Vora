@@ -212,7 +212,11 @@ struct ActiveSessionView: View {
 
     private var progressionContext: ProgressionContext? {
         guard prefillMode == .smart else { return nil }
-        return ProgressionContext(mode: progressionMode, inventory: activeProfiles.first?.loadingInventory)
+        return ProgressionContext(
+            mode: progressionMode,
+            inventory: activeProfiles.first?.loadingInventory,
+            deficitPercent: CoachingService.deficitPercentOrNil(context: modelContext)
+        )
     }
 
     // MARK: - Equipment availability

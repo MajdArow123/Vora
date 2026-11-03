@@ -21,6 +21,7 @@ struct ProgressionExplanationTests {
         .repeatTop(topReps: 12),
         .atTopOfRange(topReps: 12),
         .holdTooHard(struggling: 2, total: 3),
+        .holdForDeficit(struggling: 2, total: 3),
         .dropLoad(fromKg: 100, toKg: 92.5),
         .finishSets(done: 2, target: 3),
         .welcomeBack(days: 30),
@@ -34,6 +35,65 @@ struct ProgressionExplanationTests {
             #expect(!ProgressionExplanation.headline(recommendation, units: units).isEmpty)
             #expect(!ProgressionExplanation.why(recommendation, units: units).isEmpty)
         }
+    }
+
+    // MARK: - Deficit
+
+    private static func inDeficit(_ reason: ProgressionReason, percent: Int? = 18) -> Recommendation {
+        var recommendation = recommendation(reason)
+        recommendation.deficitPercent = percent
+        return recommendation
+    }
+
+    @Test(arguments: [
+        ProgressionReason.addRep(lastReps: 9, targetReps: 10),
+        .repeatTop(topReps: 12),
+        .holdTooHard(struggling: 2, total: 3),
+        .holdForDeficit(struggling: 2, total: 3),
+        .finishSets(done: 2, target: 3),
+    ])
+    func holdsExplainThatHoldingIsNormalInADeficit(reason: ProgressionReason) {
+        let text = ProgressionExplanation.why(Self.inDeficit(reason), units: .metric)
+        #expect(text.contains("holding weight is normal"))
+        #expect(text.contains("18%"))
+    }
+
+    @Test(arguments: [
+        ProgressionReason.addRep(lastReps: 9, targetReps: 10),
+        .repeatTop(topReps: 12),
+        .holdTooHard(struggling: 2, total: 3),
+        .finishSets(done: 2, target: 3),
+    ])
+    func outsideADeficitNothingMentionsIt(reason: ProgressionReason) {
+        let text = ProgressionExplanation.why(Self.recommendation(reason), units: .metric)
+        #expect(!text.contains("holding weight is normal"))
+        #expect(!text.contains("below what you burn"))
+    }
+
+    @Test func aFirstHardSessionSaysWhenTheWeightComesDownEitherWay() {
+        let plain = ProgressionExplanation.why(Self.recommendation(.holdTooHard(struggling: 2, total: 3)), units: .metric)
+        #expect(plain.contains("If it happens again, the weight comes down."))
+        let deficit = ProgressionExplanation.why(Self.inDeficit(.holdTooHard(struggling: 2, total: 3)), units: .metric)
+        #expect(deficit.contains("next two sessions"))
+        #expect(!deficit.contains("If it happens again"))
+    }
+
+    @Test func aSecondHardSessionInADeficitSaysItGetsOneMore() {
+        let text = ProgressionExplanation.why(Self.inDeficit(.holdForDeficit(struggling: 2, total: 3)), units: .metric)
+        #expect(text.contains("one more session"))
+        #expect(text.contains("second session in a row"))
+    }
+
+    @Test func aDropSaysHowManySessionsItTook() {
+        let drop = ProgressionReason.dropLoad(fromKg: 100, toKg: 92.5)
+        #expect(ProgressionExplanation.why(Self.recommendation(drop), units: .metric).contains("last two sessions"))
+        let deficit = ProgressionExplanation.why(Self.inDeficit(drop), units: .metric)
+        #expect(deficit.contains("last three sessions"))
+        #expect(!deficit.contains("holding weight is normal"))
+    }
+
+    @Test func aHoldForTheDeficitReadsAsTheSameWeight() {
+        #expect(ProgressionExplanation.headline(Self.inDeficit(.holdForDeficit(struggling: 2, total: 3)), units: .metric) == "Same weight")
     }
 
     @Test func weightsFollowTheUsersUnits() {

@@ -5,6 +5,7 @@
 //  Created by Majd Arow on 2026-07-26.
 //
 
+import OSLog
 import SwiftUI
 import SwiftData
 
@@ -13,6 +14,8 @@ import SwiftData
 /// one-tap logging of everything. Opened from the Food diary header, the
 /// Home suggestion card, and the evening protein insight on Home.
 struct AIMealSuggestionView: View {
+    private static let logger = Logger(subsystem: "com.majdarow.Vora", category: "MealSuggestion")
+
     let logDate: Date
 
     @Environment(\.dismiss) private var dismiss
@@ -26,6 +29,8 @@ struct AIMealSuggestionView: View {
     @State private var selectedSlot: MealSlot = .dinner
     @State private var logAllState: LogAllState = .idle
     @State private var profile: UserProfile?
+    /// The logged day's targets, which calorie cycling can change.
+    @State private var dayTargets: DayTargets?
     @State private var dayEntries: [FoodEntry] = []
     @State private var trainedToday = false
 
@@ -51,12 +56,7 @@ struct AIMealSuggestionView: View {
     private var goal: GoalType { profile?.goalType ?? .maintain }
 
     private var dailyTargets: MacroTargets {
-        MacroTargets(
-            calories: profile?.dailyCalorieTarget ?? 0,
-            proteinG: profile?.proteinTargetG ?? 0,
-            carbsG: profile?.carbsTargetG ?? 0,
-            fatG: profile?.fatTargetG ?? 0
-        )
+        dayTargets?.targets ?? MacroTargets(calories: 0, proteinG: 0, carbsG: 0, fatG: 0)
     }
 
     private var targetsHit: Bool {
@@ -635,7 +635,13 @@ struct AIMealSuggestionView: View {
     /// day: profile targets, the day's food entries (logged slots, daily
     /// gate, per-slot budget), and whether a workout happened.
     private func loadDayContext() {
-        profile = (try? modelContext.fetch(FetchDescriptor<UserProfile>()))?.first
+        do {
+            profile = try modelContext.fetch(FetchDescriptor<UserProfile>()).first
+        } catch {
+            Self.logger.error("Failed to load the profile: \(String(describing: error), privacy: .public)")
+            profile = nil
+        }
+        dayTargets = profile.map { CalorieCyclingService.targets(on: logDate, profile: $0, context: modelContext) }
 
         let cal = Calendar.current
         let dayStart = cal.startOfDay(for: logDate)
@@ -644,12 +650,22 @@ struct AIMealSuggestionView: View {
         let foodDescriptor = FetchDescriptor<FoodEntry>(
             predicate: #Predicate { $0.date >= dayStart && $0.date < dayEnd }
         )
-        dayEntries = (try? modelContext.fetch(foodDescriptor)) ?? []
+        do {
+            dayEntries = try modelContext.fetch(foodDescriptor)
+        } catch {
+            Self.logger.error("Failed to load the day's food: \(String(describing: error), privacy: .public)")
+            dayEntries = []
+        }
 
         let workoutDescriptor = FetchDescriptor<WorkoutSession>(
             predicate: #Predicate { $0.date >= dayStart && $0.date < dayEnd }
         )
-        trainedToday = ((try? modelContext.fetch(workoutDescriptor)) ?? []).isEmpty == false
+        do {
+            trainedToday = try !modelContext.fetch(workoutDescriptor).isEmpty
+        } catch {
+            Self.logger.error("Failed to load the day's workouts: \(String(describing: error), privacy: .public)")
+            trainedToday = false
+        }
     }
 }
 

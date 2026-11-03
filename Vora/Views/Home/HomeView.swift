@@ -11,7 +11,7 @@ import Charts
 
 struct HomeView: View {
     @Environment(\.modelContext) private var modelContext
-    @State private var viewModel = HomeViewModel()
+    let viewModel: HomeViewModel
     @State private var showingSession = false
     @State private var quickLogSlot: MealSlot?
     @State private var showingLogWeight = false
@@ -142,7 +142,7 @@ struct HomeView: View {
                 WeeklyCheckInSheet(
                     proposal: proposal,
                     units: units,
-                    onApply: { try viewModel.applyCheckIn(proposal, context: modelContext) },
+                    onApply: { try viewModel.applyCheckIn(proposal, includingAdjustment: $0, context: modelContext) },
                     onSkip: { try viewModel.skipCheckIn(proposal, context: modelContext) }
                 )
             }
@@ -222,7 +222,7 @@ struct HomeView: View {
         HStack(spacing: DesignSystem.Spacing.lg) {
             CalorieRingView(
                 consumed: viewModel.totalCalories,
-                target: viewModel.profile?.dailyCalorieTarget ?? 0
+                target: viewModel.dailyTargets.calories
             )
 
             VStack(alignment: .leading, spacing: 6) {
@@ -233,9 +233,15 @@ struct HomeView: View {
                 Text("\(Int(viewModel.totalCalories.rounded())) kcal")
                     .font(DesignSystem.Typography.title)
                     .foregroundStyle(DesignSystem.Colors.textPrimary)
-                Text("of \(viewModel.profile?.dailyCalorieTarget ?? 0) kcal target")
+                Text("of \(viewModel.dailyTargets.calories) kcal target")
                     .font(DesignSystem.Typography.caption)
                     .foregroundStyle(DesignSystem.Colors.textSecondary)
+                if let dayNote = CoachingExplanation.dayNote(viewModel.todayTargets) {
+                    Text(dayNote)
+                        .font(DesignSystem.Typography.caption)
+                        .foregroundStyle(DesignSystem.Colors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             Spacer()
         }
@@ -245,14 +251,14 @@ struct HomeView: View {
         .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.large))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Calories")
-        .accessibilityValue("\(Int(viewModel.totalCalories.rounded())) of \(viewModel.profile?.dailyCalorieTarget ?? 0) kilocalories")
+        .accessibilityValue("\(Int(viewModel.totalCalories.rounded())) of \(viewModel.dailyTargets.calories) kilocalories")
     }
 
     private var macroMiniCards: some View {
         HStack(spacing: DesignSystem.Spacing.sm) {
-            macroMiniCard("Protein", viewModel.totalProtein, viewModel.profile?.proteinTargetG ?? 0, DesignSystem.Colors.macroProtein)
-            macroMiniCard("Carbs", viewModel.totalCarbs, viewModel.profile?.carbsTargetG ?? 0, DesignSystem.Colors.macroCarbs)
-            macroMiniCard("Fat", viewModel.totalFat, viewModel.profile?.fatTargetG ?? 0, DesignSystem.Colors.macroFat)
+            macroMiniCard("Protein", viewModel.totalProtein, viewModel.dailyTargets.proteinG, DesignSystem.Colors.macroProtein)
+            macroMiniCard("Carbs", viewModel.totalCarbs, viewModel.dailyTargets.carbsG, DesignSystem.Colors.macroCarbs)
+            macroMiniCard("Fat", viewModel.totalFat, viewModel.dailyTargets.fatG, DesignSystem.Colors.macroFat)
         }
     }
 
@@ -459,6 +465,6 @@ struct HomeView: View {
 }
 
 #Preview {
-    HomeView()
+    HomeView(viewModel: HomeViewModel())
         .modelContainer(for: UserProfile.self, inMemory: true)
 }

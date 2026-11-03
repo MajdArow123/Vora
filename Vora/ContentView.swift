@@ -31,10 +31,11 @@ struct ContentView: View {
 }
 
 private struct MainTabView: View {
+    @Environment(\.modelContext) private var modelContext
     @State private var selection = MainTabView.initialTab()
-    /// A draft from a killed session, offered once at launch.
-    @State private var resumableDraft: ActiveSessionDraft?
-    @State private var didCheckDraft = false
+    /// Owned here so discarding a draft at launch can reload Home.
+    @State private var homeViewModel = HomeViewModel()
+    @State private var launchDraft = LaunchDraftViewModel(alert: RestAlertService())
     /// The draft the user chose to resume, handed to the Train tab.
     @State private var draftToResume: ActiveSessionDraft?
 
@@ -64,7 +65,7 @@ private struct MainTabView: View {
 
     var body: some View {
         TabView(selection: $selection) {
-            HomeView()
+            HomeView(viewModel: homeViewModel)
                 .toolbarBackground(.visible, for: .tabBar)
                 .tabItem {
                     Label("Home", systemImage: "house.fill")
@@ -101,25 +102,22 @@ private struct MainTabView: View {
         }
         .tint(DesignSystem.Colors.accent)
         .task {
-            guard !didCheckDraft else { return }
-            didCheckDraft = true
-            resumableDraft = SessionDraftStore().loadResumable()
+            launchDraft.check()
         }
         .alert(
             "Resume workout?",
             isPresented: Binding(
-                get: { resumableDraft != nil },
-                set: { if !$0 { resumableDraft = nil } }
+                get: { launchDraft.draft != nil },
+                set: { if !$0 { launchDraft.draft = nil } }
             ),
-            presenting: resumableDraft
+            presenting: launchDraft.draft
         ) { draft in
             Button("Resume workout") {
                 selection = Self.trainTab
                 draftToResume = draft
             }
             Button("Discard", role: .destructive) {
-                SessionDraftStore().clear()
-                RestAlertService().cancel()
+                launchDraft.discard(home: homeViewModel, context: modelContext)
             }
         } message: { draft in
             Text(Self.resumeMessage(for: draft))

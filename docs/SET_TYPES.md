@@ -14,6 +14,7 @@ What each kind of set counts toward. The rules live on `SetType` (`Vora/Models/S
 
 - **Warm-ups** prepare for the work and aren't part of it, so they count toward nothing. Finishing still counts them, so a session with only warm-ups isn't lost.
 - **Drop and myo-rep sets** are real training stimulus, so they count toward Levels and volume. They follow incomplete rest, so they say nothing about what you can lift fresh, and progression and PRs ignore them. A myo-rep row may also hold a whole cluster's reps, which would fake a rep or e1RM record.
+- **Coaching's strength trend** follows PRs: only record-eligible sets count (see docs/COACHING.md).
 - **Failure sets** are straight sets taken further, so they count as working sets. Without that, their implied RIR would have nothing to act on.
 
 ## Implied RIR

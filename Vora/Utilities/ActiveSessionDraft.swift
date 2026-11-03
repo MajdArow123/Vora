@@ -45,9 +45,10 @@ nonisolated struct TemplateSlot: Codable, Equatable {
 nonisolated struct ActiveSessionDraft: Codable, Equatable {
     /// Version 2 added `Set.rir`. Version 3 added recommendations and the
     /// template slot. Version 4 added set types, sides and superset groups.
-    /// Version 5 added the slot's cycle day. Older drafts decode as they are,
-    /// with none of them.
-    static let currentVersion = 5
+    /// Version 5 added the slot's cycle day. Version 6 added a recommendation's
+    /// deficit percent and the `holdForDeficit` reason. Older drafts decode as
+    /// they are, with none of them.
+    static let currentVersion = 6
     static let readableVersions = 1...currentVersion
 
     struct Exercise: Codable, Equatable {

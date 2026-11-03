@@ -59,6 +59,7 @@ Changing the split in Profile only changes weekly slots. The profile says so whi
 | Widen-range fix | Saves to the weekday's template | Saves to the cycle day's template |
 | Levels, PRs, progression, volume, History | Read sessions only | Same |
 | Weekly check-in day | A calendar setting | Same; it's about nutrition, not training |
+| Calorie cycling | Planned `SplitDay`s are training days | A day with a started or finished session; the next entry alone doesn't count (see docs/COACHING.md) |
 
 ## Why
 

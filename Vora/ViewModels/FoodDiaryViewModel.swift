@@ -7,16 +7,26 @@
 
 import Foundation
 import Observation
+import OSLog
 import SwiftData
 
 @Observable
 final class FoodDiaryViewModel {
     static let glassMl: Double = 250
+    private static let logger = Logger(subsystem: "com.majdarow.Vora", category: "FoodDiary")
+
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
 
     private(set) var selectedDate = Calendar.current.startOfDay(for: .now)
     private(set) var entries: [FoodEntry] = []
     private(set) var waterEntries: [WaterEntry] = []
     private(set) var profile: UserProfile?
+    /// The selected day's targets, which calorie cycling can change.
+    private(set) var dayTargets: DayTargets?
 
     /// Non-nil while the add-food sheet is presented for a slot.
     var addingToSlot: MealSlot?
@@ -24,7 +34,15 @@ final class FoodDiaryViewModel {
     // MARK: - Loading
 
     func load(from context: ModelContext) {
-        profile = try? context.fetch(FetchDescriptor<UserProfile>()).first
+        do {
+            profile = try context.fetch(FetchDescriptor<UserProfile>()).first
+        } catch {
+            Self.logger.error("Failed to load the profile: \(String(describing: error), privacy: .public)")
+            profile = nil
+        }
+        dayTargets = profile.map {
+            CalorieCyclingService.targets(on: selectedDate, profile: $0, context: context, defaults: defaults)
+        }
 
         let start = selectedDate
         let end = Calendar.current.date(byAdding: .day, value: 1, to: start) ?? start
@@ -33,13 +51,23 @@ final class FoodDiaryViewModel {
             predicate: #Predicate { $0.date >= start && $0.date < end },
             sortBy: [SortDescriptor(\.date)]
         )
-        entries = (try? context.fetch(foodDescriptor)) ?? []
+        do {
+            entries = try context.fetch(foodDescriptor)
+        } catch {
+            Self.logger.error("Failed to load food entries: \(String(describing: error), privacy: .public)")
+            entries = []
+        }
 
         let waterDescriptor = FetchDescriptor<WaterEntry>(
             predicate: #Predicate { $0.date >= start && $0.date < end },
             sortBy: [SortDescriptor(\.date)]
         )
-        waterEntries = (try? context.fetch(waterDescriptor)) ?? []
+        do {
+            waterEntries = try context.fetch(waterDescriptor)
+        } catch {
+            Self.logger.error("Failed to load water entries: \(String(describing: error), privacy: .public)")
+            waterEntries = []
+        }
     }
 
     // MARK: - Date navigation
@@ -90,10 +118,10 @@ final class FoodDiaryViewModel {
     var totalSugar: Double { entries.reduce(0) { $0 + $1.sugarG } }
     var totalSodiumMg: Double { entries.reduce(0) { $0 + $1.sodiumMg } }
 
-    var calorieTarget: Int { profile?.dailyCalorieTarget ?? 0 }
-    var proteinTarget: Int { profile?.proteinTargetG ?? 0 }
-    var carbsTarget: Int { profile?.carbsTargetG ?? 0 }
-    var fatTarget: Int { profile?.fatTargetG ?? 0 }
+    var calorieTarget: Int { dayTargets?.targets.calories ?? 0 }
+    var proteinTarget: Int { dayTargets?.targets.proteinG ?? 0 }
+    var carbsTarget: Int { dayTargets?.targets.carbsG ?? 0 }
+    var fatTarget: Int { dayTargets?.targets.fatG ?? 0 }
 
     var remainingCalories: Int { calorieTarget - Int(totalCalories.rounded()) }
 

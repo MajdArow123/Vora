@@ -73,6 +73,108 @@ struct ProgressionEngineTests {
         #expect(result.first?.weightKg == 100)
     }
 
+    // MARK: - Deficit
+
+    private static func deficitInput(_ history: [ProgressionSession], percent: Int? = 18) -> ProgressionInput {
+        var input = input(history)
+        input.deficitPercent = percent
+        return input
+    }
+
+    private static let hard = session(100, [6, 6, 6])
+    private static let fine = session(100, [9, 9, 9])
+
+    @Test func withoutADeficitTwoStrugglingSessionsDrop() throws {
+        let result = ProgressionEngine.recommend(Self.deficitInput([Self.hard, Self.hard], percent: nil))
+        let first = try #require(result.first)
+        guard case .dropLoad = first.reason else {
+            Issue.record("Expected a drop, got \(first.reason)")
+            return
+        }
+        #expect(first.deficitPercent == nil)
+    }
+
+    @Test func inADeficitTwoStrugglingSessionsHold() throws {
+        let result = ProgressionEngine.recommend(Self.deficitInput([Self.hard, Self.hard]))
+        let first = try #require(result.first)
+        #expect(first.reason == .holdForDeficit(struggling: 3, total: 3))
+        #expect(first.weightKg == 100)
+        #expect(first.deficitPercent == 18)
+    }
+
+    @Test func inADeficitAThirdStrugglingSessionStillDrops() throws {
+        let result = ProgressionEngine.recommend(Self.deficitInput([Self.hard, Self.hard, Self.hard]))
+        let first = try #require(result.first)
+        guard case .dropLoad(_, let toKg) = first.reason else {
+            Issue.record("Expected a drop, got \(first.reason)")
+            return
+        }
+        #expect(toKg < 100)
+        #expect(first.weightKg == toKg)
+        #expect(first.deficitPercent == 18)
+    }
+
+    @Test func aGoodSessionBetweenResetsTheCount() throws {
+        let result = ProgressionEngine.recommend(Self.deficitInput([Self.hard, Self.hard, Self.fine]))
+        #expect(result.first?.reason == .holdForDeficit(struggling: 3, total: 3))
+    }
+
+    @Test func oneStrugglingSessionHoldsEitherWay() {
+        let plain = ProgressionEngine.recommend(Self.deficitInput([Self.hard, Self.fine], percent: nil))
+        let deficit = ProgressionEngine.recommend(Self.deficitInput([Self.hard, Self.fine]))
+        #expect(plain.first?.reason == .holdTooHard(struggling: 3, total: 3))
+        #expect(deficit.first?.reason == .holdTooHard(struggling: 3, total: 3))
+        #expect(plain.first?.deficitPercent == nil)
+        #expect(deficit.first?.deficitPercent == 18)
+    }
+
+    @Test func aSessionUnderADifferentRangeIsNeverEvidenceInADeficit() {
+        let other = TemplateTargets(targetSets: 3, repRangeMin: 3, repRangeMax: 5, targetRIR: 2)
+        let earlier = Self.session(100, [1, 1, 1], targets: other)
+        let result = ProgressionEngine.recommend(Self.deficitInput([Self.hard, Self.hard, earlier]))
+        #expect(result.first?.reason == .holdForDeficit(struggling: 3, total: 3))
+    }
+
+    @Test func theLightestLoadStillWarnsOnTheThirdSession() throws {
+        let bar = Self.session(20, [6, 6, 6])
+        var input = Self.deficitInput([bar, bar, bar])
+        input.loggedLoadsKg = []
+        let first = try #require(ProgressionEngine.recommend(input).first)
+        #expect(first.weightKg == 20)
+        #expect(first.warnings == [.lightestLoad(currentKg: 20)])
+    }
+
+    @Test func aHoldInRangeCarriesTheDeficitButARaiseDoesnt() {
+        let hold = ProgressionEngine.recommend(Self.deficitInput([Self.fine]))
+        #expect(hold.first?.deficitPercent == 18)
+        let raise = ProgressionEngine.recommend(Self.deficitInput([Self.session(100, [12, 12, 12])]))
+        #expect(raise.first?.weightKg == 102.5)
+        #expect(raise.first?.deficitPercent == nil)
+    }
+
+    @Test func aDeficitDoesntStopLoadRaises() {
+        let without = ProgressionEngine.recommend(Self.deficitInput([Self.session(100, [12, 12, 12])], percent: nil))
+        let with = ProgressionEngine.recommend(Self.deficitInput([Self.session(100, [12, 12, 12])]))
+        #expect(without.first?.weightKg == with.first?.weightKg)
+    }
+
+    @Test func noDeficitLeavesEveryRecommendationUntagged() {
+        for history in [[Self.hard], [Self.fine], [Self.session(100, [12, 12, 12])]] {
+            #expect(ProgressionEngine.recommend(Self.input(history)).allSatisfy { $0.deficitPercent == nil })
+        }
+    }
+
+    @Test func aDeficitRecommendationSurvivesCoding() throws {
+        let original = Recommendation(
+            weightKg: 100,
+            targetReps: 8,
+            reason: .holdForDeficit(struggling: 2, total: 3),
+            deficitPercent: 18
+        )
+        let decoded = try JSONDecoder().decode(Recommendation.self, from: JSONEncoder().encode(original))
+        #expect(decoded == original)
+    }
+
     // MARK: - Raise
 
     @Test func allSetsAtTopRaisesToNextLoadAndResetsReps() {

@@ -49,13 +49,21 @@ final class HomeViewModel {
     /// feeds the "supplement missed" insight.
     private(set) var untakenEarlySupplementNames: [String] = []
     private(set) var checkInState = WeeklyCheckInState.notDue
+    /// Today's targets: the profile's, or a training or rest day's with
+    /// calorie cycling on.
+    private(set) var todayTargets = DayTargets(targets: MacroTargets(calories: 0, proteinG: 0, carbsG: 0, fatG: 0))
 
     private let defaults: UserDefaults
+    private let activeSessionStart: () -> Date?
     private let insightDateKey = "vora.insight.date"
     private let insightPayloadKey = "vora.insight.payload"
 
-    init(defaults: UserDefaults = .standard) {
+    init(
+        defaults: UserDefaults = .standard,
+        activeSessionStart: @escaping () -> Date? = { SessionDraftStore().activeSessionStart() }
+    ) {
         self.defaults = defaults
+        self.activeSessionStart = activeSessionStart
     }
 
     // MARK: - Loading
@@ -93,8 +101,25 @@ final class HomeViewModel {
         loadFoodStreak(from: context, now: now, todayEnd: todayEnd, calendar: cal)
         loadSupplements(from: context, now: now, todayStart: todayStart, todayEnd: todayEnd, calendar: cal)
         daysTracked = TrackingStats.daysTracked(in: context, calendar: cal)
+        loadTodayTargets(from: context, now: now, calendar: cal)
         loadInsight(now: now, calendar: cal)
         loadCheckIn(from: context, now: now, calendar: cal)
+    }
+
+    private func loadTodayTargets(from context: ModelContext, now: Date, calendar: Calendar) {
+        guard let profile else {
+            todayTargets = DayTargets(targets: MacroTargets(calories: 0, proteinG: 0, carbsG: 0, fatG: 0))
+            return
+        }
+        todayTargets = CalorieCyclingService.targets(
+            on: now,
+            profile: profile,
+            context: context,
+            defaults: defaults,
+            activeSessionStart: activeSessionStart,
+            now: now,
+            calendar: calendar
+        )
     }
 
     /// A failed read just means no card today; targets stay as they are.
@@ -112,8 +137,13 @@ final class HomeViewModel {
         }
     }
 
-    func applyCheckIn(_ proposal: ExpenditureProposal, context: ModelContext, now: Date = .now) throws {
-        try ExpenditureCheckInService.apply(proposal, context: context)
+    func applyCheckIn(
+        _ proposal: ExpenditureProposal,
+        includingAdjustment: Bool = false,
+        context: ModelContext,
+        now: Date = .now
+    ) throws {
+        try ExpenditureCheckInService.apply(proposal, includingAdjustment: includingAdjustment, context: context)
         load(from: context, now: now)
     }
 
@@ -301,9 +331,9 @@ final class HomeViewModel {
             date: now,
             hour: calendar.component(.hour, from: now),
             proteinConsumedG: totalProtein,
-            proteinTargetG: profile?.proteinTargetG ?? 0,
+            proteinTargetG: dailyTargets.proteinG,
             caloriesConsumed: totalCalories,
-            calorieTarget: profile?.dailyCalorieTarget ?? 0,
+            calorieTarget: dailyTargets.calories,
             isScheduledWorkoutDay: isScheduledWorkoutDay,
             hasTrainedToday: hasTrainedToday,
             streakDays: streakDays,
@@ -361,21 +391,14 @@ final class HomeViewModel {
 
     var remainingMacros: RemainingMacros {
         RemainingMacros(
-            calories: (profile?.dailyCalorieTarget ?? 0) - Int(totalCalories.rounded()),
-            proteinG: (profile?.proteinTargetG ?? 0) - Int(totalProtein.rounded()),
-            carbsG: (profile?.carbsTargetG ?? 0) - Int(totalCarbs.rounded()),
-            fatG: (profile?.fatTargetG ?? 0) - Int(totalFat.rounded())
+            calories: dailyTargets.calories - Int(totalCalories.rounded()),
+            proteinG: dailyTargets.proteinG - Int(totalProtein.rounded()),
+            carbsG: dailyTargets.carbsG - Int(totalCarbs.rounded()),
+            fatG: dailyTargets.fatG - Int(totalFat.rounded())
         )
     }
 
-    var dailyTargets: MacroTargets {
-        MacroTargets(
-            calories: profile?.dailyCalorieTarget ?? 0,
-            proteinG: profile?.proteinTargetG ?? 0,
-            carbsG: profile?.carbsTargetG ?? 0,
-            fatG: profile?.fatTargetG ?? 0
-        )
-    }
+    var dailyTargets: MacroTargets { todayTargets.targets }
 
     /// What's left of one slot's share of the daily targets — what the AI
     /// suggestion should fill for that meal.

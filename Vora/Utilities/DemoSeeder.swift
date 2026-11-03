@@ -23,6 +23,63 @@ enum DemoSeeder {
     /// Check-ins already answered, each a week apart, before today's.
     static let pastCheckIns = 4
 
+    /// Data that triggers one coaching rule at today's check-in, chosen with
+    /// `--seed-coaching=<raw value>` alongside `--seed-demo`. Intake and rates
+    /// are picked so intake stays within `CoachingEngine.adherenceTolerance` of
+    /// the target the past check-ins leave behind.
+    enum CoachingScenario: String, CaseIterable {
+        /// Fat loss, on rate, with strength falling for two check-ins.
+        case strengthFalling
+        /// Fat loss, losing far faster than the goal rate.
+        case lossTooFast
+        /// Gain, rising faster than the goal rate with strength flat.
+        case gainTooFast
+        /// Gain, on rate, with strength rising.
+        case gainOnTrack
+        /// Fat loss, with too few sessions to judge strength.
+        case notEnoughTraining
+        /// Fat loss, with the last two sessions of every lift under the range,
+        /// so a session started today holds because of the deficit.
+        case deficitHold
+
+        fileprivate var plan: SeedPlan {
+            switch self {
+            case .strengthFalling:
+                SeedPlan(strengthPerWeek: -0.015)
+            case .lossTooFast:
+                SeedPlan(intakeKcal: 2300, weightKgPerWeek: -1.2)
+            case .gainTooFast:
+                SeedPlan(goal: .muscleGain, intakeKcal: 2700, weightKgPerWeek: 0.45, strengthPerWeek: 0)
+            case .gainOnTrack:
+                SeedPlan(goal: .muscleGain, intakeKcal: 2700, weightKgPerWeek: 0.25)
+            case .notEnoughTraining:
+                SeedPlan(workoutDays: 5)
+            case .deficitHold:
+                SeedPlan(strengthPerWeek: 0, strugglingSessions: 2)
+            }
+        }
+
+        fileprivate static var requested: CoachingScenario? {
+            let prefix = "--seed-coaching="
+            return ProcessInfo.processInfo.arguments
+                .first { $0.hasPrefix(prefix) }
+                .flatMap { CoachingScenario(rawValue: String($0.dropFirst(prefix.count))) }
+        }
+    }
+
+    /// The numbers a seed is built from. The defaults are the known answer.
+    fileprivate struct SeedPlan {
+        var goal = GoalType.fatLoss
+        var intakeKcal = DemoSeeder.dailyIntakeKcal
+        var weightKgPerWeek = -DemoSeeder.weeklyLossKg
+        /// How much stronger each week is than the one before.
+        var strengthPerWeek = 0.02
+        /// How many days back sessions go.
+        var workoutDays = 30
+        /// How many of each lift's latest sessions fall short of the rep range.
+        var strugglingSessions = 0
+    }
+
     static func seedIfRequested(container: ModelContainer) {
         guard ProcessInfo.processInfo.arguments.contains("--seed-demo") else { return }
         let context = ModelContext(container)
@@ -34,7 +91,7 @@ enum DemoSeeder {
                 .error("Failed to check for a profile: \(String(describing: error), privacy: .public)")
             return
         }
-        seed(into: context)
+        seed(into: context, scenario: CoachingScenario.requested)
         guard ProcessInfo.processInfo.arguments.contains("--seed-cycle") else { return }
         do {
             try seedCycle(into: context)
@@ -56,7 +113,8 @@ enum DemoSeeder {
     }
 
     /// Internal (not private) so tests can check what the seed writes.
-    static func seed(into context: ModelContext) {
+    static func seed(into context: ModelContext, scenario: CoachingScenario? = nil) {
+        let plan = scenario?.plan ?? SeedPlan()
         let cal = Calendar.current
         let today = cal.startOfDay(for: .now)
 
@@ -65,7 +123,7 @@ enum DemoSeeder {
             dateOfBirth: cal.date(byAdding: .year, value: -29, to: today)!,
             heightCm: 181,
             biologicalSex: .male,
-            goalType: .fatLoss,
+            goalType: plan.goal,
             activityLevel: .lightlyActive,
             trainingSplit: .ppl,
             dailyCalorieTarget: 2400,
@@ -86,9 +144,9 @@ enum DemoSeeder {
             ))
         }
 
-        seedWeights(into: context, today: today, calendar: cal)
-        seedFoodAndWater(into: context, today: today, calendar: cal)
-        seedWorkouts(into: context, today: today, calendar: cal)
+        seedWeights(into: context, plan: plan, today: today, calendar: cal)
+        seedFoodAndWater(into: context, plan: plan, today: today, calendar: cal)
+        seedWorkouts(into: context, plan: plan, today: today, calendar: cal)
         seedFoodLibrary(into: context)
         seedSupplements(into: context, today: today, calendar: cal)
 
@@ -190,12 +248,12 @@ enum DemoSeeder {
         ]))
     }
 
-    /// Sixty days down to 80.5 kg at `weeklyLossKg`, with mild noise; the
-    /// last three days descend strictly so the weight-trend insight fires.
-    private static func seedWeights(into context: ModelContext, today: Date, calendar: Calendar) {
+    /// Sixty days ending at 80.5 kg at the plan's rate, with mild noise; the
+    /// last three days move strictly so the weight-trend insight fires.
+    private static func seedWeights(into context: ModelContext, plan: SeedPlan, today: Date, calendar: Calendar) {
         for dayOffset in 0..<historyDays {
             let day = calendar.date(byAdding: .day, value: -dayOffset, to: today)!
-            let base = 80.5 + Double(dayOffset) * weeklyLossKg / 7
+            let base = 80.5 - Double(dayOffset) * plan.weightKgPerWeek / 7
             let wiggle = dayOffset < 3 ? 0 : Double((dayOffset * 7) % 5) * 0.08 - 0.16
             context.insert(WeightEntry(
                 date: day.addingTimeInterval(7 * 3600 + 20 * 60),
@@ -204,7 +262,7 @@ enum DemoSeeder {
         }
     }
 
-    private static func seedFoodAndWater(into context: ModelContext, today: Date, calendar: Calendar) {
+    private static func seedFoodAndWater(into context: ModelContext, plan: SeedPlan, today: Date, calendar: Calendar) {
         struct Meal {
             let slot: MealSlot
             let name: String
@@ -223,7 +281,7 @@ enum DemoSeeder {
         ]
 
         // The meals scale up to the known daily intake.
-        let mealScale = dailyIntakeKcal / meals.reduce(0) { $0 + $1.kcal }
+        let mealScale = plan.intakeKcal / meals.reduce(0) { $0 + $1.kcal }
 
         for dayOffset in 0..<historyDays {
             let day = calendar.date(byAdding: .day, value: -dayOffset, to: today)!
@@ -257,10 +315,11 @@ enum DemoSeeder {
     /// Sessions on every scheduled day of the trailing month except 13
     /// days ago, so the streak reads 12 and history looks lived-in.
     /// Today stays untrained so Home shows the Start Session button.
-    private static func seedWorkouts(into context: ModelContext, today: Date, calendar: Calendar) {
+    private static func seedWorkouts(into context: ModelContext, plan seed: SeedPlan, today: Date, calendar: Calendar) {
         let template = TrainingSplit.ppl.weeklyTemplate
+        var seenSessions: [String: Int] = [:]
 
-        for dayOffset in 1...30 {
+        for dayOffset in 1...seed.workoutDays {
             guard dayOffset != 13 else { continue }
             let day = calendar.date(byAdding: .day, value: -dayOffset, to: today)!
             let dayIndex = (calendar.component(.weekday, from: day) + 5) % 7
@@ -274,16 +333,21 @@ enum DemoSeeder {
             default: exercises = [("Back Squat", 120, ["quads"]), ("Romanian Deadlift", 95, ["hamstrings"]), ("Leg Press", 180, ["quads"]), ("Seated Calf Raise", 45, ["calves"]), ("Leg Curl", 40, ["hamstrings"])]
             }
 
-            // Older sessions lift lighter (~2% per week, nearest 2.5 kg)
-            // so progression charts show real growth over the month.
-            let progressFactor = 1 - 0.02 * Double(dayOffset / 7)
+            // Older sessions lift lighter (~2% per week, nearest 2.5 kg) so
+            // progression charts show real growth over the month. A negative
+            // rate makes them heavier instead.
+            let progressFactor = 1 - seed.strengthPerWeek * Double(dayOffset / 7)
             var totalVolume = 0.0
             let logs = exercises.enumerated().map { index, exercise in
                 let progressed = Swift.max((exercise.1 * progressFactor / 2.5).rounded() * 2.5, 2.5)
+                // Newest first here, so the first sessions seen are the latest.
+                let seen = seenSessions[exercise.0, default: 0]
+                seenSessions[exercise.0] = seen + 1
+                let reps = seen < seed.strugglingSessions ? 6 : 8
                 var sets = (1...3).map { setNumber in
-                    SetEntry(setNumber: setNumber, weightKg: progressed, reps: 8, isCompleted: true)
+                    SetEntry(setNumber: setNumber, weightKg: progressed, reps: reps, isCompleted: true)
                 }
-                totalVolume += progressed * 8 * 3
+                totalVolume += progressed * Double(reps) * 3
                 // One of each set type per session, so history shows them all.
                 switch index {
                 case 0:
