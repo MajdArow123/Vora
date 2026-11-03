@@ -14,6 +14,8 @@ import SwiftUI
 /// figures stay symmetric.
 enum BodyDiagramLayout {
     static let designSize = CGSize(width: 100, height: 220)
+    /// Silhouette and any muscle that isn't highlighted.
+    static let neutralFill = DesignSystem.Colors.textSecondary.opacity(0.15)
 
     enum FigureSide {
         case front, back
@@ -216,18 +218,23 @@ private struct RegionShape: Shape {
     }
 }
 
-/// One stylized figure (front or back) with the given muscles
-/// highlighted.
+/// One stylized figure (front or back), colored per muscle.
 private struct BodyFigureView: View {
     let side: BodyDiagramLayout.FigureSide
-    let primaryMuscles: Set<Muscle>
-    let secondaryMuscles: Set<Muscle>
+    let fill: (Muscle) -> Color
+    let onSelect: ((Muscle) -> Void)?
 
     var body: some View {
         ZStack {
             ForEach(Array(BodyDiagramLayout.regions(for: side).enumerated()), id: \.offset) { _, region in
-                RegionShape(geometry: region.geometry)
-                    .fill(fill(for: region.muscle))
+                let shape = RegionShape(geometry: region.geometry)
+                shape
+                    .fill(region.muscle.map(fill) ?? BodyDiagramLayout.neutralFill)
+                    .contentShape(shape)
+                    .onTapGesture {
+                        if let muscle = region.muscle { onSelect?(muscle) }
+                    }
+                    .allowsHitTesting(onSelect != nil && region.muscle != nil)
             }
         }
         .aspectRatio(
@@ -235,27 +242,43 @@ private struct BodyFigureView: View {
             contentMode: .fit
         )
     }
-
-    private func fill(for muscle: Muscle?) -> Color {
-        guard let muscle else {
-            return DesignSystem.Colors.textSecondary.opacity(0.15)
-        }
-        if primaryMuscles.contains(muscle) {
-            return DesignSystem.Colors.accent
-        }
-        if secondaryMuscles.contains(muscle) {
-            return DesignSystem.Colors.accent.opacity(0.35)
-        }
-        return DesignSystem.Colors.textSecondary.opacity(0.15)
-    }
 }
 
-/// Front and back body figures side by side with primary muscles in the
-/// brand accent and secondary muscles at reduced opacity. Pass empty
-/// sets for a neutral (unhighlighted) diagram.
+/// Front and back body figures side by side, colored per muscle.
 struct BodyDiagramView: View {
-    let primaryMuscles: Set<Muscle>
-    let secondaryMuscles: Set<Muscle>
+    private let fill: (Muscle) -> Color
+    private let accessibilityText: String
+    private let onSelect: ((Muscle) -> Void)?
+
+    /// For colors other than primary/secondary, such as Levels. `onSelect` makes
+    /// muscles tappable; the diagram is one accessibility element, so callers
+    /// also need another accessible way to reach a muscle.
+    init(
+        fill: @escaping (Muscle) -> Color,
+        accessibilityLabel: String,
+        onSelect: ((Muscle) -> Void)? = nil
+    ) {
+        self.fill = fill
+        self.accessibilityText = accessibilityLabel
+        self.onSelect = onSelect
+    }
+
+    /// Primary muscles in the brand accent and secondary muscles at reduced
+    /// opacity. Pass empty sets for a neutral (unhighlighted) diagram.
+    init(primaryMuscles: Set<Muscle>, secondaryMuscles: Set<Muscle>) {
+        self.init(
+            fill: { muscle in
+                if primaryMuscles.contains(muscle) {
+                    return DesignSystem.Colors.accent
+                }
+                if secondaryMuscles.contains(muscle) {
+                    return DesignSystem.Colors.accent.opacity(0.35)
+                }
+                return BodyDiagramLayout.neutralFill
+            },
+            accessibilityLabel: Self.accessibilityText(primary: primaryMuscles, secondary: secondaryMuscles)
+        )
+    }
 
     var body: some View {
         HStack(spacing: DesignSystem.Spacing.xl) {
@@ -268,32 +291,28 @@ struct BodyDiagramView: View {
 
     private func figure(_ side: BodyDiagramLayout.FigureSide, label: String) -> some View {
         VStack(spacing: DesignSystem.Spacing.sm) {
-            BodyFigureView(
-                side: side,
-                primaryMuscles: primaryMuscles,
-                secondaryMuscles: secondaryMuscles
-            )
+            BodyFigureView(side: side, fill: fill, onSelect: onSelect)
             Text(label)
                 .font(DesignSystem.Typography.caption)
                 .foregroundStyle(DesignSystem.Colors.textSecondary)
         }
     }
 
-    private var accessibilityText: String {
-        guard !primaryMuscles.isEmpty || !secondaryMuscles.isEmpty else {
+    private static func accessibilityText(primary: Set<Muscle>, secondary: Set<Muscle>) -> String {
+        guard !primary.isEmpty || !secondary.isEmpty else {
             return "Body diagram with no muscles highlighted"
         }
         var parts: [String] = []
-        if !primaryMuscles.isEmpty {
-            parts.append("Primary: " + names(of: primaryMuscles))
+        if !primary.isEmpty {
+            parts.append("Primary: " + names(of: primary))
         }
-        if !secondaryMuscles.isEmpty {
-            parts.append("Secondary: " + names(of: secondaryMuscles))
+        if !secondary.isEmpty {
+            parts.append("Secondary: " + names(of: secondary))
         }
         return "Body diagram. " + parts.joined(separator: ". ")
     }
 
-    private func names(of muscles: Set<Muscle>) -> String {
+    private static func names(of muscles: Set<Muscle>) -> String {
         muscles.map(\.displayName).sorted().joined(separator: ", ")
     }
 }

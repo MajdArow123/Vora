@@ -21,6 +21,7 @@ struct ProgressView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var viewModel = ProgressViewModel()
     @State private var strengthViewModel = StrengthProgressViewModel()
+    @State private var levelsViewModel = LevelsViewModel()
     @State private var nutritionViewModel = NutritionProgressViewModel()
     @State private var segment: ProgressSegment = .weight
     @State private var showingLogWeight = false
@@ -55,7 +56,11 @@ struct ProgressView: View {
                             }
                             weightLogCard
                         case .strength:
-                            StrengthProgressSection(viewModel: strengthViewModel, units: viewModel.unitSystem)
+                            StrengthProgressSection(
+                                viewModel: strengthViewModel,
+                                levelsViewModel: levelsViewModel,
+                                units: viewModel.unitSystem
+                            )
                         case .nutrition:
                             NutritionProgressSection(viewModel: nutritionViewModel)
                         }
@@ -114,6 +119,7 @@ struct ProgressView: View {
             viewModel.load(from: modelContext)
         case .strength:
             strengthViewModel.load(from: modelContext)
+            levelsViewModel.load(from: modelContext)
         case .nutrition:
             nutritionViewModel.load(from: modelContext)
         }

@@ -10,9 +10,11 @@ import Charts
 
 struct StrengthProgressSection: View {
     @Bindable var viewModel: StrengthProgressViewModel
+    let levelsViewModel: LevelsViewModel
     let units: UnitSystem
 
     var body: some View {
+        LevelsCard(viewModel: levelsViewModel)
         progressionCard
         weeklyVolumeCard
         cardioCard
@@ -271,7 +273,11 @@ struct StrengthProgressSection: View {
 #Preview {
     ScrollView {
         VStack(spacing: DesignSystem.Spacing.md) {
-            StrengthProgressSection(viewModel: StrengthProgressViewModel(), units: .metric)
+            StrengthProgressSection(
+                viewModel: StrengthProgressViewModel(),
+                levelsViewModel: LevelsViewModel(),
+                units: .metric
+            )
         }
         .padding()
     }
