@@ -67,6 +67,10 @@ final class ProgressViewModel {
     private(set) var weightTrend: WeightTrendSeries?
     /// The trend's days within the selected range, oldest first.
     private(set) var rangeTrendPoints: [WeightTrendSeries.Point] = []
+    /// All weekly check-ins, oldest first.
+    private(set) var allCheckIns: [ExpenditureCheckIn] = []
+    /// Check-ins within the selected range, oldest first.
+    private(set) var rangeCheckIns: [ExpenditureCheckIn] = []
     /// All body measurements newest first.
     private(set) var allMeasurementsDescending: [BodyMeasurement] = []
     private(set) var weekDots: [Bool] = []
@@ -92,6 +96,9 @@ final class ProgressViewModel {
             sortBy: [SortDescriptor(\.date, order: .reverse)]
         ), from: context)
         weightTrend = WeightTrendSeries(entries: allWeightsDescending, calendar: cal)
+        allCheckIns = fetchOrEmpty(FetchDescriptor<ExpenditureCheckIn>(
+            sortBy: [SortDescriptor(\.date)]
+        ), from: context)
         fetchMeasurements(from: context)
         applyRange(now: now, calendar: cal)
 
@@ -124,10 +131,12 @@ final class ProgressViewModel {
         else {
             rangeWeights = allWeightsDescending.reversed()
             rangeTrendPoints = weightTrend?.points ?? []
+            rangeCheckIns = allCheckIns
             return
         }
         rangeWeights = allWeightsDescending.filter { $0.date >= cutoff }.reversed()
         rangeTrendPoints = weightTrend?.points(onOrAfter: cutoff) ?? []
+        rangeCheckIns = allCheckIns.filter { $0.date >= cutoff }
     }
 
     private func loadTraining(from context: ModelContext, now: Date, calendar: Calendar) {

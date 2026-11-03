@@ -152,6 +152,68 @@ struct CalorieCalculatorTests {
         #expect(targets.waterMl % 250 == 0)
     }
 
+    // MARK: - Targets from a measured expenditure
+
+    @Test(arguments: [
+        (GoalType.fatLoss, 2400, 160),
+        (GoalType.maintain, 3000, 128),
+        (GoalType.muscleGain, 3360, 144),
+    ])
+    func goalMultipliersApplyToTheEstimate(goal: GoalType, calories: Int, protein: Int) {
+        let targets = CalorieCalculator.targets(fromExpenditure: 3000, weightKg: 80, goal: goal, bmr: 1780)
+        #expect(targets.calories == calories)
+        #expect(targets.proteinG == protein)
+        #expect(!targets.isFloored)
+    }
+
+    /// 2400 kcal: fat 2400 × 0.25 / 9 = 67, protein 160 g, carbs the rest
+    /// = (2400 − 640 − 600) / 4 = 290.
+    @Test func macrosSplitFromTheFinalCalories() {
+        let targets = CalorieCalculator.targets(fromExpenditure: 3000, weightKg: 80, goal: .fatLoss, bmr: 1780)
+        #expect(targets.fatG == 67)
+        #expect(targets.carbsG == 290)
+    }
+
+    @Test func proteinFollowsTheWeightGiven() {
+        let lighter = CalorieCalculator.targets(fromExpenditure: 3000, weightKg: 70, goal: .fatLoss, bmr: 1780)
+        #expect(lighter.proteinG == 140)
+    }
+
+    @Test func bmrIsAFloor() {
+        // 2000 × 0.8 = 1600, under the 1780 BMR; rounds up to 1780.
+        let targets = CalorieCalculator.targets(fromExpenditure: 2000, weightKg: 80, goal: .fatLoss, bmr: 1780)
+        #expect(targets.calories == 1780)
+        #expect(targets.isFloored)
+    }
+
+    @Test func twelveHundredIsAFloorBelowAnyBMR() {
+        let targets = CalorieCalculator.targets(fromExpenditure: 1300, weightKg: 45, goal: .fatLoss, bmr: 1100)
+        #expect(targets.calories == 1200)
+        #expect(targets.isFloored)
+    }
+
+    /// 2255 × 0.8 = 1804 would round to 1800, under the 1804 BMR.
+    @Test func roundingCannotTakeCaloriesUnderTheFloor() {
+        let targets = CalorieCalculator.targets(fromExpenditure: 2255, weightKg: 80, goal: .fatLoss, bmr: 1804)
+        #expect(targets.calories == 1810)
+        #expect(targets.isFloored)
+    }
+
+    @Test func carbsNeverGoNegativeAtTheFloor() {
+        let targets = CalorieCalculator.targets(fromExpenditure: 1300, weightKg: 200, goal: .fatLoss, bmr: 1100)
+        #expect(targets.carbsG == 0)
+    }
+
+    /// With formula TDEE, sedentary fat loss is 0.96 × BMR: the floor always wins.
+    @Test func sedentaryFatLossIsAlwaysFlooredAtBMR() {
+        let bmr = CalorieCalculator.bmr(weightKg: 80, heightCm: 180, age: 30, sex: .male)
+        let tdee = CalorieCalculator.formulaTDEE(weightKg: 80, heightCm: 180, age: 30, sex: .male, activityLevel: .sedentary)
+        let targets = CalorieCalculator.targets(fromExpenditure: tdee, weightKg: 80, goal: .fatLoss, bmr: bmr)
+        #expect(bmr == 1780)
+        #expect(targets.calories == 1780)
+        #expect(targets.isFloored)
+    }
+
     // MARK: - Rounding
 
     @Test func caloriesAlwaysRoundToNearestTen() {

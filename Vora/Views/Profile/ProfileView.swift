@@ -15,6 +15,7 @@ struct ProfileView: View {
     @State private var showingAppearancePicker = false
     @State private var showingProgressionSettings = false
     @AppStorage(SessionPrefillMode.storageKey) private var prefillMode: SessionPrefillMode = .smart
+    @AppStorage(CheckInWeekday.storageKey) private var checkInWeekday: CheckInWeekday = .monday
     @AppStorage(WeightImportService.enabledKey) private var importsHealthWeight = false
     @State private var showingSupplements = false
     @State private var showingGymProfiles = false
@@ -156,6 +157,8 @@ struct ProfileView: View {
             Divider()
             progressionRow
             Divider()
+            checkInDayRow
+            Divider()
             supplementsRow
             Divider()
             healthWeightImportRow
@@ -280,6 +283,24 @@ struct ProfileView: View {
             ProgressionSettingsSheet()
                 .presentationDetents([.medium, .large])
         }
+    }
+
+    private var checkInDayRow: some View {
+        HStack {
+            Text("Weekly check-in")
+                .font(DesignSystem.Typography.body)
+                .foregroundStyle(DesignSystem.Colors.textPrimary.opacity(0.6))
+            Spacer()
+            Picker("Weekly check-in", selection: $checkInWeekday) {
+                ForEach(CheckInWeekday.allCases) { day in
+                    Text(day.displayName).tag(day)
+                }
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .tint(DesignSystem.Colors.textPrimary)
+        }
+        .frame(minHeight: 44)
     }
 
     private var appearanceRow: some View {

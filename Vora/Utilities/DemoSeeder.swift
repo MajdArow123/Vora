@@ -10,10 +10,19 @@ import Foundation
 import OSLog
 import SwiftData
 
-/// Fills an empty store with a realistic month of data for App Store
-/// screenshots. Debug builds only, and only when launched with the
-/// `--seed-demo` argument on a store with no profile.
+/// Fills an empty store with realistic data for App Store screenshots.
+/// Debug builds only, and only when launched with the `--seed-demo` argument
+/// on a store with no profile. Food and weights are built to a known answer:
+/// eating 2,600 kcal a day and losing 0.5 kg a week means an expenditure of
+/// about 3,150 kcal.
 enum DemoSeeder {
+    static let dailyIntakeKcal = 2600.0
+    static let weeklyLossKg = 0.5
+    /// Food and weights both go back this far.
+    static let historyDays = 60
+    /// Check-ins already answered, each a week apart, before today's.
+    static let pastCheckIns = 4
+
     static func seedIfRequested(container: ModelContainer) {
         guard ProcessInfo.processInfo.arguments.contains("--seed-demo") else { return }
         let context = ModelContext(container)
@@ -33,7 +42,7 @@ enum DemoSeeder {
             heightCm: 181,
             biologicalSex: .male,
             goalType: .fatLoss,
-            activityLevel: .veryActive,
+            activityLevel: .lightlyActive,
             trainingSplit: .ppl,
             dailyCalorieTarget: 2400,
             proteinTargetG: 165,
@@ -61,9 +70,24 @@ enum DemoSeeder {
 
         do {
             try context.save()
+            try seedCheckIns(into: context, today: today, calendar: cal)
         } catch {
             Logger(subsystem: "com.majdarow.Vora", category: "DemoSeeder")
                 .error("Failed to save demo data: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// Answers past check-ins through the real service, so the chart climbs
+    /// from the formula toward the known answer and today's check-in is
+    /// still open.
+    private static func seedCheckIns(into context: ModelContext, today: Date, calendar: Calendar) throws {
+        guard let latest = ExpenditureCheckInService.checkInDay(for: .monday, now: today, calendar: calendar) else { return }
+        for weeksAgo in stride(from: pastCheckIns, through: 1, by: -1) {
+            guard let day = calendar.date(byAdding: .day, value: -7 * weeksAgo, to: latest) else { continue }
+            let state = try ExpenditureCheckInService.state(context: context, weekday: .monday, now: day, calendar: calendar)
+            if case .ready(let proposal) = state {
+                try ExpenditureCheckInService.apply(proposal, context: context)
+            }
         }
     }
 
@@ -142,16 +166,16 @@ enum DemoSeeder {
         ]))
     }
 
-    /// 90 days trending 84 → ~80.5 kg with mild noise; the last three
-    /// days descend strictly so the weight-trend insight fires.
+    /// Sixty days down to 80.5 kg at `weeklyLossKg`, with mild noise; the
+    /// last three days descend strictly so the weight-trend insight fires.
     private static func seedWeights(into context: ModelContext, today: Date, calendar: Calendar) {
-        for dayOffset in 0..<90 {
+        for dayOffset in 0..<historyDays {
             let day = calendar.date(byAdding: .day, value: -dayOffset, to: today)!
-            let base = 80.5 + Double(dayOffset) * 0.04
+            let base = 80.5 + Double(dayOffset) * weeklyLossKg / 7
             let wiggle = dayOffset < 3 ? 0 : Double((dayOffset * 7) % 5) * 0.08 - 0.16
             context.insert(WeightEntry(
                 date: day.addingTimeInterval(7 * 3600 + 20 * 60),
-                weightKg: (base + wiggle).rounded(toPlaces: 1)
+                weightKg: (base + wiggle).rounded(toPlaces: 2)
             ))
         }
     }
@@ -174,16 +198,20 @@ enum DemoSeeder {
             Meal(slot: .dinner, name: "Salmon, Potatoes & Greens", grams: 450, kcal: 590, p: 42, c: 44, f: 24, hour: 19),
         ]
 
-        for dayOffset in 0..<30 {
+        // The meals scale up to the known daily intake.
+        let mealScale = dailyIntakeKcal / meals.reduce(0) { $0 + $1.kcal }
+
+        for dayOffset in 0..<historyDays {
             let day = calendar.date(byAdding: .day, value: -dayOffset, to: today)!
-            // Deterministic ±6% day-to-day variation so trend charts have texture.
-            let dayFactor = 1 + Double((dayOffset * 13) % 7 - 3) * 0.02
+            // Deterministic ±6% day-to-day variation so trend charts have
+            // texture. It sums to zero over any 7 days, so the average holds.
+            let dayFactor = (1 + Double((dayOffset * 13) % 7 - 3) * 0.02) * mealScale
             for meal in meals {
                 context.insert(FoodEntry(
                     date: day.addingTimeInterval(meal.hour * 3600),
                     mealSlot: meal.slot,
                     foodName: meal.name,
-                    servingGrams: meal.grams,
+                    servingGrams: (meal.grams * mealScale).rounded(),
                     calories: (meal.kcal * dayFactor).rounded(),
                     proteinG: (meal.p * dayFactor).rounded(),
                     carbsG: (meal.c * dayFactor).rounded(),

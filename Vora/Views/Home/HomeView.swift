@@ -19,6 +19,7 @@ struct HomeView: View {
     @State private var showingAddSupplement = false
     @State private var suggestionViewModel = MealSuggestionViewModel()
     @State private var showingAISuggestion = false
+    @State private var showingCheckIn = false
 
     var body: some View {
         NavigationStack {
@@ -29,6 +30,9 @@ struct HomeView: View {
                 ScrollView {
                     VStack(spacing: DesignSystem.Spacing.md) {
                         header
+                        WeeklyCheckInCard(state: viewModel.checkInState) {
+                            showingCheckIn = true
+                        }
                         VStack(spacing: DesignSystem.Spacing.xs) {
                             calorieCard
                             macroMiniCards
@@ -125,6 +129,19 @@ struct HomeView: View {
             refreshSuggestion(force: false)
         }) {
             AIMealSuggestionView(logDate: .now)
+        }
+        .sheet(isPresented: $showingCheckIn, onDismiss: {
+            // Applied targets change what's left to eat today.
+            refreshSuggestion(force: false)
+        }) {
+            if case .ready(let proposal) = viewModel.checkInState {
+                WeeklyCheckInSheet(
+                    proposal: proposal,
+                    units: units,
+                    onApply: { try viewModel.applyCheckIn(proposal, context: modelContext) },
+                    onSkip: { try viewModel.skipCheckIn(proposal, context: modelContext) }
+                )
+            }
         }
     }
 

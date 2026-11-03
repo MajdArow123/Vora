@@ -44,6 +44,7 @@ final class HomeViewModel {
     /// Untaken morning / pre-workout supplement names, in user order —
     /// feeds the "supplement missed" insight.
     private(set) var untakenEarlySupplementNames: [String] = []
+    private(set) var checkInState = WeeklyCheckInState.notDue
 
     private let defaults: UserDefaults
     private let insightDateKey = "vora.insight.date"
@@ -87,6 +88,32 @@ final class HomeViewModel {
         loadSupplements(from: context, now: now, todayStart: todayStart, todayEnd: todayEnd, calendar: cal)
         daysTracked = TrackingStats.daysTracked(in: context, calendar: cal)
         loadInsight(now: now, calendar: cal)
+        loadCheckIn(from: context, now: now, calendar: cal)
+    }
+
+    /// A failed read just means no card today; targets stay as they are.
+    private func loadCheckIn(from context: ModelContext, now: Date, calendar: Calendar) {
+        do {
+            checkInState = try ExpenditureCheckInService.state(
+                context: context,
+                weekday: CheckInWeekday.current(in: defaults),
+                now: now,
+                calendar: calendar
+            )
+        } catch {
+            Self.logger.error("Failed to load the weekly check-in: \(String(describing: error), privacy: .public)")
+            checkInState = .notDue
+        }
+    }
+
+    func applyCheckIn(_ proposal: ExpenditureProposal, context: ModelContext, now: Date = .now) throws {
+        try ExpenditureCheckInService.apply(proposal, context: context)
+        load(from: context, now: now)
+    }
+
+    func skipCheckIn(_ proposal: ExpenditureProposal, context: ModelContext, now: Date = .now) throws {
+        try ExpenditureCheckInService.skip(proposal, context: context)
+        load(from: context, now: now)
     }
 
     /// Today's template for a new session. A missing day is not a rest day:

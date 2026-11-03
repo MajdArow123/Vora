@@ -13,6 +13,7 @@ a migration stage. Never edit an existing version.
 | `Vora/Models/Schema/SchemaV4.swift` | Replaces `SetEntry.rpe` with the optional `SetEntry.rir`, and adds the optional `healthKitWorkoutID` to WorkoutSession and CardioEntry (lightweight stage) |
 | `Vora/Models/Schema/SchemaV5.swift` | Adds GymProfile's optional loading inventory: `storedBars`, `storedPlates`, `storedDumbbellIncrementKg`, `storedMachineIncrementKg` (lightweight stage); V1–V4 each hold a frozen copy of GymProfile |
 | `Vora/Models/Schema/SchemaV6.swift` | Adds ExerciseLog's optional target snapshot: `repRangeMin`, `repRangeMax`, `targetRIR`, `targetSets` (lightweight stage); V4 and V5 each hold a frozen copy of WorkoutSession, ExerciseLog and SetEntry |
+| `Vora/Models/Schema/SchemaV7.swift` | Adds the `ExpenditureCheckIn` entity (lightweight stage); no existing model changes, so nothing is frozen |
 | `Vora/Models/Schema/GymInventoryBackfill.swift` | Post-open fill of unfilled gym inventories from the preset and the user's units; skips when no user profile exists yet, and runs again when onboarding completes |
 | `Vora/Models/Schema/TemplateDefaultsMigration.swift` | Post-open move of the pre-V3 `vora.workoutTemplates` UserDefaults dictionary into SwiftData; removes the key only after a successful save |
 | `Vora/Models/Schema/VoraMigrationPlan.swift` | Ordered `schemas` and `stages`; `CurrentSchema` alias |
@@ -73,7 +74,8 @@ a migration stage. Never edit an existing version.
      712aea5; `v3-fixture.store` and `v1-session-draft.json` (a version 1
      `ActiveSessionDraft`) from commit 07190d1; `v4-fixture.store` from commit
      2b8a20e; `v5-fixture.store` and `v2-session-draft.json` (a version 2
-     `ActiveSessionDraft`) from commit ec4b816. When data outside the store
+     `ActiveSessionDraft`) from commit ec4b816; `v6-fixture.store` from commit
+     5228197. When data outside the store
      moves into it (UserDefaults, files), fixture that data too and test
      the move against it.
    - Read fixtures only through a copy, including with `sqlite3`. Opening a
@@ -114,6 +116,9 @@ because no build ever wrote a non-zero value. Evidence, as of commit 07190d1:
 
 ## Rules
 
+- Oldest supported store: SchemaV1 (Nov 2026). Stores from before GymProfile
+  (pre-Improvement 12) can't be migrated and show the recovery screen —
+  acceptable because no build before SchemaV1 was ever distributed.
 - Never delete, recreate, or "reset" the store to get past a migration
   error. The recovery screen exists so users can retry or export instead.
 - Persisted enum raw values never change (see `CardioType`).

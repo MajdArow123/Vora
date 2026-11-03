@@ -39,6 +39,7 @@ struct ProgressView: View {
                         switch segment {
                         case .weight:
                             weightChartCard
+                            expenditureChartCard
                             bodyFatChartCard
                             statRow
                             goalProjectionCard
@@ -228,6 +229,77 @@ struct ProgressView: View {
             UnitConversion.bodyWeightChangeNumberText(kg: last.trendKg - first.trendKg, units: units),
             UnitConversion.spokenWeightUnit(units)
         )
+    }
+
+    // MARK: - Expenditure chart
+
+    private var expenditureChartCard: some View {
+        VStack(alignment: .leading, spacing: DesignSystem.Spacing.md) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Expenditure")
+                    .font(DesignSystem.Typography.headline)
+                    .foregroundStyle(DesignSystem.Colors.textPrimary)
+                Spacer()
+                if let latest = viewModel.allCheckIns.last {
+                    Text("\(ExpenditureExplanation.kcal(latest.estimateKcal))/day")
+                        .font(DesignSystem.Typography.headline)
+                        .foregroundStyle(DesignSystem.Colors.accent)
+                }
+            }
+
+            if viewModel.rangeCheckIns.count >= 2 {
+                Chart(viewModel.rangeCheckIns) { checkIn in
+                    LineMark(
+                        x: .value("Date", checkIn.date, unit: .day),
+                        y: .value("Expenditure", checkIn.estimateKcal)
+                    )
+                    .foregroundStyle(DesignSystem.Colors.accent)
+                    .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round))
+
+                    PointMark(
+                        x: .value("Date", checkIn.date, unit: .day),
+                        y: .value("Expenditure", checkIn.estimateKcal)
+                    )
+                    .foregroundStyle(DesignSystem.Colors.accent)
+                    .symbolSize(30)
+                }
+                .chartYScale(domain: expenditureDomain)
+                .chartXAxis {
+                    AxisMarks(values: .automatic(desiredCount: 4)) {
+                        AxisValueLabel(format: .dateTime.day().month(.abbreviated))
+                            .foregroundStyle(DesignSystem.Colors.textSecondary)
+                    }
+                }
+                .chartYAxis {
+                    AxisMarks(values: .automatic(desiredCount: 4)) {
+                        AxisGridLine().foregroundStyle(DesignSystem.Colors.textSecondary.opacity(0.15))
+                        AxisValueLabel().foregroundStyle(DesignSystem.Colors.textSecondary)
+                    }
+                }
+                .frame(height: 140)
+                .accessibilityLabel("Expenditure chart")
+                .accessibilityValue(expenditureChartSummary)
+            } else {
+                Text("Your expenditure appears here after two weekly check-ins in this range.")
+                    .font(DesignSystem.Typography.caption)
+                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+            }
+        }
+        .padding(DesignSystem.Spacing.md)
+        .background(DesignSystem.Colors.card)
+        .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.large))
+    }
+
+    private var expenditureDomain: ClosedRange<Double> {
+        let values = viewModel.rangeCheckIns.map(\.estimateKcal)
+        guard let min = values.min(), let max = values.max() else { return 0...1 }
+        let pad = Swift.max((max - min) * 0.15, 50)
+        return (min - pad)...(max + pad)
+    }
+
+    private var expenditureChartSummary: String {
+        guard let first = viewModel.rangeCheckIns.first, let last = viewModel.rangeCheckIns.last else { return "" }
+        return "From \(Int(first.estimateKcal.rounded())) to \(Int(last.estimateKcal.rounded())) kilocalories a day over this range"
     }
 
     // MARK: - Body fat chart

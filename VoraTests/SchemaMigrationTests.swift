@@ -68,17 +68,27 @@ struct SchemaMigrationTests {
         #expect(Self.shapes(Schema(versionedSchema: SchemaV2.self)) == expected)
     }
 
-    @Test func schemaV6IsCurrent() {
-        #expect(SchemaV6.versionIdentifier == Schema.Version(6, 0, 0))
-        #expect(CurrentSchema.versionIdentifier == SchemaV6.versionIdentifier)
-        #expect(SchemaV6.models.count == 20)
+    @Test func schemaV7IsCurrent() {
+        #expect(SchemaV7.versionIdentifier == Schema.Version(7, 0, 0))
+        #expect(CurrentSchema.versionIdentifier == SchemaV7.versionIdentifier)
+        #expect(SchemaV7.models.count == 21)
+    }
+
+    /// V7 adds one entity and changes nothing else.
+    @Test func schemaV7AddsOnlyTheCheckInEntity() {
+        var expected = Self.shapes(Schema(versionedSchema: SchemaV6.self))
+        expected["ExpenditureCheckIn"] = [
+            "id", "date", "estimateKcal", "rawEstimateKcal", "avgIntakeKcal", "slopeKgPerDay", "daysUsed", "applied",
+            "appliedCalories", "appliedProteinG", "appliedCarbsG", "appliedFatG",
+        ]
+        #expect(Self.shapes(PersistenceController.schema) == expected)
     }
 
     /// V6 changes exactly these columns and nothing else.
     @Test func schemaV6AddsOnlyTheTargetSnapshot() {
         var expected = Self.shapes(Schema(versionedSchema: SchemaV5.self))
         expected["ExerciseLog", default: []].formUnion(["repRangeMin", "repRangeMax", "targetRIR", "targetSets"])
-        #expect(Self.shapes(PersistenceController.schema) == expected)
+        #expect(Self.shapes(Schema(versionedSchema: SchemaV6.self)) == expected)
     }
 
     /// V4 and V5 listed the live workout cluster, and now each hold their own.
@@ -160,9 +170,9 @@ struct SchemaMigrationTests {
         let versions = VoraMigrationPlan.schemas.map { $0.versionIdentifier }
         #expect(versions == [
             Schema.Version(1, 0, 0), Schema.Version(2, 0, 0), Schema.Version(3, 0, 0), Schema.Version(4, 0, 0),
-            Schema.Version(5, 0, 0), Schema.Version(6, 0, 0),
+            Schema.Version(5, 0, 0), Schema.Version(6, 0, 0), Schema.Version(7, 0, 0),
         ])
-        #expect(VoraMigrationPlan.stages.count == 5)
+        #expect(VoraMigrationPlan.stages.count == 6)
     }
 
     // MARK: - Container
@@ -613,6 +623,83 @@ struct SchemaMigrationTests {
         let oldest = try #require(sessions.first)
         #expect(HealthWorkoutTarget(session: oldest) == HealthWorkoutMatch(session: oldest).map(HealthWorkoutTarget.match))
         #expect(HealthWorkoutTarget(session: session) == .id(workoutID))
+    }
+
+    // MARK: - V6 -> V7 (frozen types)
+
+    /// V6 lists live classes only, so the store it creates has no check-ins.
+    @Test @MainActor func v6StoreMigratesWithNoCheckIns() throws {
+        let storeURL = Self.temporaryStoreURL()
+        defer { Self.removeStore(at: storeURL) }
+
+        let date = Date(timeIntervalSince1970: 1_795_075_200)
+        try {
+            let schema = Schema(versionedSchema: SchemaV6.self)
+            let container = try ModelContainer(
+                for: schema,
+                configurations: [ModelConfiguration(schema: schema, url: storeURL)]
+            )
+            container.mainContext.insert(WeightEntry(date: date, weightKg: 80.25))
+            try container.mainContext.save()
+        }()
+
+        let container = try PersistenceController.makeContainer(url: storeURL)
+        let context = container.mainContext
+        #expect(try context.fetch(FetchDescriptor<WeightEntry>()).map(\.weightKg) == [80.25])
+        #expect(try context.fetchCount(FetchDescriptor<ExpenditureCheckIn>()) == 0)
+    }
+
+    // MARK: - V6 -> V7 (real store from commit 5228197)
+
+    /// `Fixtures/v6-fixture.store` was written by the shipped V6 code (commit
+    /// 5228197) for a metric user on fat loss: three daily weigh-ins and
+    /// lunches, and a Push session with Barbell Bench Press (2 sets, a target
+    /// snapshot of 3 sets at 6–10 reps and RIR 2).
+    @Test @MainActor func realV6FixtureMigratesWithoutLoss() throws {
+        let fixture = try Self.copyFixtureStore(named: "v6-fixture")
+        defer { removeTestItem(at: fixture.directory) }
+        let storeURL = fixture.store
+
+        let store = AppDataStore(
+            open: { try PersistenceController.makeContainer(url: storeURL) },
+            migrateTemplates: { _ in TemplateDefaultsMigration.Outcome() }
+        )
+        store.load()
+        let context = try #require(store.container).mainContext
+
+        let user = try #require(try context.fetch(FetchDescriptor<UserProfile>()).first)
+        #expect(user.name == "Fixture User")
+        #expect(user.goalType == .fatLoss)
+        #expect(user.dailyCalorieTarget == 2300)
+        #expect(user.proteinTargetG == 160)
+        #expect(user.carbsTargetG == 250)
+        #expect(user.fatTargetG == 65)
+
+        let weights = try context.fetch(FetchDescriptor<WeightEntry>(sortBy: [SortDescriptor(\.date)]))
+        #expect(weights.map(\.weightKg) == [80.2, 80.1, 79.95])
+        let food = try context.fetch(FetchDescriptor<FoodEntry>(sortBy: [SortDescriptor(\.date)]))
+        #expect(food.map(\.calories) == [2400, 2410, 2420])
+
+        let log = try #require(try context.fetch(FetchDescriptor<ExerciseLog>()).first)
+        #expect(log.exerciseId == "barbell-bench-press")
+        #expect(log.targetSnapshot == TemplateTargets(targetSets: 3, repRangeMin: 6, repRangeMax: 10, targetRIR: 2))
+        #expect(log.sets.map(\.weightKg).sorted() == [102.25, 102.25])
+
+        // The new entity starts empty, then saves and rereads on a migrated store.
+        #expect(try context.fetchCount(FetchDescriptor<ExpenditureCheckIn>()) == 0)
+        context.insert(ExpenditureCheckIn(
+            date: Date(timeIntervalSince1970: 1_795_680_000),
+            estimateKcal: 2900,
+            rawEstimateKcal: 2950,
+            avgIntakeKcal: 2410,
+            slopeKgPerDay: -0.07,
+            daysUsed: 3,
+            applied: true,
+            appliedCalories: 2320
+        ))
+        try context.save()
+        let reread = try ModelContext(context.container).fetch(FetchDescriptor<ExpenditureCheckIn>())
+        #expect(reread.map(\.appliedCalories) == [2320])
     }
 
     // MARK: - V5 -> V6 (frozen types)
