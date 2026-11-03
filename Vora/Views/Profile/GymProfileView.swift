@@ -446,7 +446,7 @@ struct GymProfileEditorView: View {
         }
     }
 
-    private func stepRow(_ title: String, field: Binding<LoadingInventoryDraft.WeightField>) -> some View {
+    private func stepRow(_ title: String, field: Binding<WeightField>) -> some View {
         HStack {
             Text(title)
                 .font(DesignSystem.Typography.body)
@@ -462,7 +462,7 @@ struct GymProfileEditorView: View {
             .foregroundStyle(DesignSystem.Colors.textPrimary)
     }
 
-    private func weightField(_ field: Binding<LoadingInventoryDraft.WeightField>, label: String) -> some View {
+    private func weightField(_ field: Binding<WeightField>, label: String) -> some View {
         HStack(spacing: DesignSystem.Spacing.xs) {
             TextField("0", text: field.text)
                 .keyboardType(.decimalPad)

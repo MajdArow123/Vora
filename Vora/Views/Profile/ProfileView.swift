@@ -15,6 +15,7 @@ struct ProfileView: View {
     @State private var showingAppearancePicker = false
     @State private var showingProgressionSettings = false
     @AppStorage(SessionPrefillMode.storageKey) private var prefillMode: SessionPrefillMode = .smart
+    @AppStorage(WeightImportService.enabledKey) private var importsHealthWeight = false
     @State private var showingSupplements = false
     @State private var showingGymProfiles = false
     @Query(filter: #Predicate<GymProfile> { $0.isActive })
@@ -124,7 +125,7 @@ struct ProfileView: View {
             row("Goal", profile.goalType.displayName)
             Divider()
             row("Goal weight", profile.goalWeightKg > 0
-                ? String(format: "%.1f kg", profile.goalWeightKg)
+                ? UnitConversion.bodyWeightText(kg: profile.goalWeightKg, units: profile.preferredUnits)
                 : "Not set")
             Divider()
             row("Activity", profile.activityLevel.displayName)
@@ -156,9 +157,27 @@ struct ProfileView: View {
             progressionRow
             Divider()
             supplementsRow
+            Divider()
+            healthWeightImportRow
         }
 
         RemindersSection()
+    }
+
+    /// Asks for HealthKit access when turned on; Home and Progress import
+    /// from then on.
+    private var healthWeightImportRow: some View {
+        Toggle(isOn: $importsHealthWeight) {
+            Text("Import weight from Apple Health")
+                .font(DesignSystem.Typography.body)
+                .foregroundStyle(DesignSystem.Colors.textPrimary.opacity(0.6))
+        }
+        .tint(DesignSystem.Colors.accent)
+        .frame(minHeight: 44)
+        .onChange(of: importsHealthWeight) {
+            guard importsHealthWeight else { return }
+            Task { await HealthKitService().requestAuthorization() }
+        }
     }
 
     private var gymProfileRow: some View {
@@ -361,7 +380,7 @@ struct ProfileView: View {
         card("Training") {
             pickerRow("Goal", selection: $viewModel.draftGoalType)
             Divider()
-            targetEditRow("Goal weight", text: $viewModel.draftGoalWeightText, unit: "kg", keyboard: .decimalPad)
+            targetEditRow("Goal weight", text: $viewModel.draftGoalWeightText, unit: UnitConversion.weightUnitSymbol(viewModel.draftUnits), keyboard: .decimalPad)
             Divider()
             pickerRow("Activity", selection: $viewModel.draftActivityLevel)
             Divider()

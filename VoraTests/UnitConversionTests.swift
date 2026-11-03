@@ -10,6 +10,47 @@ import Testing
 @testable import Vora
 
 struct UnitConversionTests {
+    // MARK: - Body weight
+
+    @Test func bodyWeightTextUsesOneDecimalInTheUsersUnit() {
+        #expect(UnitConversion.bodyWeightText(kg: 80.44, units: .metric) == "80.4 kg")
+        #expect(UnitConversion.bodyWeightText(kg: 80, units: .imperial) == "176.4 lb")
+    }
+
+    @Test func bodyWeightChangeTextIsSignedAndConverted() {
+        #expect(UnitConversion.bodyWeightChangeText(kg: -0.4, units: .metric) == "-0.4 kg")
+        #expect(UnitConversion.bodyWeightChangeText(kg: 1, units: .imperial) == "+2.2 lb")
+    }
+
+    @Test func bodyWeightChangeThatRoundsAwayHasNoSign() {
+        #expect(UnitConversion.bodyWeightChangeNumberText(kg: -0.01, units: .metric) == "0.0")
+        #expect(UnitConversion.bodyWeightChangeNumberText(kg: 0.01, units: .imperial) == "0.0")
+    }
+
+    @Test(arguments: [45.0, 80.4, 77.77777, 123.456])
+    func untouchedBodyWeightFieldKeepsItsExactKg(kg: Double) {
+        #expect(WeightField(kg: kg, units: .metric).bodyWeightKg == kg)
+        #expect(WeightField(kg: kg, units: .imperial).bodyWeightKg == kg)
+    }
+
+    @Test func poundsRoundTripThroughTheFieldWithoutDrift() throws {
+        var field = WeightField(kg: nil, units: .imperial)
+        field.text = "177.3"
+        let kg = try #require(field.bodyWeightKg)
+        #expect(UnitConversion.weightNumberText(kg: kg, units: .imperial) == "177.3")
+        #expect(WeightField(kg: kg, units: .imperial).text == "177.3")
+    }
+
+    @Test func bodyWeightRangeAppliesAfterConversion() {
+        var field = WeightField(kg: nil, units: .imperial)
+        field.text = "300" // 136 kg in pounds, fine.
+        #expect(field.bodyWeightKg != nil)
+        field.text = "30" // 13.6 kg, too low even though 30 kg would pass.
+        #expect(field.bodyWeightKg == nil)
+        field.text = "900" // 408 kg, too high even though it reads as a number under 1000.
+        #expect(field.bodyWeightKg == nil)
+    }
+
     // MARK: - Weight
 
     @Test func kilogramsToPounds() {

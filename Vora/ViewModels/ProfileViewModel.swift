@@ -7,10 +7,13 @@
 
 import Foundation
 import Observation
+import OSLog
 import SwiftData
 
 @Observable
 final class ProfileViewModel {
+    private static let logger = Logger(subsystem: "com.majdarow.Vora", category: "Profile")
+
     private(set) var profile: UserProfile?
     private(set) var latestWeight: WeightEntry?
     private(set) var isEditing = false
@@ -24,23 +27,45 @@ final class ProfileViewModel {
     var draftGoalType: GoalType = .maintain
     var draftActivityLevel: ActivityLevel = .moderatelyActive
     var draftTrainingSplit: TrainingSplit = .fullBody
-    var draftGoalWeightText = ""
+    private var draftGoalWeight = WeightField(kg: nil, units: .metric)
     var draftCaloriesText = ""
     var draftProteinText = ""
     var draftCarbsText = ""
     var draftFatText = ""
-    var draftUnits: UnitSystem = .metric
+    /// Switching units reconverts the goal, so 172 lb never becomes 172 kg.
+    var draftUnits: UnitSystem = .metric {
+        didSet {
+            guard draftUnits != oldValue else { return }
+            draftGoalWeight = WeightField(kg: draftGoalWeight.kg, units: draftUnits)
+        }
+    }
+
+    /// The goal as typed, in `draftUnits`. Untouched text keeps its exact kg.
+    var draftGoalWeightText: String {
+        get { draftGoalWeight.text }
+        set { draftGoalWeight.text = newValue }
+    }
 
     // MARK: - Loading
 
     func load(from context: ModelContext) {
-        profile = try? context.fetch(FetchDescriptor<UserProfile>()).first
+        do {
+            profile = try context.fetch(FetchDescriptor<UserProfile>()).first
+        } catch {
+            Self.logger.error("Failed to fetch profile: \(String(describing: error), privacy: .public)")
+            profile = nil
+        }
 
         var weightDescriptor = FetchDescriptor<WeightEntry>(
             sortBy: [SortDescriptor(\.date, order: .reverse)]
         )
         weightDescriptor.fetchLimit = 1
-        latestWeight = try? context.fetch(weightDescriptor).first
+        do {
+            latestWeight = try context.fetch(weightDescriptor).first
+        } catch {
+            Self.logger.error("Failed to fetch latest weight: \(String(describing: error), privacy: .public)")
+            latestWeight = nil
+        }
     }
 
     // MARK: - Editing lifecycle
@@ -54,14 +79,15 @@ final class ProfileViewModel {
         draftGoalType = profile.goalType
         draftActivityLevel = profile.activityLevel
         draftTrainingSplit = profile.trainingSplit
-        draftGoalWeightText = profile.goalWeightKg > 0
-            ? String(format: "%.1f", profile.goalWeightKg)
-            : ""
         draftCaloriesText = String(profile.dailyCalorieTarget)
         draftProteinText = String(profile.proteinTargetG)
         draftCarbsText = String(profile.carbsTargetG)
         draftFatText = String(profile.fatTargetG)
         draftUnits = profile.preferredUnits
+        draftGoalWeight = WeightField(
+            kg: profile.goalWeightKg > 0 ? profile.goalWeightKg : nil,
+            units: profile.preferredUnits
+        )
         isEditing = true
     }
 
@@ -81,7 +107,7 @@ final class ProfileViewModel {
         profile.goalType = draftGoalType
         profile.activityLevel = draftActivityLevel
         profile.trainingSplit = draftTrainingSplit
-        profile.goalWeightKg = parsedGoalWeight ?? 0
+        profile.goalWeightKg = draftGoalWeight.bodyWeightKg ?? 0
         profile.dailyCalorieTarget = calories
         profile.proteinTargetG = protein
         profile.carbsTargetG = carbs
@@ -91,20 +117,14 @@ final class ProfileViewModel {
         do {
             try context.save()
         } catch {
-            assertionFailure("Failed to save profile edits: \(error)")
+            Self.logger.error("Failed to save profile edits: \(String(describing: error), privacy: .public)")
+            context.rollback()
+            return
         }
         isEditing = false
     }
 
     // MARK: - Validation (same rules as onboarding)
-
-    /// nil when blank (goal weight is optional); invalid text also
-    /// resolves to nil and clears the goal.
-    private var parsedGoalWeight: Double? {
-        let value = Double(draftGoalWeightText.replacingOccurrences(of: ",", with: "."))
-        guard let value, (20...400).contains(value) else { return nil }
-        return value
-    }
 
     private var parsedCalories: Int? { Int(draftCaloriesText) }
     private var parsedProtein: Int? { Int(draftProteinText) }

@@ -122,6 +122,27 @@ enum UnitConversion {
 
     // MARK: - Body weight
 
+    /// What Vora accepts as a body weight, whichever unit it was typed in.
+    static let bodyWeightRangeKg = 20.0...400.0
+
+    /// One decimal with the unit, e.g. "80.4 kg" / "177.3 lb".
+    static func bodyWeightText(kg: Double, units: UnitSystem) -> String {
+        String(format: "%.1f %@", displayWeight(kg: kg, units: units), weightUnitSymbol(units))
+    }
+
+    /// A signed change with the unit, e.g. "-0.4 kg" / "+1.2 lb".
+    static func bodyWeightChangeText(kg: Double, units: UnitSystem) -> String {
+        "\(bodyWeightChangeNumberText(kg: kg, units: units)) \(weightUnitSymbol(units))"
+    }
+
+    /// A signed change alone, e.g. "-0.4". A change that rounds to nothing
+    /// reads "0.0", never "-0.0".
+    static func bodyWeightChangeNumberText(kg: Double, units: UnitSystem) -> String {
+        let value = displayWeight(kg: kg, units: units)
+        guard abs(value) >= 0.05 else { return "0.0" }
+        return String(format: "%+.1f", value)
+    }
+
     static func weightText(kg: Double, units: UnitSystem) -> String {
         switch units {
         case .metric:

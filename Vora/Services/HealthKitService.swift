@@ -156,7 +156,20 @@ private struct HealthStoreWorkoutRecorder: HealthWorkoutRecording {
     }
 }
 
-final class HealthKitService: HealthWorkoutDeleting, HealthWorkoutWriting {
+/// A body weight read from HealthKit, reduced to the values import needs.
+struct HealthBodyMassSample: Equatable {
+    let id: UUID
+    let date: Date
+    let kg: Double
+}
+
+protocol HealthBodyMassReading {
+    /// Body weights written by other apps, oldest first; everything when
+    /// `since` is nil.
+    func bodyMassSamples(since: Date?) async throws -> [HealthBodyMassSample]
+}
+
+final class HealthKitService: HealthWorkoutDeleting, HealthWorkoutWriting, HealthBodyMassReading {
     private static let logger = Logger(subsystem: "com.majdarow.Vora", category: "HealthKit")
 
     private lazy var healthStore = HKHealthStore()
@@ -168,28 +181,64 @@ final class HealthKitService: HealthWorkoutDeleting, HealthWorkoutWriting {
         }
     }
 
-    private var sampleTypes: Set<HKSampleType> {
-        [
-            HKQuantityType(.bodyMass),
-            HKQuantityType(.activeEnergyBurned),
-            HKQuantityType(.stepCount),
-            HKWorkoutType.workoutType(),
-        ]
-    }
+    /// Workouts, with the calories saved alongside cardio. Body mass is
+    /// read-only: Vora never writes it.
+    static let shareTypes: Set<HKSampleType> = [
+        HKQuantityType(.activeEnergyBurned),
+        HKWorkoutType.workoutType(),
+    ]
 
-    /// Requests read/write access to weight, active energy, steps, and
-    /// workouts. Vora is fully functional without HealthKit: denial and
-    /// unavailability are both absorbed silently.
+    /// Body mass for the weight import, and workouts to find the ones Vora
+    /// saved when they're deleted.
+    static let readTypes: Set<HKSampleType> = [
+        HKQuantityType(.bodyMass),
+        HKWorkoutType.workoutType(),
+    ]
+
+    /// Requests write access to workouts and read access to body weight.
+    /// Vora is fully functional without HealthKit: denial and unavailability
+    /// are both absorbed.
     func requestAuthorization() async {
         guard HKHealthStore.isHealthDataAvailable() else { return }
 
         do {
             try await healthStore.requestAuthorization(
-                toShare: sampleTypes,
-                read: sampleTypes
+                toShare: Self.shareTypes,
+                read: Self.readTypes
             )
         } catch {
             // Authorization UI failed or was unavailable — proceed without HealthKit.
+            Self.logger.info("HealthKit authorization failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    // MARK: - Body mass reads
+
+    /// Excludes Vora's own samples. HealthKit hides whether read access was
+    /// denied, so denial reads as no samples.
+    func bodyMassSamples(since: Date?) async throws -> [HealthBodyMassSample] {
+        guard HKHealthStore.isHealthDataAvailable() else { return [] }
+
+        var predicates: [NSPredicate] = [
+            NSCompoundPredicate(notPredicateWithSubpredicate: HKQuery.predicateForObjects(from: HKSource.default())),
+        ]
+        if let since {
+            predicates.append(HKQuery.predicateForSamples(withStart: since, end: nil, options: .strictStartDate))
+        }
+        let samples = try await HKSampleQueryDescriptor(
+            predicates: [.quantitySample(
+                type: HKQuantityType(.bodyMass),
+                predicate: NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
+            )],
+            sortDescriptors: [SortDescriptor(\.startDate)]
+        ).result(for: healthStore)
+
+        return samples.map {
+            HealthBodyMassSample(
+                id: $0.uuid,
+                date: $0.startDate,
+                kg: $0.quantity.doubleValue(for: .gramUnit(with: .kilo))
+            )
         }
     }
 

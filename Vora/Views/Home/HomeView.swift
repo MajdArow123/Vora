@@ -82,6 +82,11 @@ struct HomeView: View {
         .onAppear {
             viewModel.load(from: modelContext)
         }
+        .task {
+            if await WeightImportService().sync(context: modelContext) > 0 {
+                viewModel.load(from: modelContext)
+            }
+        }
         .fullScreenCover(isPresented: $showingSession, onDismiss: {
             viewModel.load(from: modelContext)
         }) {
@@ -344,23 +349,15 @@ struct HomeView: View {
 
     // MARK: - Weight trend
 
+    private var units: UnitSystem { viewModel.profile?.preferredUnits ?? .metric }
+
     private var weightTrendCard: some View {
         VStack(alignment: .leading, spacing: DesignSystem.Spacing.sm) {
             HStack {
-                Text("Weight — 7 days")
+                Text("Weight trend")
                     .font(DesignSystem.Typography.headline)
                     .foregroundStyle(DesignSystem.Colors.textPrimary)
                 Spacer()
-                if let delta = viewModel.weekWeightDeltaKg {
-                    HStack(spacing: 3) {
-                        Image(systemName: delta <= 0 ? "arrow.down.right" : "arrow.up.right")
-                            .font(.caption2)
-                            .accessibilityHidden(true)
-                        Text(String(format: "%+.1f kg", delta))
-                            .font(DesignSystem.Typography.caption)
-                    }
-                    .foregroundStyle(delta <= 0 ? DesignSystem.Colors.accent : DesignSystem.Colors.macroFat)
-                }
                 Button {
                     showingLogWeight = true
                 } label: {
@@ -371,24 +368,33 @@ struct HomeView: View {
                 .accessibilityLabel("Log weight")
             }
 
-            if viewModel.weekWeights.count >= 2 {
-                Chart(viewModel.weekWeights, id: \.id) { entry in
-                    AreaMark(
-                        x: .value("Date", entry.date, unit: .day),
-                        y: .value("Weight", entry.weightKg)
-                    )
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [DesignSystem.Colors.accent.opacity(0.25), .clear],
-                            startPoint: .top, endPoint: .bottom
-                        )
-                    )
+            if let trend = viewModel.weightTrend {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(UnitConversion.bodyWeightText(kg: trend.currentKg, units: units))
+                        .font(DesignSystem.Typography.title)
+                        .foregroundStyle(DesignSystem.Colors.textPrimary)
+                    Spacer()
+                    if let change = viewModel.weekTrendChangeKg {
+                        HStack(spacing: 3) {
+                            Image(systemName: change <= 0 ? "arrow.down.right" : "arrow.up.right")
+                                .font(.caption2)
+                                .accessibilityHidden(true)
+                            Text("\(UnitConversion.bodyWeightChangeText(kg: change, units: units)) this week")
+                                .font(DesignSystem.Typography.caption)
+                        }
+                        .foregroundStyle(change <= 0 ? DesignSystem.Colors.accent : DesignSystem.Colors.macroFat)
+                    }
+                }
+            }
+
+            if viewModel.recentTrendPoints.count >= 2 {
+                Chart(viewModel.recentTrendPoints) { point in
                     LineMark(
-                        x: .value("Date", entry.date, unit: .day),
-                        y: .value("Weight", entry.weightKg)
+                        x: .value("Date", point.date, unit: .day),
+                        y: .value("Trend", UnitConversion.displayWeight(kg: point.trendKg, units: units))
                     )
                     .foregroundStyle(DesignSystem.Colors.accent)
-                    .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round))
                 }
                 .chartYScale(domain: weightDomain)
                 .chartXAxis(.hidden)
@@ -414,16 +420,20 @@ struct HomeView: View {
     }
 
     private var weightDomain: ClosedRange<Double> {
-        let weights = viewModel.weekWeights.map(\.weightKg)
+        let weights = viewModel.recentTrendPoints.map { UnitConversion.displayWeight(kg: $0.trendKg, units: units) }
         guard let min = weights.min(), let max = weights.max() else { return 0...1 }
         let pad = Swift.max((max - min) * 0.3, 0.5)
         return (min - pad)...(max + pad)
     }
 
     private var weightTrendSummary: String {
-        guard let first = viewModel.weekWeights.first, let last = viewModel.weekWeights.last else { return "" }
-        let delta = last.weightKg - first.weightKg
-        return String(format: "From %.1f to %.1f kilograms, %+.1f kilograms over the last 7 days", first.weightKg, last.weightKg, delta)
+        guard let first = viewModel.recentTrendPoints.first, let last = viewModel.recentTrendPoints.last else { return "" }
+        return String(
+            format: "Trend from %.1f to %.1f %@ over the last two weeks",
+            UnitConversion.displayWeight(kg: first.trendKg, units: units),
+            UnitConversion.displayWeight(kg: last.trendKg, units: units),
+            UnitConversion.spokenWeightUnit(units)
+        )
     }
 }
 

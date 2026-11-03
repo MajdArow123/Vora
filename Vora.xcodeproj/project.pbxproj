@@ -332,8 +332,8 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SupportFiles/Info.plist;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Vora uses the camera to scan food barcodes.";
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "Vora reads your weight, steps, energy burned, and workouts to keep your progress in sync with Apple Health.";
-				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Vora saves your workouts and body weight to Apple Health.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Vora reads your body weight from Apple Health to keep your weight trend up to date, and finds the workouts it saved so it can remove them when you delete them.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Vora saves your workouts, including calories burned during cardio, to Apple Health.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -369,8 +369,8 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SupportFiles/Info.plist;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Vora uses the camera to scan food barcodes.";
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "Vora reads your weight, steps, energy burned, and workouts to keep your progress in sync with Apple Health.";
-				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Vora saves your workouts and body weight to Apple Health.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Vora reads your body weight from Apple Health to keep your weight trend up to date, and finds the workouts it saved so it can remove them when you delete them.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Vora saves your workouts, including calories burned during cardio, to Apple Health.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

@@ -7,6 +7,7 @@
 
 import Foundation
 import Observation
+import OSLog
 import SwiftData
 
 enum ChartRange: String, CaseIterable, Identifiable {
@@ -55,11 +56,17 @@ struct WeeklyAverage: Identifiable {
 
 @Observable
 final class ProgressViewModel {
+    private static let logger = Logger(subsystem: "com.majdarow.Vora", category: "Progress")
+
     private(set) var profile: UserProfile?
     /// Weigh-ins within the selected range, oldest first.
     private(set) var rangeWeights: [WeightEntry] = []
     /// All weigh-ins newest first, for the log list.
     private(set) var allWeightsDescending: [WeightEntry] = []
+    /// The trend over all history; nil without weigh-ins.
+    private(set) var weightTrend: WeightTrendSeries?
+    /// The trend's days within the selected range, oldest first.
+    private(set) var rangeTrendPoints: [WeightTrendSeries.Point] = []
     /// All body measurements newest first.
     private(set) var allMeasurementsDescending: [BodyMeasurement] = []
     private(set) var weekDots: [Bool] = []
@@ -79,11 +86,12 @@ final class ProgressViewModel {
 
     func load(from context: ModelContext, now: Date = .now) {
         let cal = Calendar.current
-        profile = try? context.fetch(FetchDescriptor<UserProfile>()).first
+        profile = fetchOrEmpty(FetchDescriptor<UserProfile>(), from: context).first
 
-        allWeightsDescending = (try? context.fetch(FetchDescriptor<WeightEntry>(
+        allWeightsDescending = fetchOrEmpty(FetchDescriptor<WeightEntry>(
             sortBy: [SortDescriptor(\.date, order: .reverse)]
-        ))) ?? []
+        ), from: context)
+        weightTrend = WeightTrendSeries(entries: allWeightsDescending, calendar: cal)
         fetchMeasurements(from: context)
         applyRange(now: now, calendar: cal)
 
@@ -91,6 +99,19 @@ final class ProgressViewModel {
         loadWeeklyAverages(from: context, now: now, calendar: cal)
         loadSupplements(from: context, now: now, calendar: cal)
         daysTracked = TrackingStats.daysTracked(in: context, calendar: cal)
+    }
+
+    /// A failed fetch reads as no rows, so one bad query can't block Progress.
+    private func fetchOrEmpty<Model: PersistentModel>(
+        _ descriptor: FetchDescriptor<Model>,
+        from context: ModelContext
+    ) -> [Model] {
+        do {
+            return try context.fetch(descriptor)
+        } catch {
+            Self.logger.error("Failed to fetch \(String(describing: Model.self), privacy: .public): \(String(describing: error), privacy: .public)")
+            return []
+        }
     }
 
     func rangeChanged(now: Date = .now) {
@@ -102,9 +123,11 @@ final class ProgressViewModel {
               let cutoff = calendar.date(byAdding: .day, value: -days, to: calendar.startOfDay(for: now))
         else {
             rangeWeights = allWeightsDescending.reversed()
+            rangeTrendPoints = weightTrend?.points ?? []
             return
         }
         rangeWeights = allWeightsDescending.filter { $0.date >= cutoff }.reversed()
+        rangeTrendPoints = weightTrend?.points(onOrAfter: cutoff) ?? []
     }
 
     private func loadTraining(from context: ModelContext, now: Date, calendar: Calendar) {
@@ -113,11 +136,11 @@ final class ProgressViewModel {
         let descriptor = FetchDescriptor<WorkoutSession>(
             predicate: #Predicate { $0.date >= windowStart }
         )
-        let dates = ((try? context.fetch(descriptor)) ?? []).map(\.date)
+        let dates = fetchOrEmpty(descriptor, from: context).map(\.date)
 
         weekDots = StreakCalculator.trailingWeek(sessionDates: dates, today: now, calendar: calendar)
         let restIndices = Set(
-            ((try? context.fetch(FetchDescriptor<SplitDay>())) ?? [])
+            fetchOrEmpty(FetchDescriptor<SplitDay>(), from: context)
                 .filter(\.isRest)
                 .map(\.dayIndex)
         )
@@ -133,7 +156,7 @@ final class ProgressViewModel {
         let supplementDescriptor = FetchDescriptor<Supplement>(
             predicate: #Predicate { $0.isActive }
         )
-        let active = (try? context.fetch(supplementDescriptor)) ?? []
+        let active = fetchOrEmpty(supplementDescriptor, from: context)
         hasActiveSupplements = !active.isEmpty
         guard hasActiveSupplements else {
             supplementStreakDays = 0
@@ -152,7 +175,7 @@ final class ProgressViewModel {
         let logDescriptor = FetchDescriptor<SupplementLog>(
             predicate: #Predicate { $0.date >= windowStart && $0.date < todayEnd }
         )
-        let logs = (try? context.fetch(logDescriptor)) ?? []
+        let logs = fetchOrEmpty(logDescriptor, from: context)
 
         let qualifying = StreakCalculator.qualifyingSupplementDays(
             logs: logs.map { (supplementID: $0.supplementID, date: $0.date) },
@@ -180,7 +203,7 @@ final class ProgressViewModel {
         let descriptor = FetchDescriptor<FoodEntry>(
             predicate: #Predicate { $0.date >= weekAgo && $0.date < todayEnd }
         )
-        let entries = (try? context.fetch(descriptor)) ?? []
+        let entries = fetchOrEmpty(descriptor, from: context)
 
         var byDay: [Date: (kcal: Double, p: Double, c: Double, f: Double)] = [:]
         for entry in entries {
@@ -222,14 +245,19 @@ final class ProgressViewModel {
 
     func deleteMeasurement(_ measurement: BodyMeasurement, in context: ModelContext) {
         context.delete(measurement)
-        try? context.save()
+        do {
+            try context.save()
+        } catch {
+            Self.logger.error("Failed to delete measurement: \(String(describing: error), privacy: .public)")
+            context.rollback()
+        }
         fetchMeasurements(from: context)
     }
 
     private func fetchMeasurements(from context: ModelContext) {
-        allMeasurementsDescending = (try? context.fetch(FetchDescriptor<BodyMeasurement>(
+        allMeasurementsDescending = fetchOrEmpty(FetchDescriptor<BodyMeasurement>(
             sortBy: [SortDescriptor(\.date, order: .reverse)]
-        ))) ?? []
+        ), from: context)
     }
 
     // MARK: - Body fat
@@ -259,47 +287,59 @@ final class ProgressViewModel {
 
     // MARK: - Goal projection
 
-    struct GoalProjection {
-        let goalWeightKg: Double
-        let projectedDate: Date
+    enum GoalProjection: Equatable {
+        case noGoal
+        /// Too few weigh-ins, or none recently enough to trust the rate.
+        case notEnoughData(loggedDays: Int, needed: Int)
+        case notMovingTowardGoal
+        case goalReached(goalKg: Double)
+        case projected(goalKg: Double, date: Date)
     }
 
-    /// Linear projection from the trend across the last 14 days of
-    /// weigh-ins. Requires a goal weight, at least two entries spanning
-    /// three days, and a trend actually moving toward the goal.
-    var goalProjection: GoalProjection? {
-        Self.projectGoal(
-            weightsAscending: allWeightsDescending.reversed(),
-            goalWeightKg: profile?.goalWeightKg ?? 0
-        )
+    /// Fewer weigh-ins than this give a rate that's mostly noise.
+    static let minimumLoggedDays = 10
+    /// How far back the trend's rate is measured. A weigh-in older than this
+    /// also makes the rate stale.
+    static let projectionWindowDays = 14
+    /// A trend this close to the goal has reached it.
+    static let goalReachedToleranceKg = 0.1
+    /// Beyond two years the estimate is noise.
+    static let maximumProjectionDays = 730.0
+
+    var goalProjection: GoalProjection {
+        Self.projectGoal(trend: weightTrend, goalWeightKg: profile?.goalWeightKg ?? 0)
     }
 
+    /// Projects from the trend's rate over the last two weeks. The trend lags
+    /// a steady change, so early projections run a little conservative.
     static func projectGoal(
-        weightsAscending: [WeightEntry],
+        trend: WeightTrendSeries?,
         goalWeightKg: Double,
         now: Date = .now,
         calendar: Calendar = .current
-    ) -> GoalProjection? {
-        guard goalWeightKg > 0,
-              let cutoff = calendar.date(byAdding: .day, value: -14, to: now)
-        else { return nil }
+    ) -> GoalProjection {
+        guard goalWeightKg > 0 else { return .noGoal }
 
-        let recent = weightsAscending.filter { $0.date >= cutoff }
-        guard let first = recent.first, let last = recent.last else { return nil }
+        let loggedDays = trend?.result.loggedDayCount ?? 0
+        let notEnoughData = GoalProjection.notEnoughData(loggedDays: loggedDays, needed: minimumLoggedDays)
+        guard let trend, let lastDay = trend.lastDay, loggedDays >= minimumLoggedDays else { return notEnoughData }
 
-        let spanDays = last.date.timeIntervalSince(first.date) / 86_400
-        guard spanDays >= 3 else { return nil }
+        let today = calendar.startOfDay(for: now)
+        guard let daysSinceLast = calendar.dateComponents([.day], from: lastDay, to: today).day,
+              daysSinceLast <= projectionWindowDays,
+              trend.result.loggedDays(inLast: projectionWindowDays + 1) >= 2,
+              let ratePerDay = trend.result.ratePerDay(window: projectionWindowDays)
+        else { return notEnoughData }
 
-        let ratePerDay = (last.weightKg - first.weightKg) / spanDays
-        let remaining = goalWeightKg - last.weightKg
-        guard ratePerDay != 0, remaining / ratePerDay > 0 else { return nil }
+        let remaining = goalWeightKg - trend.currentKg
+        guard abs(remaining) >= goalReachedToleranceKg else { return .goalReached(goalKg: goalWeightKg) }
+        guard ratePerDay != 0, remaining / ratePerDay > 0 else { return .notMovingTowardGoal }
 
         let daysToGoal = remaining / ratePerDay
-        // Cap projections at two years out; beyond that the estimate is noise.
-        guard daysToGoal <= 730,
-              let date = calendar.date(byAdding: .day, value: Int(daysToGoal.rounded()), to: now)
-        else { return nil }
+        guard daysToGoal <= maximumProjectionDays,
+              let date = calendar.date(byAdding: .day, value: Int(daysToGoal.rounded()), to: lastDay)
+        else { return .notMovingTowardGoal }
 
-        return GoalProjection(goalWeightKg: goalWeightKg, projectedDate: date)
+        return .projected(goalKg: goalWeightKg, date: max(date, today))
     }
 }

@@ -113,7 +113,9 @@ struct LargeDatasetTests {
         #expect(viewModel.weeklyAverages.count == 4)
         // Weight rises going back in time, so the trend moves toward the
         // 62 kg goal and a projection must exist.
-        #expect(viewModel.goalProjection != nil)
+        if case .projected = viewModel.goalProjection {} else {
+            Issue.record("Expected a projected date, got \(viewModel.goalProjection)")
+        }
 
         viewModel.selectedRange = .all
         viewModel.rangeChanged()
@@ -140,13 +142,14 @@ struct LargeDatasetTests {
         #expect(home.weekDots == Array(repeating: false, count: 7))
         #expect(home.streakDays == 0)
         #expect(home.insight != nil, "even first use shows the fallback insight")
-        #expect(home.weekWeightDeltaKg == nil)
+        #expect(home.weightTrend == nil)
+        #expect(home.weekTrendChangeKg == nil)
 
         let progress = ProgressViewModel()
         progress.load(from: context)
         #expect(progress.allWeightsDescending.isEmpty)
         #expect(progress.daysTracked == 0)
-        #expect(progress.goalProjection == nil)
+        #expect(progress.goalProjection == .noGoal)
         #expect(progress.weeklyAverages.allSatisfy { $0.average == 0 })
     }
 }

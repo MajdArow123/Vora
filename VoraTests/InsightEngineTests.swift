@@ -91,6 +91,14 @@ struct InsightEngineTests {
         #expect(InsightEngine.generate(from: input).rule == .weightTrendPositive)
     }
 
+    @Test func weightTrendMessageUsesPreferredUnits() {
+        var input = baseInput()
+        input.consecutiveDailyWeightsKg = [80.5, 80.2, 79.5]
+        #expect(InsightEngine.generate(from: input).message.contains("1.0 kg"))
+        input.units = .imperial
+        #expect(InsightEngine.generate(from: input).message.contains("2.2 lb"))
+    }
+
     @Test func weightTrendIgnoresNonMonotonicRun() {
         var input = baseInput()
         input.consecutiveDailyWeightsKg = [80.5, 80.6, 79.9]

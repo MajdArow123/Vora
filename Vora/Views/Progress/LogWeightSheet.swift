@@ -7,22 +7,21 @@
 
 import SwiftUI
 import SwiftData
+import OSLog
 
 /// Compact weigh-in sheet shared by the Progress tab and the Home
 /// quick-action. Always logs against today and pre-fills the most
 /// recent weigh-in so a stable weight is a two-tap log.
 struct LogWeightSheet: View {
+    private static let logger = Logger(subsystem: "com.majdarow.Vora", category: "LogWeight")
+
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
-    @State private var weightText = ""
+    @State private var units: UnitSystem = .metric
+    @State private var weight = WeightField(kg: nil, units: .metric)
+    @State private var saveFailed = false
     @State private var bodyFatText = ""
     @FocusState private var focused: Bool
-
-    private var parsedKg: Double? {
-        guard let value = Double(weightText.replacingOccurrences(of: ",", with: ".")),
-              (20...400).contains(value) else { return nil }
-        return value
-    }
 
     /// nil when the optional field is empty, unparseable, or out of range.
     private var parsedBodyFat: Double? {
@@ -47,15 +46,15 @@ struct LogWeightSheet: View {
                         .foregroundStyle(DesignSystem.Colors.textSecondary)
 
                     HStack {
-                        TextField("0.0", text: $weightText)
+                        TextField("0.0", text: $weight.text)
                             .keyboardType(.decimalPad)
                             .focused($focused)
-                            .accessibilityLabel("Weight in kilograms")
+                            .accessibilityLabel("Weight in \(UnitConversion.spokenWeightUnit(units))")
                             .font(.system(size: 44, weight: .bold))
                             .foregroundStyle(DesignSystem.Colors.textPrimary)
                             .multilineTextAlignment(.trailing)
                             .frame(maxWidth: 160)
-                        Text("kg")
+                        Text(UnitConversion.weightUnitSymbol(units))
                             .font(DesignSystem.Typography.title)
                             .foregroundStyle(DesignSystem.Colors.textSecondary)
                     }
@@ -83,12 +82,9 @@ struct LogWeightSheet: View {
                     .padding(.horizontal, DesignSystem.Spacing.lg)
 
                     PrimaryButton(title: "Log") {
-                        guard let kg = parsedKg else { return }
-                        modelContext.insert(WeightEntry(date: .now, weightKg: kg, bodyFatPercent: parsedBodyFat))
-                        try? modelContext.save()
-                        dismiss()
+                        log()
                     }
-                    .disabled(parsedKg == nil || !bodyFatIsValid)
+                    .disabled(weight.bodyWeightKg == nil || !bodyFatIsValid)
                     .padding(.horizontal, DesignSystem.Spacing.lg)
                 }
                 .padding(.top, DesignSystem.Spacing.lg)
@@ -102,18 +98,42 @@ struct LogWeightSheet: View {
                 }
             }
             .onAppear {
-                prefillLastWeight()
+                prefill()
                 focused = true
+            }
+            .alert("Couldn't save your weight", isPresented: $saveFailed) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Please try again.")
             }
         }
     }
 
-    private func prefillLastWeight() {
-        guard weightText.isEmpty else { return }
+    private func log() {
+        guard let kg = weight.bodyWeightKg else { return }
+        modelContext.insert(WeightEntry(date: .now, weightKg: kg, bodyFatPercent: parsedBodyFat))
+        do {
+            try modelContext.save()
+            dismiss()
+        } catch {
+            Self.logger.error("Failed to save weigh-in: \(String(describing: error), privacy: .public)")
+            modelContext.rollback()
+            saveFailed = true
+        }
+    }
+
+    /// Takes the unit from the profile and the most recent weigh-in, whose
+    /// exact kg is kept while its text stays untouched.
+    private func prefill() {
+        guard weight.text.isEmpty else { return }
         var descriptor = FetchDescriptor<WeightEntry>(sortBy: [SortDescriptor(\.date, order: .reverse)])
         descriptor.fetchLimit = 1
-        guard let last = (try? modelContext.fetch(descriptor))?.first else { return }
-        weightText = String(format: "%.1f", last.weightKg)
+        do {
+            units = try modelContext.fetch(FetchDescriptor<UserProfile>()).first?.preferredUnits ?? .metric
+            weight = WeightField(kg: try modelContext.fetch(descriptor).first?.weightKg, units: units)
+        } catch {
+            Self.logger.error("Failed to prefill weigh-in: \(String(describing: error), privacy: .public)")
+        }
     }
 }
 

@@ -160,38 +160,111 @@ struct StreakAndProjectionTests {
 
     // MARK: - Goal projection
 
-    @Test func projectsDateWhenTrendingTowardGoal() throws {
-        // Losing 0.1 kg/day, 2 kg from goal → about 20 days out.
-        let entries = (0...10).map { offset in
-            WeightEntry(date: day(offset - 10), weightKg: 83.0 - 0.1 * Double(offset))
+    /// Daily weigh-ins ending today (or `endOffset`), oldest first.
+    private func trend(
+        days: Int,
+        endOffset: Int = 0,
+        weight: (Int) -> Double
+    ) -> WeightTrendSeries? {
+        let entries = (0..<days).map { index in
+            WeightEntry(date: day(endOffset - (days - 1 - index)), weightKg: weight(index))
         }
-        let projection = ProgressViewModel.projectGoal(weightsAscending: entries, goalWeightKg: 80.0)
-        let projected = try #require(projection)
-        let days = cal.dateComponents([.day], from: .now, to: projected.projectedDate).day!
-        #expect((15...25).contains(days))
+        return WeightTrendSeries(entries: entries, calendar: cal)
+    }
+
+    @Test func projectsFromTheTrendsRecentRate() throws {
+        // Losing 0.1 kg/day for 60 days, so the trend has settled to that rate
+        // and sits about 1 kg behind the scale.
+        let series = try #require(trend(days: 60) { 86 - 0.1 * Double($0) })
+        let rate = try #require(series.result.ratePerDay(window: ProgressViewModel.projectionWindowDays))
+        #expect(abs(rate + 0.1) < 0.01)
+
+        let goal = series.currentKg - 2
+        let projection = ProgressViewModel.projectGoal(trend: series, goalWeightKg: goal)
+        guard case .projected(let goalKg, let date) = projection else {
+            Issue.record("Expected a date, got \(projection)")
+            return
+        }
+        #expect(goalKg == goal)
+        let days = try #require(cal.dateComponents([.day], from: day(0), to: date).day)
+        #expect((18...22).contains(days))
+    }
+
+    @Test func oneOutlierBarelyMovesTheProjection() throws {
+        let steady = try #require(trend(days: 60) { 86 - 0.1 * Double($0) })
+        let spiked = try #require(trend(days: 60) { 86 - 0.1 * Double($0) + ($0 == 59 ? 3 : 0) })
+        // A straight line through the same spike would swing by 3 kg.
+        #expect(abs(spiked.currentKg - steady.currentKg - 0.3) < 0.0001)
+    }
+
+    @Test func underTenLoggedDaysIsNotEnoughData() {
+        let projection = ProgressViewModel.projectGoal(
+            trend: trend(days: 9) { 83 - 0.1 * Double($0) },
+            goalWeightKg: 80
+        )
+        #expect(projection == .notEnoughData(loggedDays: 9, needed: 10))
+    }
+
+    @Test func tenLoggedDaysIsEnough() {
+        let projection = ProgressViewModel.projectGoal(
+            trend: trend(days: 10) { 83 - 0.1 * Double($0) },
+            goalWeightKg: 80
+        )
+        if case .projected = projection {} else {
+            Issue.record("Expected a date, got \(projection)")
+        }
+    }
+
+    @Test func staleWeighInsAreNotEnoughData() {
+        let series = trend(days: 30, endOffset: -15) { 83 - 0.1 * Double($0) }
+        let projection = ProgressViewModel.projectGoal(trend: series, goalWeightKg: 70)
+        #expect(projection == .notEnoughData(loggedDays: 30, needed: 10))
+    }
+
+    @Test func oneReadingInTheRateWindowIsNotEnoughData() {
+        // Ten old days, then one weigh-in today after a long gap.
+        var entries = (0..<10).map { WeightEntry(date: day($0 - 40), weightKg: 83) }
+        entries.append(WeightEntry(date: day(0), weightKg: 82))
+        let projection = ProgressViewModel.projectGoal(
+            trend: WeightTrendSeries(entries: entries, calendar: cal),
+            goalWeightKg: 70
+        )
+        #expect(projection == .notEnoughData(loggedDays: 11, needed: 10))
+    }
+
+    @Test func noWeighInsAreNotEnoughData() {
+        #expect(ProgressViewModel.projectGoal(trend: nil, goalWeightKg: 80) == .notEnoughData(loggedDays: 0, needed: 10))
     }
 
     @Test func noProjectionWithoutGoalWeight() {
-        let entries = [
-            WeightEntry(date: day(-4), weightKg: 82.0),
-            WeightEntry(date: day(0), weightKg: 81.0),
-        ]
-        #expect(ProgressViewModel.projectGoal(weightsAscending: entries, goalWeightKg: 0) == nil)
+        let projection = ProgressViewModel.projectGoal(trend: trend(days: 20) { _ in 82 }, goalWeightKg: 0)
+        #expect(projection == .noGoal)
     }
 
-    @Test func noProjectionWhenTrendMovesAway() {
-        let entries = [
-            WeightEntry(date: day(-4), weightKg: 82.0),
-            WeightEntry(date: day(0), weightKg: 83.0),
-        ]
-        #expect(ProgressViewModel.projectGoal(weightsAscending: entries, goalWeightKg: 80.0) == nil)
+    @Test func trendMovingAwayFromGoalGivesNoDate() {
+        let projection = ProgressViewModel.projectGoal(
+            trend: trend(days: 20) { 82 + 0.1 * Double($0) },
+            goalWeightKg: 80
+        )
+        #expect(projection == .notMovingTowardGoal)
     }
 
-    @Test func noProjectionFromASingleDayOfData() {
-        let entries = [
-            WeightEntry(date: day(0), weightKg: 82.0),
-            WeightEntry(date: day(0).addingTimeInterval(3600), weightKg: 81.9),
-        ]
-        #expect(ProgressViewModel.projectGoal(weightsAscending: entries, goalWeightKg: 80.0) == nil)
+    @Test func flatTrendGivesNoDate() {
+        let projection = ProgressViewModel.projectGoal(trend: trend(days: 20) { _ in 82 }, goalWeightKg: 80)
+        #expect(projection == .notMovingTowardGoal)
+    }
+
+    @Test func projectionBeyondTwoYearsGivesNoDate() {
+        // About 0.001 kg/day with 20 kg to go.
+        let projection = ProgressViewModel.projectGoal(
+            trend: trend(days: 60) { 100 - 0.001 * Double($0) },
+            goalWeightKg: 80
+        )
+        #expect(projection == .notMovingTowardGoal)
+    }
+
+    @Test func trendAtTheGoalHasReachedIt() {
+        let projection = ProgressViewModel.projectGoal(trend: trend(days: 20) { _ in 80 }, goalWeightKg: 80)
+        #expect(projection == .goalReached(goalKg: 80))
     }
 }

@@ -39,6 +39,38 @@ private final class StubRecorder: HealthWorkoutRecording {
 /// HealthKitService). Dates are fixed: a second `.now` usually equals the
 /// first but can land on the next clock tick and pass the guard.
 struct HealthKitServiceTests {
+    // MARK: - Requested access
+
+    @Test func bodyMassIsReadOnly() {
+        #expect(HealthKitService.readTypes.contains(HKQuantityType(.bodyMass)))
+        #expect(!HealthKitService.shareTypes.contains(HKQuantityType(.bodyMass)))
+    }
+
+    @Test func requestedTypeSetsAreExact() {
+        #expect(HealthKitService.shareTypes == [
+            HKQuantityType(.activeEnergyBurned),
+            HKWorkoutType.workoutType(),
+        ])
+        #expect(HealthKitService.readTypes == [
+            HKQuantityType(.bodyMass),
+            HKWorkoutType.workoutType(),
+        ])
+    }
+
+    @Test func usageStringsDescribeWhatVoraDoes() throws {
+        let info = try #require(Bundle.main.infoDictionary)
+        let update = try #require(info["NSHealthUpdateUsageDescription"] as? String)
+        let share = try #require(info["NSHealthShareUsageDescription"] as? String)
+        #expect(update.contains("workouts"))
+        #expect(update.contains("calories"))
+        #expect(!update.contains("weight"))
+        #expect(!update.contains("steps"))
+        #expect(share.contains("body weight"))
+        #expect(share.contains("workouts"))
+        #expect(!share.contains("steps"))
+        #expect(!share.contains("energy"))
+    }
+
     @Test func invalidDateRangeIsRejectedBeforeTouchingHealthKit() async {
         let recorder = StubRecorder()
         let service = HealthKitService(recorder: recorder)

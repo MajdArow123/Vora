@@ -25,6 +25,10 @@ final class HomeViewModel {
     private(set) var hasTrainedToday = false
     /// Last 7 days of weigh-ins, oldest first.
     private(set) var weekWeights: [WeightEntry] = []
+    /// The trend over all history, so it matches Progress; nil without weigh-ins.
+    private(set) var weightTrend: WeightTrendSeries?
+    /// The trend's last two weeks, oldest first.
+    private(set) var recentTrendPoints: [WeightTrendSeries.Point] = []
     /// Trained flags for the trailing 7 days, oldest first.
     private(set) var weekDots: [Bool] = []
     private(set) var streakDays = 0
@@ -135,12 +139,13 @@ final class HomeViewModel {
     }
 
     private func loadWeights(from context: ModelContext, todayStart: Date, calendar: Calendar) {
-        guard let weekAgo = calendar.date(byAdding: .day, value: -6, to: todayStart) else { return }
-        let descriptor = FetchDescriptor<WeightEntry>(
-            predicate: #Predicate { $0.date >= weekAgo },
-            sortBy: [SortDescriptor(\.date)]
-        )
-        weekWeights = (try? context.fetch(descriptor)) ?? []
+        guard let weekAgo = calendar.date(byAdding: .day, value: -6, to: todayStart),
+              let trendStart = calendar.date(byAdding: .day, value: -13, to: todayStart)
+        else { return }
+        let weights = fetchOrEmpty(FetchDescriptor<WeightEntry>(sortBy: [SortDescriptor(\.date)]), from: context)
+        weekWeights = weights.filter { $0.date >= weekAgo }
+        weightTrend = WeightTrendSeries(entries: weights, calendar: calendar)
+        recentTrendPoints = weightTrend?.points(onOrAfter: trendStart) ?? []
     }
 
     private func loadTraining(from context: ModelContext, now: Date, todayEnd: Date, calendar: Calendar) {
@@ -258,6 +263,7 @@ final class HomeViewModel {
             hasTrainedToday: hasTrainedToday,
             streakDays: streakDays,
             consecutiveDailyWeightsKg: Self.consecutiveDailyWeights(from: weekWeights, calendar: calendar),
+            units: profile?.preferredUnits ?? .metric,
             daysTracked: daysTracked,
             untakenEarlySupplementNames: untakenEarlySupplementNames,
             supplementStreakDays: supplementStreakDays
@@ -338,12 +344,8 @@ final class HomeViewModel {
         activeSupplements.filter { takenSupplementIDs.contains($0.id) }.count
     }
 
-    /// Change between the first and last weigh-in of the trailing week.
-    var weekWeightDeltaKg: Double? {
-        guard let first = weekWeights.first, let last = weekWeights.last,
-              first.id != last.id else { return nil }
-        return last.weightKg - first.weightKg
-    }
+    /// The trend's change over the last week; nil until history spans it.
+    var weekTrendChangeKg: Double? { weightTrend?.result.change7Kg }
 
     // MARK: - Water mutations (mirrors the Food tab)
 

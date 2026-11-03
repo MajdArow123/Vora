@@ -43,6 +43,7 @@ struct InsightInput {
     /// with the latest entry, newest last. Empty when the user has no
     /// unbroken run of daily entries.
     var consecutiveDailyWeightsKg: [Double]
+    var units: UnitSystem = .metric
     var daysTracked: Int
     /// Untaken morning / pre-workout supplement names, in user order.
     var untakenEarlySupplementNames: [String] = []
@@ -94,7 +95,7 @@ enum InsightEngine {
             return Insight(
                 rule: rule,
                 title: "Weight trending down",
-                message: String(format: "Your weight has dropped 3 days in a row — down %.1f kg over the run. Keep doing what you are doing.", dropKg),
+                message: "Your weight has dropped 3 days in a row — down \(UnitConversion.bodyWeightText(kg: dropKg, units: input.units)) over the run. Keep doing what you are doing.",
                 iconName: "chart.line.downtrend.xyaxis"
             )
 

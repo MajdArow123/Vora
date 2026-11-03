@@ -79,6 +79,11 @@ struct ProgressView: View {
             }
         }
         .onAppear { loadActiveSegment() }
+        .task {
+            if await WeightImportService().sync(context: modelContext) > 0 {
+                loadActiveSegment()
+            }
+        }
         .onChange(of: segment) { loadActiveSegment() }
         .sheet(isPresented: $showingLogWeight, onDismiss: {
             loadActiveSegment()
@@ -117,15 +122,22 @@ struct ProgressView: View {
 
     private var weightChartCard: some View {
         VStack(alignment: .leading, spacing: DesignSystem.Spacing.md) {
-            HStack {
-                Text("Weight")
+            HStack(alignment: .firstTextBaseline) {
+                Text("Weight trend")
                     .font(DesignSystem.Typography.headline)
                     .foregroundStyle(DesignSystem.Colors.textPrimary)
                 Spacer()
-                if let latest = viewModel.rangeWeights.last {
-                    Text(String(format: "%.1f kg", latest.weightKg))
-                        .font(DesignSystem.Typography.headline)
-                        .foregroundStyle(DesignSystem.Colors.accent)
+                if let trend = viewModel.weightTrend {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(UnitConversion.bodyWeightText(kg: trend.currentKg, units: viewModel.unitSystem))
+                            .font(DesignSystem.Typography.headline)
+                            .foregroundStyle(DesignSystem.Colors.accent)
+                        if let weekly = trend.result.change7Kg {
+                            Text("\(UnitConversion.bodyWeightChangeText(kg: weekly, units: viewModel.unitSystem))/week")
+                                .font(DesignSystem.Typography.caption)
+                                .foregroundStyle(DesignSystem.Colors.textSecondary)
+                        }
+                    }
                 }
             }
 
@@ -139,27 +151,23 @@ struct ProgressView: View {
                 viewModel.rangeChanged()
             }
 
-            if viewModel.rangeWeights.count >= 2 {
-                Chart(viewModel.rangeWeights, id: \.id) { entry in
-                    AreaMark(
-                        x: .value("Date", entry.date, unit: .day),
-                        y: .value("Weight", entry.weightKg)
-                    )
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [DesignSystem.Colors.accent.opacity(0.3), .clear],
-                            startPoint: .top, endPoint: .bottom
+            if viewModel.rangeTrendPoints.count >= 2 {
+                Chart(viewModel.rangeTrendPoints) { point in
+                    if let scaleKg = point.scaleKg {
+                        PointMark(
+                            x: .value("Date", point.date, unit: .day),
+                            y: .value("Scale weight", displayWeight(scaleKg))
                         )
-                    )
-                    .interpolationMethod(.monotone)
+                        .foregroundStyle(DesignSystem.Colors.accent.opacity(0.3))
+                        .symbolSize(24)
+                    }
 
                     LineMark(
-                        x: .value("Date", entry.date, unit: .day),
-                        y: .value("Weight", entry.weightKg)
+                        x: .value("Date", point.date, unit: .day),
+                        y: .value("Trend", displayWeight(point.trendKg))
                     )
                     .foregroundStyle(DesignSystem.Colors.accent)
-                    .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round))
-                    .interpolationMethod(.monotone)
+                    .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round))
                 }
                 .chartYScale(domain: weightDomain)
                 .chartXAxis {
@@ -195,17 +203,31 @@ struct ProgressView: View {
         .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.large))
     }
 
+    private func displayWeight(_ kg: Double) -> Double {
+        UnitConversion.displayWeight(kg: kg, units: viewModel.unitSystem)
+    }
+
+    /// Fits both the trend and the scale dots.
     private var weightDomain: ClosedRange<Double> {
-        let weights = viewModel.rangeWeights.map(\.weightKg)
+        let weights = viewModel.rangeTrendPoints.flatMap { point in
+            [point.trendKg, point.scaleKg].compactMap { $0 }
+        }.map(displayWeight)
         guard let min = weights.min(), let max = weights.max() else { return 0...1 }
         let pad = Swift.max((max - min) * 0.15, 0.5)
         return (min - pad)...(max + pad)
     }
 
     private var weightChartSummary: String {
-        guard let first = viewModel.rangeWeights.first, let last = viewModel.rangeWeights.last else { return "" }
-        let delta = last.weightKg - first.weightKg
-        return String(format: "From %.1f to %.1f kilograms, %+.1f kilograms over this range", first.weightKg, last.weightKg, delta)
+        guard let first = viewModel.rangeTrendPoints.first, let last = viewModel.rangeTrendPoints.last else { return "" }
+        let units = viewModel.unitSystem
+        return String(
+            format: "Trend from %.1f to %.1f %@, %@ %@ over this range",
+            displayWeight(first.trendKg),
+            displayWeight(last.trendKg),
+            UnitConversion.spokenWeightUnit(units),
+            UnitConversion.bodyWeightChangeNumberText(kg: last.trendKg - first.trendKg, units: units),
+            UnitConversion.spokenWeightUnit(units)
+        )
     }
 
     // MARK: - Body fat chart
@@ -346,15 +368,21 @@ struct ProgressView: View {
     }
 
     private var projectionText: String {
-        if (viewModel.profile?.goalWeightKg ?? 0) <= 0 {
+        switch viewModel.goalProjection {
+        case .noGoal:
             return "Set a goal weight in your Profile to see a projection."
+        case .notEnoughData(let loggedDays, let needed) where loggedDays < needed:
+            return "Not enough data yet: \(loggedDays) of \(needed) days logged."
+        case .notEnoughData:
+            return "Not enough recent data. Log a weigh-in to update your projection."
+        case .notMovingTowardGoal:
+            return "Your trend isn't moving toward your goal right now."
+        case .goalReached(let goalKg):
+            return "You've reached your goal of \(UnitConversion.bodyWeightText(kg: goalKg, units: viewModel.unitSystem))."
+        case .projected(let goalKg, let date):
+            let goal = UnitConversion.bodyWeightText(kg: goalKg, units: viewModel.unitSystem)
+            return "At this rate you will reach \(goal) by \(date.formatted(.dateTime.day().month(.wide).year()))."
         }
-        guard let projection = viewModel.goalProjection else {
-            return "Log weigh-ins across a few days to project when you will reach your goal."
-        }
-        let goal = String(format: "%.1f kg", projection.goalWeightKg)
-        let date = projection.projectedDate.formatted(.dateTime.day().month(.wide).year())
-        return "At this rate you will reach \(goal) by \(date)."
     }
 
     // MARK: - Weekly averages
@@ -464,7 +492,7 @@ struct ProgressView: View {
                         .foregroundStyle(DesignSystem.Colors.textSecondary)
                     Spacer()
                     if let delta = viewModel.delta(for: entry) {
-                        Text(String(format: "%+.1f", delta))
+                        Text(UnitConversion.bodyWeightChangeNumberText(kg: delta, units: viewModel.unitSystem))
                             .font(DesignSystem.Typography.caption)
                             .foregroundStyle(delta <= 0 ? DesignSystem.Colors.positive : DesignSystem.Colors.negative)
                     }
@@ -483,10 +511,11 @@ struct ProgressView: View {
 
     /// "78.8 kg" or "78.8 kg · 12.4%" when body fat was recorded.
     private func weightRowText(_ entry: WeightEntry) -> String {
+        let weight = UnitConversion.bodyWeightText(kg: entry.weightKg, units: viewModel.unitSystem)
         if let bodyFat = entry.bodyFatPercent, bodyFat > 0 {
-            return String(format: "%.1f kg · %.1f%%", entry.weightKg, bodyFat)
+            return "\(weight) · \(String(format: "%.1f%%", bodyFat))"
         }
-        return String(format: "%.1f kg", entry.weightKg)
+        return weight
     }
 }
 

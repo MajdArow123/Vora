@@ -97,7 +97,7 @@ struct ProfileViewModelTests {
         #expect(viewModel.draftGoalType == .fatLoss)
         #expect(viewModel.draftActivityLevel == .moderatelyActive)
         #expect(viewModel.draftTrainingSplit == .ppl)
-        #expect(viewModel.draftGoalWeightText == "78.0")
+        #expect(viewModel.draftGoalWeightText == "78")
         #expect(viewModel.draftCaloriesText == "2400")
         #expect(viewModel.draftProteinText == "170")
         #expect(viewModel.draftCarbsText == "250")
@@ -178,6 +178,58 @@ struct ProfileViewModelTests {
         viewModel.draftGoalWeightText = text
         viewModel.saveChanges(in: context)
         #expect(profile.goalWeightKg == expected)
+    }
+
+    // MARK: - Goal weight units
+
+    private func makeEditingViewModel(
+        goalWeightKg: Double,
+        units: UnitSystem
+    ) throws -> (ProfileViewModel, ModelContext, UserProfile, ModelContainer) {
+        let container = try makeContainer()
+        let context = ModelContext(container)
+        let profile = insertProfile(context, goalWeightKg: goalWeightKg, units: units)
+        try context.save()
+        let viewModel = ProfileViewModel()
+        viewModel.load(from: context)
+        viewModel.beginEditing()
+        return (viewModel, context, profile, container)
+    }
+
+    @Test func goalWeightShowsInPreferredUnits() throws {
+        let (viewModel, _, _, _) = try makeEditingViewModel(goalWeightKg: 78, units: .imperial)
+        #expect(viewModel.draftGoalWeightText == "171.96")
+    }
+
+    @Test func goalWeightTypedInPoundsStoresKilograms() throws {
+        let (viewModel, context, profile, _) = try makeEditingViewModel(goalWeightKg: 78, units: .imperial)
+        viewModel.draftGoalWeightText = "165"
+        viewModel.saveChanges(in: context)
+        #expect(abs(profile.goalWeightKg - UnitConversion.kg(fromPounds: 165)) < 0.000001)
+    }
+
+    @Test(arguments: [UnitSystem.metric, .imperial])
+    func untouchedGoalWeightDoesNotDrift(units: UnitSystem) throws {
+        let goal = 77.77777
+        let (viewModel, context, profile, _) = try makeEditingViewModel(goalWeightKg: goal, units: units)
+        viewModel.saveChanges(in: context)
+        #expect(profile.goalWeightKg == goal)
+    }
+
+    @Test func switchingUnitsMidEditKeepsTheSameGoal() throws {
+        let (viewModel, context, profile, _) = try makeEditingViewModel(goalWeightKg: 78, units: .imperial)
+        viewModel.draftUnits = .metric
+        #expect(viewModel.draftGoalWeightText == "78")
+        viewModel.saveChanges(in: context)
+        #expect(profile.goalWeightKg == 78)
+    }
+
+    @Test func switchingUnitsConvertsAGoalJustTyped() throws {
+        let (viewModel, context, profile, _) = try makeEditingViewModel(goalWeightKg: 78, units: .imperial)
+        viewModel.draftGoalWeightText = "172"
+        viewModel.draftUnits = .metric
+        viewModel.saveChanges(in: context)
+        #expect(abs(profile.goalWeightKg - UnitConversion.kg(fromPounds: 172)) < 0.000001)
     }
 
     @Test func saveChangesRefusesWhenInvalidAndStaysEditing() throws {
