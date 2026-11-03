@@ -21,13 +21,15 @@ struct PersonalRecord: Identifiable {
     var totalSets: Int = 0
     var minReps: Int = 0
     var maxReps: Int = 0
+    /// Best Epley estimate across every set of the exercise.
+    var bestE1RMKg: Double?
 
     /// Identity key shared by every log of this exercise (see ExerciseIdentity).
     var id: String { ExerciseIdentity.key(exerciseId: exerciseId, name: exerciseName) }
 
-    /// Epley estimate.
+    /// The all-time best estimate, or this set's when none was computed.
     var estimatedOneRepMax: Double {
-        weightKg * (1 + Double(reps) / 30)
+        bestE1RMKg ?? StrengthProgression.epley(weightKg: weightKg, repsToFailure: reps)
     }
 
     var setsSummary: String {
@@ -71,6 +73,10 @@ final class WorkoutHomeViewModel {
         profile?.trainingSplit ?? .fullBody
     }
 
+    var templateSlot: TemplateSlot {
+        TemplateSlot(split: trainingSplit, dayIndex: todayIndex)
+    }
+
     /// Today's template for a new session; a missing day reads as rest, as
     /// it does on the Today card.
     func templatePlan(context: ModelContext) -> [TemplateExerciseSpec] {
@@ -89,7 +95,11 @@ final class WorkoutHomeViewModel {
     // MARK: - Loading
 
     func load(from context: ModelContext) {
-        profile = try? context.fetch(FetchDescriptor<UserProfile>()).first
+        do {
+            profile = try context.fetch(FetchDescriptor<UserProfile>()).first
+        } catch {
+            Self.logger.error("Failed to fetch the user profile: \(String(describing: error), privacy: .public)")
+        }
         loadSplitDays(from: context)
         loadWeekSessions(from: context)
         personalRecords = Self.computePersonalRecords(from: context, limit: 5)
@@ -99,7 +109,15 @@ final class WorkoutHomeViewModel {
     /// first time the workout tab loads.
     private func loadSplitDays(from context: ModelContext) {
         let descriptor = FetchDescriptor<SplitDay>(sortBy: [SortDescriptor(\.dayIndex)])
-        let existing = (try? context.fetch(descriptor)) ?? []
+        let existing: [SplitDay]
+        do {
+            existing = try context.fetch(descriptor)
+        } catch {
+            // Not the same as having no days: reseeding here would delete them.
+            Self.logger.error("Failed to fetch split days: \(String(describing: error), privacy: .public)")
+            splitDays = []
+            return
+        }
         if existing.count == 7 {
             splitDays = existing
             return
@@ -115,8 +133,13 @@ final class WorkoutHomeViewModel {
                 isRest: day.isRest
             ))
         }
-        try? context.save()
-        splitDays = (try? context.fetch(descriptor)) ?? []
+        do {
+            try context.save()
+            splitDays = try context.fetch(descriptor)
+        } catch {
+            Self.logger.error("Failed to seed split days: \(String(describing: error), privacy: .public)")
+            splitDays = []
+        }
     }
 
     private func loadWeekSessions(from context: ModelContext) {
@@ -164,15 +187,20 @@ final class WorkoutHomeViewModel {
             return []
         }
         var best: [String: (record: PersonalRecord, session: WorkoutSession)] = [:]
+        var bestE1RM: [String: Double] = [:]
 
         for session in sessions {
             for exercise in session.exercises {
                 for set in exercise.sets where set.isCompleted && set.weightKg > 0 && set.reps > 0 {
                     let key = exercise.matchKey
-                    let current = best[key]?.record
-                    let isBetter = current == nil
-                        || set.weightKg > current!.weightKg
-                        || (set.weightKg == current!.weightKg && set.reps > current!.reps)
+                    bestE1RM[key] = max(
+                        bestE1RM[key] ?? 0,
+                        StrengthProgression.epley(weightKg: set.weightKg, repsToFailure: set.reps)
+                    )
+                    let isBetter = best[key].map { current in
+                        set.weightKg > current.record.weightKg
+                            || (set.weightKg == current.record.weightKg && set.reps > current.record.reps)
+                    } ?? true
                     if isBetter {
                         best[key] = (PersonalRecord(
                             exerciseName: exercise.displayName,
@@ -197,6 +225,7 @@ final class WorkoutHomeViewModel {
             record.totalSets = reps.count
             record.minReps = reps.min() ?? 0
             record.maxReps = reps.max() ?? 0
+            record.bestE1RMKg = bestE1RM[key]
             return record
         }
 

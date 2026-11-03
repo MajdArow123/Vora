@@ -102,6 +102,12 @@ nonisolated struct LoadingInventory: Equatable {
         return nil
     }
 
+    /// The equipment whose steps decide an exercise's loads; nil if none of
+    /// it has modeled loads.
+    static func loadEquipment(in equipment: Set<EquipmentType>) -> EquipmentType? {
+        [.barbell, .smithMachine, .dumbbell, .machine, .cable].first { equipment.contains($0) }
+    }
+
     /// The bars that can load this equipment.
     func bars(for equipment: EquipmentType) -> [GymBar] {
         switch equipment {

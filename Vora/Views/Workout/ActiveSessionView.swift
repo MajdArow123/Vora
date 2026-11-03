@@ -21,6 +21,8 @@ struct ActiveSessionView: View {
     private var activeProfiles: [GymProfile]
     @State private var didPrefill = false
     @State private var editMode: EditMode = .inactive
+    @AppStorage(SessionPrefillMode.storageKey) private var prefillMode: SessionPrefillMode = .smart
+    @AppStorage(ProgressionMode.storageKey) private var progressionMode: ProgressionMode = .repsFirst
 
     private let templatePlan: [TemplateExerciseSpec]
     private let restoredDraft: ActiveSessionDraft?
@@ -28,12 +30,14 @@ struct ActiveSessionView: View {
     init(
         sessionName: String,
         templatePlan: [TemplateExerciseSpec] = [],
+        templateSlot: TemplateSlot? = nil,
         units: UnitSystem,
         draftStore: SessionDraftStore? = SessionDraftStore()
     ) {
         _viewModel = State(initialValue: ActiveSessionViewModel(
             sessionName: sessionName,
             units: units,
+            templateSlot: templateSlot,
             draftStore: draftStore
         ))
         self.templatePlan = templatePlan
@@ -81,6 +85,13 @@ struct ActiveSessionView: View {
                             },
                             onInfo: {
                                 infoExercise = exercise
+                            },
+                            onFix: { fix in
+                                if fix == .swapExercise {
+                                    swappingExercise = exercise
+                                } else {
+                                    viewModel.applyFix(fix, exerciseID: exercise.id, context: modelContext)
+                                }
                             }
                         )
                         .listRowBackground(Color.clear)
@@ -155,6 +166,11 @@ struct ActiveSessionView: View {
         .sheet(item: $infoExercise) { exercise in
             ExerciseDetailSheet(exerciseName: exercise.name)
         }
+        .alert("Couldn't save the rep range", isPresented: $viewModel.templateSaveFailed) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("It applies to this session, but your template keeps its old range.")
+        }
         .sheet(item: $viewModel.summary, onDismiss: { dismiss() }) { summary in
             SessionSummaryView(summary: summary, units: viewModel.units)
         }
@@ -173,9 +189,9 @@ struct ActiveSessionView: View {
             guard !didPrefill else { return }
             didPrefill = true
             if let restoredDraft {
-                viewModel.restore(from: restoredDraft, context: modelContext)
+                viewModel.restore(from: restoredDraft, context: modelContext, progression: progressionContext)
             } else {
-                viewModel.prefill(with: templatePlan, context: modelContext)
+                viewModel.prefill(with: templatePlan, context: modelContext, progression: progressionContext)
             }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -184,6 +200,11 @@ struct ActiveSessionView: View {
                 viewModel.flushDraft()
             }
         }
+    }
+
+    private var progressionContext: ProgressionContext? {
+        guard prefillMode == .smart else { return nil }
+        return ProgressionContext(mode: progressionMode, inventory: activeProfiles.first?.loadingInventory)
     }
 
     // MARK: - Equipment availability
@@ -306,8 +327,13 @@ struct ExerciseSessionCard: View {
     let onSetCompleted: () -> Void
     var onSwap: () -> Void = {}
     var onInfo: () -> Void = {}
+    var onFix: (ProgressionFix) -> Void = { _ in }
 
     @State private var plateRequest: ActiveSessionViewModel.PlateCalculatorRequest?
+    @State private var whySetID: ActiveSessionViewModel.DraftSet.ID?
+    /// A fix chosen in the why sheet, applied once it has closed, since a
+    /// swap opens a sheet of its own.
+    @State private var pendingFix: ProgressionFix?
     /// Stays for this exercise while the session is open; not persisted.
     @State private var selectedBarName: String?
 
@@ -370,6 +396,10 @@ struct ExerciseSessionCard: View {
                 .accessibilityLabel("Exercise options")
             }
 
+            if let warned = exercise.activeWarningRecommendation {
+                ProgressionWarningCard(recommendation: warned, units: viewModel.units, onFix: onFix)
+            }
+
             HStack(spacing: SetRow.columnSpacing) {
                 Text("SET")
                     .frame(width: SetRow.setNumberWidth, alignment: .leading)
@@ -393,13 +423,18 @@ struct ExerciseSessionCard: View {
                     previousText: index < exercise.previousSets.count
                         ? exercise.previousSets[index].text(units: viewModel.units)
                         : "—",
-                    repsPlaceholder: exercise.repRange.map { Self.repRangeText($0) } ?? "0",
+                    repsPlaceholder: set.activeRecommendation.map { "\($0.targetReps)" }
+                        ?? exercise.repRange.map { Self.repRangeText($0) }
+                        ?? "0",
                     targetRIR: exercise.targets?.targetRIR,
                     exerciseID: exercise.id,
                     viewModel: viewModel,
                     plateCaption: plateCaption(for: set),
                     onPlatesTapped: {
                         plateRequest = .init(setID: set.id, exerciseID: exercise.id)
+                    },
+                    onWhyTapped: {
+                        whySetID = set.id
                     },
                     onCompleted: onSetCompleted
                 )
@@ -435,6 +470,55 @@ struct ExerciseSessionCard: View {
                 selectedBarName: $selectedBarName
             )
         }
+        .sheet(item: whySheetBinding, onDismiss: {
+            if let fix = pendingFix {
+                pendingFix = nil
+                onFix(fix)
+            }
+        }) { request in
+            RecommendationSheet(
+                exerciseName: exercise.name,
+                setNumber: request.setNumber,
+                recommendation: request.recommendation,
+                lastSessionText: exercise.previousSets.isEmpty
+                    ? nil
+                    : exercise.previousSets.map { $0.text(units: viewModel.units) }.joined(separator: ", "),
+                units: viewModel.units,
+                onFix: { pendingFix = $0 }
+            )
+        }
+    }
+
+    private struct WhyRequest: Identifiable {
+        let id: ActiveSessionViewModel.DraftSet.ID
+        let setNumber: Int
+        let recommendation: Recommendation
+    }
+
+    /// Reads the set when the sheet opens, so it never shows stale numbers.
+    private var whySheetBinding: Binding<WhyRequest?> {
+        Binding(
+            get: {
+                guard let whySetID,
+                      let index = exercise.sets.firstIndex(where: { $0.id == whySetID }),
+                      let recommendation = exercise.sets[index].activeRecommendation
+                else { return nil }
+                return WhyRequest(id: whySetID, setNumber: index + 1, recommendation: recommendation)
+            },
+            set: { whySetID = $0?.id }
+        )
+    }
+
+    /// "Nearest: 57.5 or 60 kg", or just the side that exists.
+    static func nearestLoadsText(below: Double?, above: Double?, units: UnitSystem) -> String {
+        let symbol = UnitConversion.weightUnitSymbol(units)
+        let number = { (kg: Double) in UnitConversion.weightNumberText(kg: kg, units: units) }
+        switch (below, above) {
+        case let (below?, above?): return "Nearest: \(number(below)) or \(number(above)) \(symbol)"
+        case let (below?, nil): return "Nearest: \(number(below)) \(symbol)"
+        case let (nil, above?): return "Nearest: \(number(above)) \(symbol)"
+        case (nil, nil): return "No loadable weights on this bar"
+        }
     }
 
     /// Nil unless this is a plate-loaded exercise with a weight entered.
@@ -443,11 +527,18 @@ struct ExerciseSessionCard: View {
               let totalKg = set.weightKg, totalKg > 0
         else { return nil }
         let bars = inventory?.bars(for: equipment) ?? []
-        guard let inventory, let bar = bars.first(where: { $0.name == selectedBarName }) ?? bars.first else {
+        guard let inventory,
+              let bar = bars.first(where: { $0.name == selectedBarName })
+                ?? LoadCalculator.preferredBar(forKg: totalKg, equipment: equipment, profile: inventory)
+        else {
             return SetRow.PlateCaption(text: "Plate calculator", isLoadable: true)
         }
         guard let stack = LoadCalculator.plateBreakdown(totalKg: totalKg, bar: bar, profile: inventory) else {
-            return SetRow.PlateCaption(text: "Can't load this weight", isLoadable: false)
+            let nearest = LoadCalculator.nearestLoads(aroundKg: totalKg, bar: bar, profile: inventory)
+            return SetRow.PlateCaption(
+                text: Self.nearestLoadsText(below: nearest.below, above: nearest.above, units: viewModel.units),
+                isLoadable: false
+            )
         }
         let summary = PlateStackText.summary(stack, units: viewModel.units)
         return SetRow.PlateCaption(text: stack.isEmpty ? summary : "Per side: \(summary)", isLoadable: true)
@@ -476,14 +567,14 @@ fileprivate struct SetRow: View {
     let viewModel: ActiveSessionViewModel
     let plateCaption: PlateCaption?
     let onPlatesTapped: () -> Void
+    let onWhyTapped: () -> Void
     let onCompleted: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
             controls
-            if let plateCaption {
-                plateButton(plateCaption)
-            }
+            captions
+                .padding(.leading, Self.setNumberWidth + Self.columnSpacing)
         }
         .padding(.vertical, 2)
         .padding(.horizontal, DesignSystem.Spacing.xs)
@@ -502,6 +593,56 @@ fileprivate struct SetRow: View {
         }
     }
 
+    /// Side by side when they fit, so a set doesn't take three lines.
+    @ViewBuilder
+    private var captions: some View {
+        switch (set.activeRecommendation, plateCaption) {
+        case let (recommendation?, caption?):
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: DesignSystem.Spacing.md) {
+                    whyButton(recommendation)
+                    plateButton(caption)
+                    Spacer(minLength: 0)
+                }
+                VStack(alignment: .leading, spacing: 0) {
+                    whyButton(recommendation)
+                    plateButton(caption)
+                }
+            }
+        case let (recommendation?, nil):
+            HStack {
+                whyButton(recommendation)
+                Spacer(minLength: 0)
+            }
+        case let (nil, caption?):
+            HStack {
+                plateButton(caption)
+                Spacer(minLength: 0)
+            }
+        case (nil, nil):
+            EmptyView()
+        }
+    }
+
+    private func whyButton(_ recommendation: Recommendation) -> some View {
+        let headline = ProgressionExplanation.headline(recommendation, units: set.units)
+        return Button(action: onWhyTapped) {
+            HStack(spacing: DesignSystem.Spacing.xs) {
+                Image(systemName: "wand.and.stars")
+                    .accessibilityHidden(true)
+                Text(headline)
+                    .lineLimit(1)
+            }
+            .font(DesignSystem.Typography.caption)
+            .foregroundStyle(recommendation.warnings.isEmpty ? DesignSystem.Colors.accent : DesignSystem.Colors.warning)
+            .frame(minHeight: 32)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(headline)
+        .accessibilityHint("Explains this recommendation")
+    }
+
     private func plateButton(_ caption: PlateCaption) -> some View {
         Button(action: onPlatesTapped) {
             HStack(spacing: DesignSystem.Spacing.xs) {
@@ -509,13 +650,10 @@ fileprivate struct SetRow: View {
                     .accessibilityHidden(true)
                 Text(caption.text)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                Spacer(minLength: 0)
             }
             .font(DesignSystem.Typography.caption)
             .foregroundStyle(caption.isLoadable ? DesignSystem.Colors.accent : DesignSystem.Colors.warning)
             .frame(minHeight: 32)
-            .padding(.leading, Self.setNumberWidth + Self.columnSpacing)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

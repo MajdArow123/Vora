@@ -13,7 +13,7 @@ import SwiftData
 /// stage that reaches it from the previous one to `stages`.
 nonisolated enum VoraMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
-        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self]
+        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self]
     }
 
     static var stages: [MigrationStage] {
@@ -33,10 +33,13 @@ nonisolated enum VoraMigrationPlan: SchemaMigrationPlan {
             // after opening by GymInventoryBackfill, or at the end of
             // onboarding when no user profile exists yet.
             .lightweight(fromVersion: SchemaV4.self, toVersion: SchemaV5.self),
+            // Adds ExerciseLog's optional target snapshot. Never backfilled:
+            // nil means the session's targets are unknown.
+            .lightweight(fromVersion: SchemaV5.self, toVersion: SchemaV6.self),
         ]
     }
 }
 
 /// The schema the app currently runs on. Always the last entry of
 /// `VoraMigrationPlan.schemas`.
-typealias CurrentSchema = SchemaV5
+typealias CurrentSchema = SchemaV6

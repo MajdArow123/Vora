@@ -28,7 +28,7 @@ struct ExerciseSessionStat: Identifiable {
 
     /// Epley estimate.
     var estimatedOneRepMax: Double {
-        bestWeightKg * (1 + Double(bestReps) / 30)
+        StrengthProgression.epley(weightKg: bestWeightKg, repsToFailure: bestReps)
     }
 
     var setsSummary: String {
@@ -46,6 +46,12 @@ struct ExerciseSessionStat: Identifiable {
 /// Pure aggregation over fetched sessions, shared by the exercise
 /// history screen and the Progress tab's strength analytics.
 enum StrengthProgression {
+    /// Epley: estimated one-rep max from a load and the reps it could go to
+    /// failure for.
+    nonisolated static func epley(weightKg: Double, repsToFailure: Int) -> Double {
+        weightKg * (1 + Double(repsToFailure) / 30)
+    }
+
     /// Best completed set per session for the named exercise, resolved to
     /// its identity key (see ExerciseIdentity), oldest session first.
     static func sessionStats(
@@ -125,5 +131,108 @@ enum StrengthProgression {
             }
         }
         return seen.values.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+}
+
+// MARK: - Personal records
+
+/// A set as records see it: what was actually lifted. Records ignore RIR, so
+/// a record is something that was done, and old sets without RIR compare
+/// fairly.
+struct RecordSet: Equatable {
+    let weightKg: Double
+    let reps: Int
+}
+
+enum PersonalRecordKind: String, CaseIterable {
+    case weight
+    case reps
+    case estimatedOneRepMax
+}
+
+/// One record broken by a set of a session.
+struct NewRecord: Equatable {
+    let kind: PersonalRecordKind
+    let weightKg: Double
+    let reps: Int
+}
+
+/// An exercise's all-time bests.
+struct ExerciseRecords: Equatable {
+    struct RepBest: Equatable, Identifiable {
+        let weightKg: Double
+        let reps: Int
+
+        var id: Double { weightKg }
+    }
+
+    var heaviest: RecordSet?
+    var bestE1RMSet: RecordSet?
+    /// Most reps at each weight, heaviest first.
+    var repBests: [RepBest] = []
+
+    var bestE1RMKg: Double? {
+        bestE1RMSet.map { StrengthProgression.epley(weightKg: $0.weightKg, repsToFailure: $0.reps) }
+    }
+}
+
+extension StrengthProgression {
+    /// Finer than any real plate, and stable for a converted lb weight.
+    private static func weightKey(_ kg: Double) -> Int { Int((kg * 1000).rounded()) }
+
+    /// All-time bests from every qualifying set of one exercise. Reps at
+    /// 0 kg count as a bodyweight rep best; weight and e1RM need a load.
+    static func records(from sets: [RecordSet]) -> ExerciseRecords {
+        var records = ExerciseRecords()
+        var bestByWeight: [Int: ExerciseRecords.RepBest] = [:]
+        for set in sets where set.reps > 0 && set.weightKg >= 0 {
+            let key = weightKey(set.weightKg)
+            if set.reps > bestByWeight[key]?.reps ?? 0 {
+                bestByWeight[key] = .init(weightKg: set.weightKg, reps: set.reps)
+            }
+            guard set.weightKg > 0 else { continue }
+            if let heaviest = records.heaviest {
+                if set.weightKg > heaviest.weightKg || (set.weightKg == heaviest.weightKg && set.reps > heaviest.reps) {
+                    records.heaviest = set
+                }
+            } else {
+                records.heaviest = set
+            }
+            let value = epley(weightKg: set.weightKg, repsToFailure: set.reps)
+            if value > records.bestE1RMKg ?? 0 {
+                records.bestE1RMSet = set
+            }
+        }
+        records.repBests = bestByWeight.values.sorted { $0.weightKg > $1.weightKg }
+        return records
+    }
+
+    /// Records a session's sets broke against all prior sets of the exercise.
+    /// A first log only counts for weight: rep and e1RM records need
+    /// something to beat. A rep record is at a weight lifted before, and
+    /// only the heaviest such weight is reported per exercise.
+    static func newRecords(prior: [RecordSet], session: [RecordSet]) -> [NewRecord] {
+        let before = records(from: prior)
+        let now = records(from: session)
+        var found: [NewRecord] = []
+
+        if let heaviest = now.heaviest, heaviest.weightKg > before.heaviest?.weightKg ?? 0 {
+            found.append(NewRecord(kind: .weight, weightKg: heaviest.weightKg, reps: heaviest.reps))
+        }
+
+        let priorReps = Dictionary(
+            before.repBests.map { (weightKey($0.weightKg), $0.reps) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        if let best = now.repBests.first(where: { best in
+            priorReps[weightKey(best.weightKg)].map { best.reps > $0 } ?? false
+        }) {
+            found.append(NewRecord(kind: .reps, weightKg: best.weightKg, reps: best.reps))
+        }
+
+        if let priorBest = before.bestE1RMKg, let set = now.bestE1RMSet, let value = now.bestE1RMKg, value > priorBest {
+            found.append(NewRecord(kind: .estimatedOneRepMax, weightKg: set.weightKg, reps: set.reps))
+        }
+        return found
     }
 }

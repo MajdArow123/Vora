@@ -88,6 +88,7 @@ struct HomeView: View {
             ActiveSessionView(
                 sessionName: viewModel.sessionName,
                 templatePlan: viewModel.templatePlan(context: modelContext),
+                templateSlot: viewModel.templateSlot,
                 units: viewModel.profile?.preferredUnits ?? .metric
             )
         }

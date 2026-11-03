@@ -20,12 +20,23 @@ nonisolated struct TemplateTargets: Codable, Equatable {
     }
 }
 
+/// Which split day a session came from, so a fix can save to its template.
+nonisolated struct TemplateSlot: Codable, Equatable {
+    var splitRawValue: String
+    var dayIndex: Int
+
+    init(split: TrainingSplit, dayIndex: Int) {
+        self.splitRawValue = split.rawValue
+        self.dayIndex = dayIndex
+    }
+}
+
 /// Codable snapshot of an in-progress session, written to disk so a
 /// killed app can resume the workout. Weights are kilograms.
 nonisolated struct ActiveSessionDraft: Codable, Equatable {
-    /// Version 2 added `Set.rir`. Version 1 drafts decode as they are, with
-    /// no RIR logged.
-    static let currentVersion = 2
+    /// Version 2 added `Set.rir`. Version 3 added recommendations and the
+    /// template slot. Older drafts decode as they are, with none of them.
+    static let currentVersion = 3
     static let readableVersions = 1...currentVersion
 
     struct Exercise: Codable, Equatable {
@@ -37,6 +48,8 @@ nonisolated struct ActiveSessionDraft: Codable, Equatable {
         var restSeconds: Int
         var targets: TemplateTargets?
         var sets: [Set]
+        var predictedE1RMKg: Double?
+        var daysSinceLastSession: Int?
     }
 
     struct Set: Codable, Equatable {
@@ -44,6 +57,8 @@ nonisolated struct ActiveSessionDraft: Codable, Equatable {
         var reps: Int?
         var isCompleted: Bool
         var rir: Int?
+        var recommendation: Recommendation?
+        var plannedRecommendation: Recommendation?
     }
 
     var version = Self.currentVersion
@@ -56,4 +71,5 @@ nonisolated struct ActiveSessionDraft: Codable, Equatable {
     /// Interruption time already excluded from the session's duration.
     var excludedSeconds: TimeInterval
     var exercises: [Exercise]
+    var templateSlot: TemplateSlot?
 }

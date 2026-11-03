@@ -32,7 +32,7 @@ struct StrengthProgressSection: View {
                     exercisePicker
                     Spacer()
                     if let latest = viewModel.progression.last {
-                        Text("Peak strength \(UnitConversion.liftWeightText(kg: latest.estimatedOneRepMax, units: units))")
+                        Text("Est. 1RM \(UnitConversion.liftWeightText(kg: latest.estimatedOneRepMax, units: units))")
                             .font(DesignSystem.Typography.headline)
                             .foregroundStyle(DesignSystem.Colors.accent)
                     }

@@ -17,6 +17,12 @@ final class ExerciseLog {
     var exerciseId: String?
     var muscleGroups: [String]
     var orderIndex: Int
+    /// Targets this session was done under. All nil for exercises added
+    /// mid-session and for pre-V6 rows, whose real targets are unknown.
+    var repRangeMin: Int?
+    var repRangeMax: Int?
+    var targetRIR: Int?
+    var targetSets: Int?
 
     @Relationship(deleteRule: .cascade, inverse: \SetEntry.parent)
     var sets: [SetEntry]
@@ -29,6 +35,7 @@ final class ExerciseLog {
         exerciseId: String? = nil,
         muscleGroups: [String] = [],
         orderIndex: Int,
+        targets: TemplateTargets? = nil,
         sets: [SetEntry] = []
     ) {
         self.id = id
@@ -36,6 +43,24 @@ final class ExerciseLog {
         self.exerciseId = exerciseId
         self.muscleGroups = muscleGroups
         self.orderIndex = orderIndex
+        self.repRangeMin = targets?.repRangeMin
+        self.repRangeMax = targets?.repRangeMax
+        self.targetRIR = targets?.targetRIR
+        self.targetSets = targets?.targetSets
         self.sets = sets
+    }
+}
+
+extension ExerciseLog {
+    /// The targets this session was done under; nil when not recorded.
+    /// A snapshot needs its rep range and set count; targetRIR can be nil.
+    var targetSnapshot: TemplateTargets? {
+        guard let repRangeMin, let repRangeMax, let targetSets else { return nil }
+        return TemplateTargets(
+            targetSets: targetSets,
+            repRangeMin: repRangeMin,
+            repRangeMax: repRangeMax,
+            targetRIR: targetRIR
+        )
     }
 }

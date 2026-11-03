@@ -33,7 +33,8 @@ struct PlateCalculatorSheet: View {
     private var bars: [GymBar] { inventory.bars(for: equipment) }
 
     private var bar: GymBar? {
-        bars.first { $0.name == selectedBarName } ?? bars.first
+        bars.first { $0.name == selectedBarName }
+            ?? LoadCalculator.preferredBar(forKg: totalKg, equipment: equipment, profile: inventory)
     }
 
     var body: some View {
@@ -125,16 +126,16 @@ struct PlateCalculatorSheet: View {
 
     @ViewBuilder
     private func impossibleContent(bar: GymBar) -> some View {
-        Label("Can't load this weight", systemImage: "exclamationmark.triangle")
+        Label("Nearest loadable weights", systemImage: "exclamationmark.triangle")
             .font(DesignSystem.Typography.headline)
             .foregroundStyle(DesignSystem.Colors.warning)
 
-        let loads = LoadCalculator.plateLoads(bar: bar, profile: inventory)
-        if let lower = loads.last(where: { $0 < totalKg }) {
-            nearbyRow(title: "Nearest below", kg: lower)
+        let nearest = LoadCalculator.nearestLoads(aroundKg: totalKg, bar: bar, profile: inventory)
+        if let below = nearest.below {
+            nearbyRow(title: "Below", kg: below)
         }
-        if let higher = loads.first(where: { $0 > totalKg }) {
-            nearbyRow(title: "Nearest above", kg: higher)
+        if let above = nearest.above {
+            nearbyRow(title: "Above", kg: above)
         }
     }
 

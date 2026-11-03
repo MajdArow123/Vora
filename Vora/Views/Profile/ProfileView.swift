@@ -13,6 +13,8 @@ struct ProfileView: View {
     @State private var viewModel = ProfileViewModel()
     @AppStorage(AppearanceSetting.storageKey) private var appearance: AppearanceSetting = .system
     @State private var showingAppearancePicker = false
+    @State private var showingProgressionSettings = false
+    @AppStorage(SessionPrefillMode.storageKey) private var prefillMode: SessionPrefillMode = .smart
     @State private var showingSupplements = false
     @State private var showingGymProfiles = false
     @Query(filter: #Predicate<GymProfile> { $0.isActive })
@@ -151,6 +153,8 @@ struct ProfileView: View {
             Divider()
             appearanceRow
             Divider()
+            progressionRow
+            Divider()
             supplementsRow
         }
 
@@ -223,6 +227,39 @@ struct ProfileView: View {
         .accessibilityHint("Manage your supplements")
         .sheet(isPresented: $showingSupplements) {
             SupplementManagementView()
+        }
+    }
+
+    private var progressionRow: some View {
+        Button {
+            showingProgressionSettings = true
+        } label: {
+            HStack {
+                Text("Workout suggestions")
+                    .font(DesignSystem.Typography.body)
+                    .foregroundStyle(DesignSystem.Colors.textPrimary.opacity(0.6))
+                Spacer()
+                Image(systemName: "wand.and.stars")
+                    .font(.caption)
+                    .foregroundStyle(DesignSystem.Colors.accent)
+                    .accessibilityHidden(true)
+                Text(prefillMode.displayName)
+                    .font(DesignSystem.Typography.headline)
+                    .foregroundStyle(DesignSystem.Colors.textPrimary)
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+                    .accessibilityHidden(true)
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Workout suggestions")
+        .accessibilityValue(prefillMode.displayName)
+        .sheet(isPresented: $showingProgressionSettings) {
+            ProgressionSettingsSheet()
+                .presentationDetents([.medium, .large])
         }
     }
 
@@ -468,6 +505,85 @@ extension BiologicalSex: ProfileDisplayable {}
 extension GoalType: ProfileDisplayable {}
 extension ActivityLevel: ProfileDisplayable {}
 extension TrainingSplit: ProfileDisplayable {}
+
+// MARK: - Workout suggestions
+
+private struct ProgressionSettingsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @AppStorage(SessionPrefillMode.storageKey) private var prefillMode: SessionPrefillMode = .smart
+    @AppStorage(ProgressionMode.storageKey) private var progressionMode: ProgressionMode = .repsFirst
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                DesignSystem.Colors.background
+                    .ignoresSafeArea()
+                ScrollView {
+                    VStack(alignment: .leading, spacing: DesignSystem.Spacing.sm) {
+                        ForEach(SessionPrefillMode.allCases) { option in
+                            optionRow(option.displayName, detail: option.detail, isSelected: option == prefillMode) {
+                                prefillMode = option
+                            }
+                        }
+                        if prefillMode == .smart {
+                            Text("Progress by")
+                                .font(DesignSystem.Typography.caption)
+                                .foregroundStyle(DesignSystem.Colors.textSecondary)
+                                .textCase(.uppercase)
+                                .padding(.top, DesignSystem.Spacing.md)
+                            ForEach(ProgressionMode.allCases) { option in
+                                optionRow(option.displayName, detail: option.detail, isSelected: option == progressionMode) {
+                                    progressionMode = option
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, DesignSystem.Spacing.lg)
+                    .padding(.vertical, DesignSystem.Spacing.md)
+                }
+            }
+            .navigationTitle("Workout suggestions")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                        .font(DesignSystem.Typography.headline)
+                        .foregroundStyle(DesignSystem.Colors.accent)
+                }
+            }
+        }
+    }
+
+    private func optionRow(_ title: String, detail: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: DesignSystem.Spacing.md) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(DesignSystem.Typography.body)
+                        .foregroundStyle(DesignSystem.Colors.textPrimary)
+                    Text(detail)
+                        .font(DesignSystem.Typography.caption)
+                        .foregroundStyle(DesignSystem.Colors.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(DesignSystem.Colors.accent)
+                        .accessibilityHidden(true)
+                }
+            }
+            .padding(DesignSystem.Spacing.md)
+            .frame(minHeight: 44)
+            .background(DesignSystem.Colors.card)
+            .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
 
 // MARK: - Appearance picker
 

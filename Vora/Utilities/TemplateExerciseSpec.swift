@@ -12,7 +12,7 @@ import Foundation
 /// the TemplateExercise it was read from, which lets a save update that
 /// row in place.
 struct TemplateExerciseSpec: Identifiable, Equatable {
-    enum Limits {
+    nonisolated enum Limits {
         static let sets = 1...10
         static let reps = 1...50
         static let rir = 0...5

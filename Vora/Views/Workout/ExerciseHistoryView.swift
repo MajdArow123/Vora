@@ -30,6 +30,8 @@ struct ExerciseHistoryView: View {
 
             ScrollView {
                 VStack(spacing: DesignSystem.Spacing.md) {
+                    recordsCard
+
                     if entries.count >= 2 {
                         chartCard
                     }
@@ -47,6 +49,54 @@ struct ExerciseHistoryView: View {
         .onAppear {
             load()
         }
+    }
+
+    // MARK: - Records
+
+    private var records: ExerciseRecords {
+        StrengthProgression.records(from: entries.flatMap(\.sets).map {
+            RecordSet(weightKg: $0.weightKg, reps: $0.reps)
+        })
+    }
+
+    @ViewBuilder
+    private var recordsCard: some View {
+        let records = records
+        if let heaviest = records.heaviest {
+            VStack(alignment: .leading, spacing: DesignSystem.Spacing.sm) {
+                Text("Records")
+                    .font(DesignSystem.Typography.caption)
+                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+                    .textCase(.uppercase)
+
+                recordLine("Heaviest", "\(UnitConversion.liftWeightText(kg: heaviest.weightKg, units: units)) × \(heaviest.reps)")
+                if let best = records.bestE1RMKg {
+                    recordLine("Est. 1RM", UnitConversion.liftWeightText(kg: best, units: units))
+                }
+                ForEach(records.repBests.prefix(Self.visibleRepBests)) { best in
+                    recordLine("Most reps at \(UnitConversion.liftWeightText(kg: best.weightKg, units: units))", "\(best.reps)")
+                }
+            }
+            .padding(DesignSystem.Spacing.md)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(DesignSystem.Colors.card)
+            .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.medium))
+        }
+    }
+
+    private static let visibleRepBests = 5
+
+    private func recordLine(_ title: String, _ value: String) -> some View {
+        HStack {
+            Text(title)
+                .font(DesignSystem.Typography.body)
+                .foregroundStyle(DesignSystem.Colors.textSecondary)
+            Spacer()
+            Text(value)
+                .font(DesignSystem.Typography.headline)
+                .foregroundStyle(DesignSystem.Colors.textPrimary)
+        }
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: - Chart

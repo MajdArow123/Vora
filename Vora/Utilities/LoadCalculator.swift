@@ -7,13 +7,13 @@
 
 import Foundation
 
-enum LoadRounding {
+nonisolated enum LoadRounding {
     case down
     case nearest
 }
 
 /// Plates of one weight on each side of the bar.
-struct PlateCount: Equatable {
+nonisolated struct PlateCount: Equatable {
     let weightKg: Double
     let countPerSide: Int
 }
@@ -22,7 +22,7 @@ struct PlateCount: Equatable {
 /// values and touches no storage. Sums run in integer milligrams so that
 /// floating-point drift can't break a match, and loads within `toleranceMg`
 /// (far below any real plate) count as the same load.
-enum LoadCalculator {
+nonisolated enum LoadCalculator {
     /// Upper bounds for equipment described only by a step.
     static let dumbbellCeilingKg = 80.0
     static let machineCeilingKg = 200.0
@@ -63,9 +63,38 @@ enum LoadCalculator {
         targetKg: Double,
         equipment: EquipmentType,
         profile: LoadingInventory,
-        rounding: LoadRounding
+        rounding: LoadRounding,
+        loggedKg: [Double] = []
     ) -> Double {
-        let loads = achievableLoads(equipment: equipment, profile: profile)
+        let loads = usesStepLoads(equipment)
+            ? achievableLoads(equipment: equipment, profile: profile, addingLogged: loggedKg)
+            : achievableLoads(equipment: equipment, profile: profile)
+        return nearest(toKg: targetKg, in: loads, rounding: rounding)
+    }
+
+    /// Whether the equipment is described by a step rather than exact plates.
+    static func usesStepLoads(_ equipment: EquipmentType) -> Bool {
+        switch equipment {
+        case .dumbbell, .machine, .cable: true
+        default: false
+        }
+    }
+
+    /// The step grid plus every weight actually lifted on this equipment. A
+    /// step is only an approximation of a real stack, so a logged weight is
+    /// proof it can be loaded, even off the grid or above the ceiling.
+    private static func achievableLoads(
+        equipment: EquipmentType,
+        profile: LoadingInventory,
+        addingLogged loggedKg: [Double]
+    ) -> [Double] {
+        let logged = loggedKg.filter { $0 > 0 }.compactMap(milligrams)
+        let grid = achievableLoads(equipment: equipment, profile: profile).compactMap(milligrams)
+        return kilograms(collapsed(grid + logged))
+    }
+
+    /// `nearestAchievable` over an already computed, ascending list of loads.
+    static func nearest(toKg targetKg: Double, in loads: [Double], rounding: LoadRounding) -> Double {
         guard let lightest = loads.first, let targetMg = milligrams(targetKg) else { return targetKg }
 
         switch rounding {
@@ -86,6 +115,51 @@ enum LoadCalculator {
             }
             return best
         }
+    }
+
+    /// The lightest load strictly above `aboveKg`, or nil when none is.
+    static func nextAchievable(aboveKg: Double, in loads: [Double]) -> Double? {
+        guard let aboveMg = milligrams(aboveKg) else { return nil }
+        return loads.first { load in
+            milligrams(load).map { $0 > aboveMg + toleranceMg } ?? false
+        }
+    }
+
+    /// The bar a load belongs on: the first that can make it, else the first.
+    static func preferredBar(forKg totalKg: Double, equipment: EquipmentType, profile: LoadingInventory) -> GymBar? {
+        let bars = profile.bars(for: equipment)
+        return bars.first { plateBreakdown(totalKg: totalKg, bar: $0, profile: profile) != nil } ?? bars.first
+    }
+
+    /// The loads to progress within. `achievableLoads` merges every bar, so
+    /// a step there could silently mean changing bars; plate-loaded
+    /// equipment stays on the bar that can make the reference load, exactly
+    /// as plated. Step equipment also counts `loggedKg`: weights already
+    /// lifted on it.
+    static func workingLoads(
+        equipment: EquipmentType,
+        profile: LoadingInventory,
+        referenceKg: Double,
+        loggedKg: [Double] = []
+    ) -> [Double] {
+        if usesStepLoads(equipment) {
+            return achievableLoads(equipment: equipment, profile: profile, addingLogged: loggedKg)
+        }
+        switch equipment {
+        case .barbell, .smithMachine:
+            return preferredBar(forKg: referenceKg, equipment: equipment, profile: profile)
+                .map { plateLoads(bar: $0, profile: profile) } ?? []
+        default:
+            return achievableLoads(equipment: equipment, profile: profile)
+        }
+    }
+
+    /// The closest loads this bar can make on either side of a total.
+    static func nearestLoads(aroundKg totalKg: Double, bar: GymBar, profile: LoadingInventory) -> (below: Double?, above: Double?) {
+        guard let totalMg = milligrams(totalKg) else { return (nil, nil) }
+        let loads = plateLoads(bar: bar, profile: profile)
+        let below = loads.last { load in milligrams(load).map { $0 < totalMg - toleranceMg } ?? false }
+        return (below, nextAchievable(aboveKg: totalKg, in: loads))
     }
 
     /// The plates to put on each side, heaviest first, or nil when the total

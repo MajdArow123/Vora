@@ -294,7 +294,7 @@ struct ExerciseIDMatchingTests {
 
         let logs = try context.fetch(FetchDescriptor<ExerciseLog>(sortBy: [SortDescriptor(\.orderIndex)]))
         #expect(logs.map(\.exerciseId) == ["overhead-press", nil])
-        #expect(viewModel.summary?.newPRs.map(\.id) == ["overhead-press", "custom:sled push"])
+        #expect(viewModel.summary?.newPRs.map(\.exerciseKey) == ["overhead-press", "custom:sled push"])
     }
 }
 

@@ -68,10 +68,32 @@ struct SchemaMigrationTests {
         #expect(Self.shapes(Schema(versionedSchema: SchemaV2.self)) == expected)
     }
 
-    @Test func schemaV5IsCurrent() {
-        #expect(SchemaV5.versionIdentifier == Schema.Version(5, 0, 0))
-        #expect(CurrentSchema.versionIdentifier == SchemaV5.versionIdentifier)
-        #expect(SchemaV5.models.count == 20)
+    @Test func schemaV6IsCurrent() {
+        #expect(SchemaV6.versionIdentifier == Schema.Version(6, 0, 0))
+        #expect(CurrentSchema.versionIdentifier == SchemaV6.versionIdentifier)
+        #expect(SchemaV6.models.count == 20)
+    }
+
+    /// V6 changes exactly these columns and nothing else.
+    @Test func schemaV6AddsOnlyTheTargetSnapshot() {
+        var expected = Self.shapes(Schema(versionedSchema: SchemaV5.self))
+        expected["ExerciseLog", default: []].formUnion(["repRangeMin", "repRangeMax", "targetRIR", "targetSets"])
+        #expect(Self.shapes(PersistenceController.schema) == expected)
+    }
+
+    /// V4 and V5 listed the live workout cluster, and now each hold their own.
+    @Test(arguments: [
+        SchemaV4.self as any VersionedSchema.Type,
+        SchemaV5.self as any VersionedSchema.Type,
+    ])
+    func v4AndV5ListAFrozenWorkoutCluster(version: any VersionedSchema.Type) {
+        let names = version.models.map { String(reflecting: $0) }
+        for model in ["WorkoutSession", "ExerciseLog", "SetEntry"] {
+            #expect(names.contains("Vora.\(version).\(model)"))
+        }
+        let log = Self.shapes(Schema(versionedSchema: version))["ExerciseLog"] ?? []
+        #expect(log.isDisjoint(with: ["repRangeMin", "repRangeMax", "targetRIR", "targetSets"]))
+        #expect(log.contains("exerciseId"))
     }
 
     /// V5 changes exactly these columns and nothing else.
@@ -80,7 +102,7 @@ struct SchemaMigrationTests {
         expected["GymProfile", default: []].formUnion([
             "storedBars", "storedPlates", "storedDumbbellIncrementKg", "storedMachineIncrementKg",
         ])
-        #expect(Self.shapes(PersistenceController.schema) == expected)
+        #expect(Self.shapes(Schema(versionedSchema: SchemaV5.self)) == expected)
     }
 
     /// Every version that listed the live GymProfile now lists a frozen one.
@@ -138,9 +160,9 @@ struct SchemaMigrationTests {
         let versions = VoraMigrationPlan.schemas.map { $0.versionIdentifier }
         #expect(versions == [
             Schema.Version(1, 0, 0), Schema.Version(2, 0, 0), Schema.Version(3, 0, 0), Schema.Version(4, 0, 0),
-            Schema.Version(5, 0, 0),
+            Schema.Version(5, 0, 0), Schema.Version(6, 0, 0),
         ])
-        #expect(VoraMigrationPlan.stages.count == 4)
+        #expect(VoraMigrationPlan.stages.count == 5)
     }
 
     // MARK: - Container
@@ -591,6 +613,126 @@ struct SchemaMigrationTests {
         let oldest = try #require(sessions.first)
         #expect(HealthWorkoutTarget(session: oldest) == HealthWorkoutMatch(session: oldest).map(HealthWorkoutTarget.match))
         #expect(HealthWorkoutTarget(session: session) == .id(workoutID))
+    }
+
+    // MARK: - V5 -> V6 (frozen types)
+
+    @Test @MainActor func v5StoreMigratesWithNilSnapshots() throws {
+        let storeURL = Self.temporaryStoreURL()
+        defer { Self.removeStore(at: storeURL) }
+
+        let date = Date(timeIntervalSince1970: 1_795_075_200)
+        let workoutID = UUID()
+        try {
+            let schema = Schema(versionedSchema: SchemaV5.self)
+            let container = try ModelContainer(
+                for: schema,
+                configurations: [ModelConfiguration(schema: schema, url: storeURL)]
+            )
+            let session = SchemaV5.WorkoutSession(
+                date: date, sessionName: "Push", durationSeconds: 3000, totalVolumeKg: 1000, healthKitWorkoutID: workoutID
+            )
+            container.mainContext.insert(session)
+            let log = SchemaV5.ExerciseLog(
+                exerciseName: "Barbell Bench Press", exerciseId: "barbell-bench-press", muscleGroups: ["chest"], orderIndex: 0
+            )
+            session.exercises.append(log)
+            log.sets.append(SchemaV5.SetEntry(setNumber: 1, weightKg: 102.25, reps: 8, isCompleted: true, rir: 1))
+            log.sets.append(SchemaV5.SetEntry(setNumber: 2, weightKg: 100, reps: 9, isCompleted: true))
+            try container.mainContext.save()
+        }()
+
+        let container = try PersistenceController.makeContainer(url: storeURL)
+        let context = container.mainContext
+        let session = try #require(try context.fetch(FetchDescriptor<WorkoutSession>()).first)
+        #expect(session.date == date)
+        #expect(session.sessionName == "Push")
+        #expect(session.durationSeconds == 3000)
+        #expect(session.healthKitWorkoutID == workoutID)
+        let log = try #require(session.exercises.first)
+        #expect(log.exerciseId == "barbell-bench-press")
+        #expect(log.muscleGroups == ["chest"])
+        #expect(log.targetSnapshot == nil)
+        #expect(log.repRangeMin == nil)
+        #expect(log.repRangeMax == nil)
+        #expect(log.targetRIR == nil)
+        #expect(log.targetSets == nil)
+        let sets = log.sets.sorted { $0.setNumber < $1.setNumber }
+        #expect(sets.map(\.weightKg) == [102.25, 100])
+        #expect(sets.map(\.rir) == [1, nil])
+    }
+
+    // MARK: - V5 -> V6 (real store from commit ec4b816)
+
+    /// `Fixtures/v5-fixture.store` was written by the shipped V5 code (commit
+    /// ec4b816) for a metric user: 2 Push sessions saved through
+    /// `ActiveSessionViewModel.finish()`, each with Barbell Bench Press (3
+    /// sets, RIRs including nil, the last set lighter) and the custom Sled
+    /// Push (1 set); a template for PPL day 0 with bench at 6–10 reps; and
+    /// a Commercial Gym (active) with a filled inventory.
+    @Test @MainActor func realV5FixtureMigratesWithoutLoss() throws {
+        let fixture = try Self.copyFixtureStore(named: "v5-fixture")
+        defer { removeTestItem(at: fixture.directory) }
+        let storeURL = fixture.store
+
+        let store = AppDataStore(
+            open: { try PersistenceController.makeContainer(url: storeURL) },
+            migrateTemplates: { _ in TemplateDefaultsMigration.Outcome() }
+        )
+        store.load()
+        let context = try #require(store.container).mainContext
+
+        let user = try #require(try context.fetch(FetchDescriptor<UserProfile>()).first)
+        #expect(user.name == "Fixture User")
+        #expect(user.preferredUnits == .metric)
+
+        let sessions = try context.fetch(FetchDescriptor<WorkoutSession>(sortBy: [SortDescriptor(\.date)]))
+        #expect(sessions.map(\.date) == [
+            Date(timeIntervalSince1970: 1_795_075_200),
+            Date(timeIntervalSince1970: 1_795_680_000),
+        ])
+        #expect(try context.fetchCount(FetchDescriptor<ExerciseLog>()) == 4)
+        #expect(try context.fetchCount(FetchDescriptor<SetEntry>()) == 8)
+        for session in sessions {
+            let logs = session.exercises.sorted { $0.orderIndex < $1.orderIndex }
+            #expect(logs.map(\.exerciseName) == ["Barbell Bench Press", "Sled Push"])
+            #expect(logs.map(\.exerciseId) == ["barbell-bench-press", nil])
+            #expect(logs.allSatisfy { $0.targetSnapshot == nil })
+        }
+        let lastBench = try #require(sessions.last?.exercises.first { $0.orderIndex == 0 })
+            .sets.sorted { $0.setNumber < $1.setNumber }
+        #expect(lastBench.map(\.weightKg) == [102.25, 102.25, 100])
+        #expect(lastBench.map(\.reps) == [8, 8, 9])
+        #expect(lastBench.map(\.rir) == [1, 0, 2])
+
+        let plan = try WorkoutTemplateService.plan(for: .ppl, dayIndex: 0, context: context)
+        #expect(plan.first?.repRange == 6...10)
+        #expect(plan.last?.customName == "Sled Push")
+
+        let gym = try #require(try context.fetch(FetchDescriptor<GymProfile>()).first { $0.name == "Commercial Gym" })
+        #expect(gym.isActive)
+        #expect(gym.loadingInventory?.plates.isEmpty == false)
+
+        // Old logs fall back to current targets, and the engine reads them.
+        let vm = ActiveSessionViewModel(sessionName: "Push", health: NoHealthWrites(), now: { Date(timeIntervalSince1970: 1_795_852_800) })
+        vm.prefill(
+            with: plan,
+            context: context,
+            progression: ProgressionContext(mode: .repsFirst, inventory: gym.loadingInventory)
+        )
+        #expect(vm.exercises.first?.sets.first?.recommendation != nil)
+
+        // The new columns save and reread on migrated rows.
+        let edited = try #require(sessions.first?.exercises.first)
+        edited.repRangeMin = 6
+        edited.repRangeMax = 10
+        edited.targetSets = 3
+        edited.targetRIR = 2
+        try context.save()
+        let rereadContext = ModelContext(context.container)
+        let reread = try rereadContext.fetch(FetchDescriptor<ExerciseLog>()).filter { $0.targetSnapshot != nil }
+        #expect(reread.count == 1)
+        #expect(reread.first?.targetSnapshot == TemplateTargets(targetSets: 3, repRangeMin: 6, repRangeMax: 10, targetRIR: 2))
     }
 
     // MARK: - V4 -> V5 (frozen types)

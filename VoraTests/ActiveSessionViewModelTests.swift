@@ -500,7 +500,9 @@ struct ActiveSessionViewModelTests {
 
         viewModel.finish(context: context)
 
-        #expect(viewModel.summary?.newPRs.isEmpty == true)
+        // Equal weight isn't a weight record, though more reps at it is a
+        // rep record and a better estimate.
+        #expect(viewModel.summary?.newPRs.map(\.kind) == [.reps, .estimatedOneRepMax])
     }
 
     @Test func finishWithNoHistoryAwardsPRForAnyPositiveWeight() throws {

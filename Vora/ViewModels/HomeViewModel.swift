@@ -88,6 +88,10 @@ final class HomeViewModel {
     /// Today's template for a new session. A missing day is not a rest day:
     /// SplitDay rows are seeded by the Train tab, and the card still offers
     /// Start Session before then.
+    var templateSlot: TemplateSlot {
+        TemplateSlot(split: profile?.trainingSplit ?? .fullBody, dayIndex: todayIndex)
+    }
+
     func templatePlan(context: ModelContext) -> [TemplateExerciseSpec] {
         WorkoutTemplateService.sessionPlan(
             isRestDay: todaySplitDay?.isRest ?? false,

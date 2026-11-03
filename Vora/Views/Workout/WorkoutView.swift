@@ -71,6 +71,7 @@ struct WorkoutView: View {
                         $0.isRest ? "Extra Session" : $0.title
                     } ?? "Session",
                     templatePlan: viewModel.templatePlan(context: modelContext),
+                    templateSlot: viewModel.templateSlot,
                     units: units
                 )
             }
@@ -309,7 +310,7 @@ struct WorkoutView: View {
                 // Wraps beside the fixed-size sets stat on 6.1-inch widths
                 // (minimumScaleFactor does not engage in this hierarchy);
                 // "228.33\u{00A0}kg" stays together when it does wrap.
-                Text("Peak strength · \(UnitConversion.weightNumberText(kg: record.estimatedOneRepMax, units: units))\u{00A0}\(UnitConversion.weightUnitSymbol(units))")
+                Text("Est. 1RM · \(UnitConversion.weightNumberText(kg: record.estimatedOneRepMax, units: units))\u{00A0}\(UnitConversion.weightUnitSymbol(units))")
                     .font(DesignSystem.Typography.caption)
                     .foregroundStyle(DesignSystem.Colors.textSecondary)
                     .lineLimit(2)
@@ -319,7 +320,7 @@ struct WorkoutView: View {
                     .foregroundStyle(DesignSystem.Colors.textSecondary)
             }
             // Claims all width left over by the fixed-size sets stat, so
-            // the peak-strength line scales instead of truncating.
+            // the Est. 1RM line scales instead of truncating.
             .frame(maxWidth: .infinity, alignment: .leading)
             .layoutPriority(1)
 
@@ -348,7 +349,7 @@ struct WorkoutView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(record.exerciseName)
         .accessibilityValue(
-            "Personal record \(record.spokenSetsSummary), peak strength \(UnitConversion.weightNumberText(kg: record.estimatedOneRepMax, units: units)) \(UnitConversion.spokenWeightUnit(units)), \(record.date.formatted(.dateTime.month(.wide).day().year()))"
+            "Personal record \(record.spokenSetsSummary), estimated one rep max \(UnitConversion.weightNumberText(kg: record.estimatedOneRepMax, units: units)) \(UnitConversion.spokenWeightUnit(units)), \(record.date.formatted(.dateTime.month(.wide).day().year()))"
         )
         .accessibilityHint("Shows history for this exercise")
     }

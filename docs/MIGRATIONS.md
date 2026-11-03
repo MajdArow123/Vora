@@ -12,6 +12,7 @@ a migration stage. Never edit an existing version.
 | `Vora/Models/Schema/SchemaV3.swift` | Adds the `WorkoutTemplate` and `TemplateExercise` entities (lightweight stage); frozen copies of the same four models |
 | `Vora/Models/Schema/SchemaV4.swift` | Replaces `SetEntry.rpe` with the optional `SetEntry.rir`, and adds the optional `healthKitWorkoutID` to WorkoutSession and CardioEntry (lightweight stage) |
 | `Vora/Models/Schema/SchemaV5.swift` | Adds GymProfile's optional loading inventory: `storedBars`, `storedPlates`, `storedDumbbellIncrementKg`, `storedMachineIncrementKg` (lightweight stage); V1–V4 each hold a frozen copy of GymProfile |
+| `Vora/Models/Schema/SchemaV6.swift` | Adds ExerciseLog's optional target snapshot: `repRangeMin`, `repRangeMax`, `targetRIR`, `targetSets` (lightweight stage); V4 and V5 each hold a frozen copy of WorkoutSession, ExerciseLog and SetEntry |
 | `Vora/Models/Schema/GymInventoryBackfill.swift` | Post-open fill of unfilled gym inventories from the preset and the user's units; skips when no user profile exists yet, and runs again when onboarding completes |
 | `Vora/Models/Schema/TemplateDefaultsMigration.swift` | Post-open move of the pre-V3 `vora.workoutTemplates` UserDefaults dictionary into SwiftData; removes the key only after a successful save |
 | `Vora/Models/Schema/VoraMigrationPlan.swift` | Ordered `schemas` and `stages`; `CurrentSchema` alias |
@@ -71,7 +72,8 @@ a migration stage. Never edit an existing version.
      domain written by the shipped `WorkoutTemplateStore`) from commit
      712aea5; `v3-fixture.store` and `v1-session-draft.json` (a version 1
      `ActiveSessionDraft`) from commit 07190d1; `v4-fixture.store` from commit
-     2b8a20e. When data outside the store
+     2b8a20e; `v5-fixture.store` and `v2-session-draft.json` (a version 2
+     `ActiveSessionDraft`) from commit ec4b816. When data outside the store
      moves into it (UserDefaults, files), fixture that data too and test
      the move against it.
    - Read fixtures only through a copy, including with `sqlite3`. Opening a
@@ -89,6 +91,13 @@ written once units are known: at the end of onboarding, by the post-open
 backfill for existing users, and immediately for new gyms and `applyPreset`.
 After that, changing `preferredUnits` only changes how weights are displayed,
 never which plates a gym has. Code treats a nil inventory as an empty gym.
+
+## Why target snapshots aren't backfilled
+
+The V6 columns record the targets a session was done under, and nothing can
+recover those for older logs: today's template may have changed since. So old
+rows stay nil, and `ProgressionEngine` judges them by the current targets.
+Filling them with today's targets would make that guess look like a record.
 
 ## Why removing `SetEntry.rpe` lost no data
 

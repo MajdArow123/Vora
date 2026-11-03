@@ -492,4 +492,138 @@ struct LoadCalculatorTests {
         viewModel.removeSet(request.setID, from: request.exerciseID)
         #expect(viewModel.plateCalculatorWeightKg(for: request) == nil)
     }
+
+    // MARK: - Progression helpers
+
+    @Test func nextAchievableIsStrictlyAbove() {
+        let loads = [20.0, 22.5, 25]
+        #expect(LoadCalculator.nextAchievable(aboveKg: 22.5, in: loads) == 25)
+        #expect(LoadCalculator.nextAchievable(aboveKg: 21, in: loads) == 22.5)
+        #expect(LoadCalculator.nextAchievable(aboveKg: 25, in: loads) == nil)
+        #expect(LoadCalculator.nextAchievable(aboveKg: .nan, in: loads) == nil)
+    }
+
+    @Test func nextAchievableTreatsRoundingDriftAsTheSameLoad() {
+        #expect(LoadCalculator.nextAchievable(aboveKg: 22.499_999, in: [22.5, 25]) == 25)
+    }
+
+    @Test func nearestOverAListMatchesTheEquipmentVersion() {
+        let profile = Self.inventory(plates: [(5, 2), (1.25, 2)])
+        let loads = LoadCalculator.achievableLoads(equipment: .barbell, profile: profile)
+        for target in [19.0, 26.3, 41.0, 200.0] {
+            #expect(
+                LoadCalculator.nearest(toKg: target, in: loads, rounding: .nearest)
+                    == LoadCalculator.nearestAchievable(targetKg: target, equipment: .barbell, profile: profile, rounding: .nearest)
+            )
+        }
+    }
+
+    @Test func preferredBarIsTheFirstThatCanMakeTheLoad() {
+        let women = GymBar(name: "Women's", weightKg: 15)
+        let profile = Self.inventory(bars: [Self.olympic, women], plates: [(5, 4)])
+        #expect(LoadCalculator.preferredBar(forKg: 30, equipment: .barbell, profile: profile) == Self.olympic)
+        #expect(LoadCalculator.preferredBar(forKg: 35, equipment: .barbell, profile: profile) == women)
+        #expect(LoadCalculator.preferredBar(forKg: 33, equipment: .barbell, profile: profile) == Self.olympic)
+    }
+
+    @Test func preferredBarSeparatesFreeAndSmithBars() {
+        let smith = GymBar(name: "Smith", weightKg: 15, kind: .smith)
+        let profile = Self.inventory(bars: [Self.olympic, smith], plates: [(5, 4)])
+        #expect(LoadCalculator.preferredBar(forKg: 35, equipment: .smithMachine, profile: profile) == smith)
+        #expect(LoadCalculator.preferredBar(forKg: 35, equipment: .barbell, profile: profile) == Self.olympic)
+    }
+
+    @Test func workingLoadsStayOnOneBar() {
+        let women = GymBar(name: "Women's", weightKg: 15)
+        let profile = Self.inventory(bars: [Self.olympic, women], plates: [(5, 4)])
+        let loads = LoadCalculator.workingLoads(equipment: .barbell, profile: profile, referenceKg: 30)
+        #expect(loads == LoadCalculator.plateLoads(bar: Self.olympic, profile: profile))
+        #expect(!loads.contains(35))
+    }
+
+    @Test func workingLoadsForStepEquipmentAreTheSteps() {
+        let profile = Self.inventory(plates: [])
+        #expect(
+            LoadCalculator.workingLoads(equipment: .dumbbell, profile: profile, referenceKg: 10)
+                == LoadCalculator.achievableLoads(equipment: .dumbbell, profile: profile)
+        )
+        #expect(LoadCalculator.workingLoads(equipment: .bodyweight, profile: profile, referenceKg: 10).isEmpty)
+    }
+
+    @Test(arguments: [EquipmentType.dumbbell, .machine, .cable])
+    func stepEquipmentAddsLoggedWeightsToTheGrid(equipment: EquipmentType) {
+        let profile = Self.inventory(plates: [], dumbbell: 5, machine: 5)
+        let loads = LoadCalculator.workingLoads(equipment: equipment, profile: profile, referenceKg: 27.5, loggedKg: [27.5, 300])
+        #expect(loads.contains(25))
+        #expect(loads.contains(27.5))
+        #expect(loads.contains(30))
+        #expect(loads.last == 300)
+        #expect(loads == loads.sorted())
+    }
+
+    @Test func loggedWeightsMergeWithTheGridAndSkipUnusableValues() {
+        let profile = Self.inventory(plates: [], machine: 5)
+        let grid = LoadCalculator.workingLoads(equipment: .machine, profile: profile, referenceKg: 25)
+        let loads = LoadCalculator.workingLoads(
+            equipment: .machine,
+            profile: profile,
+            referenceKg: 25,
+            loggedKg: [25.000_001, 0, -5, .nan, .infinity]
+        )
+        #expect(loads == grid)
+    }
+
+    @Test func plateEquipmentIgnoresLoggedWeights() {
+        let smith = GymBar(name: "Smith", weightKg: 15, kind: .smith)
+        let profile = Self.inventory(bars: [Self.olympic, smith], plates: [(5, 4)])
+        #expect(LoadCalculator.workingLoads(equipment: .barbell, profile: profile, referenceKg: 30, loggedKg: [33])
+                == LoadCalculator.plateLoads(bar: Self.olympic, profile: profile))
+        #expect(LoadCalculator.workingLoads(equipment: .smithMachine, profile: profile, referenceKg: 35, loggedKg: [33])
+                == LoadCalculator.plateLoads(bar: smith, profile: profile))
+    }
+
+    @Test func unmodeledEquipmentIgnoresLoggedWeights() {
+        let profile = Self.inventory(plates: [])
+        #expect(LoadCalculator.workingLoads(equipment: .kettlebell, profile: profile, referenceKg: 24, loggedKg: [24]).isEmpty)
+    }
+
+    @Test func nearestAchievableKeepsALoggedWeightOnStepEquipmentOnly() {
+        let profile = Self.inventory(plates: [(5, 4)], machine: 5)
+        #expect(LoadCalculator.nearestAchievable(targetKg: 27.5, equipment: .machine, profile: profile, rounding: .nearest, loggedKg: [27.5]) == 27.5)
+        #expect(LoadCalculator.nearestAchievable(targetKg: 27.5, equipment: .machine, profile: profile, rounding: .nearest) == 25)
+        #expect(LoadCalculator.nearestAchievable(targetKg: 33, equipment: .barbell, profile: profile, rounding: .nearest, loggedKg: [33]) == 30)
+    }
+
+    @Test func nearestLoadsAreOnEitherSide() {
+        let profile = Self.inventory(plates: [(5, 4)])
+        let nearest = LoadCalculator.nearestLoads(aroundKg: 33, bar: Self.olympic, profile: profile)
+        #expect(nearest.below == 30)
+        #expect(nearest.above == 40)
+    }
+
+    @Test func nearestLoadsAtTheEdgesHaveOneSide() {
+        let profile = Self.inventory(plates: [(5, 1)])
+        let low = LoadCalculator.nearestLoads(aroundKg: 10, bar: Self.olympic, profile: profile)
+        #expect(low.below == nil)
+        #expect(low.above == 20)
+        let high = LoadCalculator.nearestLoads(aroundKg: 500, bar: Self.olympic, profile: profile)
+        #expect(high.below == 30)
+        #expect(high.above == nil)
+    }
+
+    @Test func nearestLoadsTextCoversEverySide() {
+        #expect(ExerciseSessionCard.nearestLoadsText(below: 57.5, above: 60, units: .metric) == "Nearest: 57.5 or 60 kg")
+        #expect(ExerciseSessionCard.nearestLoadsText(below: 57.5, above: nil, units: .metric) == "Nearest: 57.5 kg")
+        #expect(ExerciseSessionCard.nearestLoadsText(below: nil, above: 60, units: .metric) == "Nearest: 60 kg")
+        #expect(ExerciseSessionCard.nearestLoadsText(below: nil, above: nil, units: .metric) == "No loadable weights on this bar")
+    }
+
+    @Test func loadEquipmentPicksWhatHasModeledLoads() {
+        #expect(LoadingInventory.loadEquipment(in: [.barbell, .bench]) == .barbell)
+        #expect(LoadingInventory.loadEquipment(in: [.smithMachine, .bench]) == .smithMachine)
+        #expect(LoadingInventory.loadEquipment(in: [.dumbbell, .bench]) == .dumbbell)
+        #expect(LoadingInventory.loadEquipment(in: [.cable, .machine]) == .machine)
+        #expect(LoadingInventory.loadEquipment(in: [.kettlebell]) == nil)
+        #expect(LoadingInventory.loadEquipment(in: [.bodyweight, .pullUpBar]) == nil)
+    }
 }
