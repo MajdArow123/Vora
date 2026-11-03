@@ -31,9 +31,10 @@ struct RestTimerBar: View {
 
                 Spacer()
 
-                Text("Rest")
-                    .font(DesignSystem.Typography.caption)
-                    .foregroundStyle(.white.opacity(0.7))
+                HStack(spacing: 0) {
+                    adjustButton(systemImage: "minus", label: "15 seconds less", seconds: -ActiveSessionViewModel.restAdjustmentStep)
+                    adjustButton(systemImage: "plus", label: "15 seconds more", seconds: ActiveSessionViewModel.restAdjustmentStep)
+                }
 
                 Button {
                     viewModel.cancelRest()
@@ -41,6 +42,7 @@ struct RestTimerBar: View {
                     Text("Skip")
                         .font(DesignSystem.Typography.headline)
                         .foregroundStyle(DesignSystem.Colors.accent)
+                        .fixedSize()
                         .padding(.horizontal, DesignSystem.Spacing.md)
                         .padding(.vertical, DesignSystem.Spacing.sm)
                         .background(.white)
@@ -59,12 +61,31 @@ struct RestTimerBar: View {
             guard let end = viewModel.restEndDate else { return }
             let interval = end.timeIntervalSince(.now)
             if interval > 0 {
-                try? await Task.sleep(for: .seconds(interval))
+                do {
+                    try await Task.sleep(for: .seconds(interval))
+                } catch {
+                    // Cancelled: the rest changed or the bar went away.
+                    return
+                }
             }
-            guard !Task.isCancelled, viewModel.restEndDate == end else { return }
+            guard viewModel.restEndDate == end else { return }
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             viewModel.cancelRest()
         }
+    }
+
+    private func adjustButton(systemImage: String, label: String, seconds: TimeInterval) -> some View {
+        Button {
+            viewModel.adjustRest(by: seconds)
+        } label: {
+            Image(systemName: systemImage)
+                .font(DesignSystem.Typography.headline)
+                .foregroundStyle(.white)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 
     private static func timeString(_ seconds: TimeInterval) -> String {

@@ -210,16 +210,27 @@ final class ActiveSessionViewModel {
     /// shorter ones count as continuous training.
     static let interruptionThreshold: TimeInterval = 5 * 60
 
+    /// What each +/- button on the rest bar changes.
+    static let restAdjustmentStep: TimeInterval = 15
+
     let sessionName: String
     let units: UnitSystem
     private(set) var startDate: Date
     /// Interruption time left out of the duration (see `restore`).
     private(set) var excludedSeconds: TimeInterval = 0
     var exercises: [DraftExercise] = [] {
-        didSet { scheduleDraftSave() }
+        didSet {
+            scheduleDraftSave()
+            syncRestPresentation()
+        }
     }
+    /// The one source of truth for rest. The bar, Live Activity and rest-over
+    /// alert all follow it (see `syncRestPresentation`).
     var restEndDate: Date? {
-        didSet { scheduleDraftSave() }
+        didSet {
+            scheduleDraftSave()
+            syncRestPresentation()
+        }
     }
     var summary: SessionSummary?
     /// A fix couldn't be saved to the template; it still applies to this session.
@@ -233,6 +244,15 @@ final class ActiveSessionViewModel {
     var warmUpInventory: LoadingInventory?
 
     @ObservationIgnored private let health: any HealthWorkoutWriting
+    @ObservationIgnored private let restActivity: any RestActivityControlling
+    @ObservationIgnored private let restAlert: any RestAlertScheduling
+    /// When the current rest began; only the activity's progress reads it, so
+    /// it isn't in the draft and a resumed rest counts from the resume.
+    @ObservationIgnored private var restStartDate: Date?
+    /// The exercise whose set started the current rest, for what's up next.
+    @ObservationIgnored private var restExerciseID: DraftExercise.ID?
+    /// What the activity and alert were last told; nil when nothing is showing.
+    @ObservationIgnored private var presentedRest: RestActivityAttributes.ContentState?
     @ObservationIgnored private var draftStore: SessionDraftStore?
     @ObservationIgnored private let draftDebounce: Duration
     @ObservationIgnored private let now: () -> Date
@@ -248,12 +268,16 @@ final class ActiveSessionViewModel {
         draftStore: SessionDraftStore? = nil,
         draftDebounce: Duration = .milliseconds(500),
         health: any HealthWorkoutWriting = HealthKitService(),
+        restActivity: any RestActivityControlling = NoRestActivity(),
+        restAlert: any RestAlertScheduling = NoRestAlert(),
         now: @escaping () -> Date = Date.init
     ) {
         self.sessionName = sessionName
         self.units = units
         self.templateSlot = templateSlot
         self.health = health
+        self.restActivity = restActivity
+        self.restAlert = restAlert
         self.draftStore = draftStore
         self.draftDebounce = draftDebounce
         self.now = now
@@ -773,7 +797,9 @@ final class ActiveSessionViewModel {
     }
 
     func startRest(duration: TimeInterval) {
-        restEndDate = now().addingTimeInterval(duration)
+        let start = now()
+        restStartDate = start
+        restEndDate = start.addingTimeInterval(duration)
     }
 
     /// Starts the exercise's rest after a set, unless the next thing to do
@@ -792,11 +818,65 @@ final class ActiveSessionViewModel {
             let laterInSuperset = exercises[(e + 1)...].prefix { $0.supersetGroup == group }
             if laterInSuperset.contains(where: { $0.sets.contains { !$0.isCompleted } }) { return }
         }
+        restExerciseID = exerciseID
         startRest(duration: TimeInterval(exercises[e].restSeconds))
     }
 
     func cancelRest() {
         restEndDate = nil
+    }
+
+    /// Adds or takes off time. Taking off all that's left ends the rest.
+    func adjustRest(by seconds: TimeInterval) {
+        guard let end = restEndDate else { return }
+        let adjusted = end.addingTimeInterval(seconds)
+        restEndDate = adjusted > now() ? adjusted : nil
+    }
+
+    /// Ends a rest that ran out while the app was suspended and couldn't.
+    func reconcileRest() {
+        if let end = restEndDate, end <= now() {
+            restEndDate = nil
+        }
+    }
+
+    /// Keeps the draft, rest included, so "Resume workout" can pick the rest
+    /// up. The alert stays pending for the same reason; only the activity,
+    /// which nothing would be left to end, goes.
+    func prepareForTermination() {
+        flushDraft()
+        restActivity.endAllBeforeTermination()
+    }
+
+    /// Brings the activity and alert in line with the rest state. Called on
+    /// every change to it or to the sets, and does nothing unless what they
+    /// show changed, so typing in another set sends nothing.
+    private func syncRestPresentation() {
+        guard let end = restEndDate else {
+            guard presentedRest != nil else { return }
+            presentedRest = nil
+            restStartDate = nil
+            restExerciseID = nil
+            restActivity.end()
+            restAlert.cancel()
+            return
+        }
+        let upNext = RestUpNext.resolve(
+            exercises: exercises,
+            restedAfter: restExerciseID,
+            units: units,
+            fallbackName: sessionName
+        )
+        let state = RestActivityAttributes.ContentState(
+            exerciseName: upNext.exerciseName,
+            nextSetText: upNext.setText,
+            startDate: restStartDate ?? now(),
+            endDate: end
+        )
+        guard state != presentedRest else { return }
+        presentedRest = state
+        restActivity.show(state)
+        restAlert.schedule(at: end, body: upNext.notificationBody)
     }
 
     // MARK: - Finish
@@ -888,6 +968,8 @@ final class ActiveSessionViewModel {
         } catch {
             Self.logger.error("Failed to save workout session: \(String(describing: error), privacy: .public)")
         }
+        // The session screen goes away with the summary, saved or not.
+        restEndDate = nil
 
         workoutInterval = DateInterval(start: startDate, duration: TimeInterval(durationSeconds))
         summary = SessionSummary(
@@ -1083,6 +1165,7 @@ final class ActiveSessionViewModel {
                 supersetGroup: saved.supersetGroup
             )
         }
+        restStartDate = resumedAt
         restEndDate = draft.restEndDate.flatMap { $0 > resumedAt ? $0 : nil }
     }
 
@@ -1100,6 +1183,7 @@ final class ActiveSessionViewModel {
         pendingDraftSave = nil
         draftStore?.clear()
         draftStore = nil
+        restEndDate = nil
     }
 
     private func scheduleDraftSave() {

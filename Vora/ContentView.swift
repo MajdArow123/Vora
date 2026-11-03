@@ -119,6 +119,7 @@ private struct MainTabView: View {
             }
             Button("Discard", role: .destructive) {
                 SessionDraftStore().clear()
+                RestAlertService().cancel()
             }
         } message: { draft in
             Text(Self.resumeMessage(for: draft))

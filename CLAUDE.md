@@ -5,12 +5,13 @@ SwiftUI + SwiftData iOS app (iOS 26.5, Swift Testing). Scheme `Vora`, targets `V
 ## Vora rules
 
 - Production quality, no TODOs or placeholders.
-- DesignSystem constants only (`Vora/Utilities/DesignSystem.swift`), no hardcoded hex.
+- DesignSystem constants only (`Shared/DesignSystem.swift`), no hardcoded hex.
 - No unjustified force unwraps, no `print()`.
 - Replace `try?` / `assertionFailure` with explicit error handling in any code you touch.
 - Zero warnings in the app AND test targets.
 - Swift Testing (`@Test`) unit tests for every model, migration and service change, using in-memory containers like the existing tests.
 - Unit tests must never reach real HealthKit — always inject a stub.
+- Unit tests must never start real Live Activities or schedule real notifications — always inject a stub.
 - Run the full suite and report pass/fail totals.
 - Do not commit unless asked; summarize changed files for review.
 - Commit directly to main and push after I confirm; don't create feature branches unless I ask.

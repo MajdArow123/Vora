@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		D2B00000000000000000000E /* VoraRestActivity.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D2B000000000000000000002 /* VoraRestActivity.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		C1A0000000000000000000A1 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -14,11 +18,33 @@
 			remoteGlobalIDString = B8E5A8BA300F8EED0099F045;
 			remoteInfo = Vora;
 		};
+		D2B000000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B8E5A8B3300F8EED0099F045 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D2B000000000000000000008;
+			remoteInfo = VoraRestActivity;
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		D2B00000000000000000000D /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				D2B00000000000000000000E /* VoraRestActivity.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		B8E5A8BB300F8EED0099F045 /* Vora.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Vora.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C1A0000000000000000000A2 /* VoraTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VoraTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		D2B000000000000000000002 /* VoraRestActivity.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = VoraRestActivity.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -30,6 +56,16 @@
 		C1A0000000000000000000A3 /* VoraTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = VoraTests;
+			sourceTree = "<group>";
+		};
+		D2B000000000000000000003 /* Shared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		D2B000000000000000000004 /* VoraRestActivity */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = VoraRestActivity;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -49,6 +85,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D2B000000000000000000005 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -56,6 +99,8 @@
 			isa = PBXGroup;
 			children = (
 				B8E5A8BD300F8EED0099F045 /* Vora */,
+				D2B000000000000000000003 /* Shared */,
+				D2B000000000000000000004 /* VoraRestActivity */,
 				C1A0000000000000000000A3 /* VoraTests */,
 				B8E5A8BC300F8EED0099F045 /* Products */,
 			);
@@ -66,6 +111,7 @@
 			children = (
 				B8E5A8BB300F8EED0099F045 /* Vora.app */,
 				C1A0000000000000000000A2 /* VoraTests.xctest */,
+				D2B000000000000000000002 /* VoraRestActivity.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -80,13 +126,16 @@
 				B8E5A8B7300F8EED0099F045 /* Sources */,
 				B8E5A8B8300F8EED0099F045 /* Frameworks */,
 				B8E5A8B9300F8EED0099F045 /* Resources */,
+				D2B00000000000000000000D /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				D2B00000000000000000000C /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				B8E5A8BD300F8EED0099F045 /* Vora */,
+				D2B000000000000000000003 /* Shared */,
 			);
 			name = Vora;
 			packageProductDependencies = (
@@ -118,6 +167,29 @@
 			productReference = C1A0000000000000000000A2 /* VoraTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		D2B000000000000000000008 /* VoraRestActivity */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D2B000000000000000000009 /* Build configuration list for PBXNativeTarget "VoraRestActivity" */;
+			buildPhases = (
+				D2B000000000000000000006 /* Sources */,
+				D2B000000000000000000005 /* Frameworks */,
+				D2B000000000000000000007 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				D2B000000000000000000004 /* VoraRestActivity */,
+				D2B000000000000000000003 /* Shared */,
+			);
+			name = VoraRestActivity;
+			packageProductDependencies = (
+			);
+			productName = VoraRestActivity;
+			productReference = D2B000000000000000000002 /* VoraRestActivity.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -129,6 +201,9 @@
 				LastUpgradeCheck = 2660;
 				TargetAttributes = {
 					B8E5A8BA300F8EED0099F045 = {
+						CreatedOnToolsVersion = 26.6;
+					};
+					D2B000000000000000000008 = {
 						CreatedOnToolsVersion = 26.6;
 					};
 					C1A0000000000000000000A5 = {
@@ -152,6 +227,7 @@
 			projectRoot = "";
 			targets = (
 				B8E5A8BA300F8EED0099F045 /* Vora */,
+				D2B000000000000000000008 /* VoraRestActivity */,
 				C1A0000000000000000000A5 /* VoraTests */,
 			);
 		};
@@ -166,6 +242,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		C1A0000000000000000000A8 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D2B000000000000000000007 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -189,6 +272,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D2B000000000000000000006 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -196,6 +286,11 @@
 			isa = PBXTargetDependency;
 			target = B8E5A8BA300F8EED0099F045 /* Vora */;
 			targetProxy = C1A0000000000000000000A1 /* PBXContainerItemProxy */;
+		};
+		D2B00000000000000000000C /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D2B000000000000000000008 /* VoraRestActivity */;
+			targetProxy = D2B000000000000000000001 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -334,6 +429,7 @@
 				INFOPLIST_KEY_NSCameraUsageDescription = "Vora uses the camera to scan food barcodes.";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "Vora reads your body weight from Apple Health to keep your weight trend up to date, and finds the workouts it saved so it can remove them when you delete them.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Vora saves your workouts, including calories burned during cardio, to Apple Health.";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -371,6 +467,7 @@
 				INFOPLIST_KEY_NSCameraUsageDescription = "Vora uses the camera to scan food barcodes.";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "Vora reads your body weight from Apple Health to keep your weight trend up to date, and finds the workouts it saved so it can remove them when you delete them.";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Vora saves your workouts, including calories burned during cardio, to Apple Health.";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -437,6 +534,62 @@
 			};
 			name = Release;
 		};
+		D2B00000000000000000000A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = J929M66FZ4;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "SupportFiles/VoraRestActivity-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Vora Rest Timer";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.majdarow.Vora.RestActivity;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		D2B00000000000000000000B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = J929M66FZ4;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "SupportFiles/VoraRestActivity-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Vora Rest Timer";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.majdarow.Vora.RestActivity;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -463,6 +616,15 @@
 			buildConfigurations = (
 				C1A0000000000000000000AA /* Debug */,
 				C1A0000000000000000000AB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		D2B000000000000000000009 /* Build configuration list for PBXNativeTarget "VoraRestActivity" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D2B00000000000000000000A /* Debug */,
+				D2B00000000000000000000B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

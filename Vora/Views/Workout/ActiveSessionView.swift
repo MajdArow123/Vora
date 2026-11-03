@@ -39,7 +39,9 @@ struct ActiveSessionView: View {
             sessionName: sessionName,
             units: units,
             templateSlot: templateSlot,
-            draftStore: draftStore
+            draftStore: draftStore,
+            restActivity: RestActivityController(),
+            restAlert: RestAlertService()
         ))
         self.templatePlan = templatePlan
         self.restoredDraft = nil
@@ -50,7 +52,9 @@ struct ActiveSessionView: View {
         _viewModel = State(initialValue: ActiveSessionViewModel(
             sessionName: draft.sessionName,
             units: units,
-            draftStore: draftStore
+            draftStore: draftStore,
+            restActivity: RestActivityController(),
+            restAlert: RestAlertService()
         ))
         self.templatePlan = []
         self.restoredDraft = draft
@@ -197,7 +201,12 @@ struct ActiveSessionView: View {
             // A kill in the background must not lose the debounce window.
             if phase != .active {
                 viewModel.flushDraft()
+            } else {
+                viewModel.reconcileRest()
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willTerminateNotification)) { _ in
+            viewModel.prepareForTermination()
         }
     }
 

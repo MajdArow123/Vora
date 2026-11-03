@@ -18,6 +18,11 @@ struct VoraApp: App {
         // Meal suggestions moved to the ProTracker backend; remove any
         // Anthropic API key a pre-backend build left in UserDefaults.
         UserDefaults.standard.removeObject(forKey: "vora.anthropic.apiKey")
+        // A kill doesn't always get to end the rest activity. The test host
+        // launches this app too, and tests must never touch ActivityKit.
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
+            RestActivityController.endLeftovers()
+        }
     }
 
     var body: some Scene {
