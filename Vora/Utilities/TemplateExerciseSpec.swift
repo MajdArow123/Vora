@@ -34,6 +34,8 @@ struct TemplateExerciseSpec: Identifiable, Equatable {
     var repRangeMax: Int
     var targetRIR: Int?
     var restSeconds: Int
+    /// Links consecutive exercises into a superset; nil when unlinked.
+    var supersetGroup: Int?
 
     init(
         id: UUID = UUID(),
@@ -43,7 +45,8 @@ struct TemplateExerciseSpec: Identifiable, Equatable {
         repRangeMin: Int = Self.defaultRepRange.lowerBound,
         repRangeMax: Int = Self.defaultRepRange.upperBound,
         targetRIR: Int? = Self.defaultTargetRIR,
-        restSeconds: Int? = nil
+        restSeconds: Int? = nil,
+        supersetGroup: Int? = nil
     ) {
         self.id = id
         self.exerciseId = exerciseId
@@ -53,6 +56,7 @@ struct TemplateExerciseSpec: Identifiable, Equatable {
         self.repRangeMax = repRangeMax
         self.targetRIR = targetRIR
         self.restSeconds = restSeconds ?? ExerciseLibrary.defaultRestSeconds(exerciseId: exerciseId)
+        self.supersetGroup = supersetGroup
     }
 
     init(_ exercise: TemplateExercise) {
@@ -64,7 +68,8 @@ struct TemplateExerciseSpec: Identifiable, Equatable {
             repRangeMin: exercise.repRangeMin,
             repRangeMax: exercise.repRangeMax,
             targetRIR: exercise.targetRIR,
-            restSeconds: exercise.restSeconds
+            restSeconds: exercise.restSeconds,
+            supersetGroup: exercise.supersetGroup
         )
     }
 

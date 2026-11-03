@@ -36,4 +36,6 @@ No rest starts after a warm-up, before a drop or myo-rep set, or in a superset w
 
 ## Supersets
 
-`ExerciseLog.supersetGroup` links consecutive exercises. Groups are renumbered after every move, removal or link, and again at finish after exercises with nothing completed are dropped, so a group is always consecutive with at least two exercises. Moving an exercise into the middle of a superset breaks it. Links belong to the session and aren't saved to templates.
+`ExerciseLog.supersetGroup` links consecutive exercises. Groups are renumbered after every move, removal or link, and again at finish after exercises with nothing completed are dropped, so a group is always consecutive with at least two exercises. Moving an exercise into the middle of a superset breaks it.
+
+Templates can hold links too, in `TemplateExercise.supersetGroup`, under the same rules, and a session starts with them already applied. Links made during a session belong to that session and aren't saved back to the template.

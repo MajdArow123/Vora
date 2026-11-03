@@ -12,6 +12,8 @@ import SwiftData
 /// without a row uses the built-in defaults from WorkoutTemplateService,
 /// so a row's presence means the template is customized. At most one row
 /// exists per (split, dayIndex); WorkoutTemplateService enforces that.
+/// A cycle day's template is reached through `cycleDay` instead, and its
+/// reserved split and day index keep weekly slot lookups from matching it.
 @Model
 final class WorkoutTemplate {
     @Attribute(.unique) var id: UUID
@@ -25,6 +27,12 @@ final class WorkoutTemplate {
     @Relationship(deleteRule: .cascade, inverse: \TemplateExercise.parent)
     var exercises: [TemplateExercise]
 
+    /// Set on a cycle day's template; nil on weekly slots.
+    var cycleDay: CycleDay?
+
+    static let cycleSplitRawValue = "cycle"
+    static let cycleDayIndex = -1
+
     init(
         id: UUID = UUID(),
         split: TrainingSplit,
@@ -35,6 +43,15 @@ final class WorkoutTemplate {
         self.id = id
         self.splitRawValue = split.rawValue
         self.dayIndex = dayIndex
+        self.name = name
+        self.exercises = exercises
+    }
+
+    /// A template for a cycle day, independent of every weekly slot.
+    init(id: UUID = UUID(), cycleName name: String, exercises: [TemplateExercise] = []) {
+        self.id = id
+        self.splitRawValue = Self.cycleSplitRawValue
+        self.dayIndex = Self.cycleDayIndex
         self.name = name
         self.exercises = exercises
     }

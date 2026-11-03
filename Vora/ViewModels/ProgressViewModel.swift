@@ -148,17 +148,7 @@ final class ProgressViewModel {
         let dates = fetchOrEmpty(descriptor, from: context).map(\.date)
 
         weekDots = StreakCalculator.trailingWeek(sessionDates: dates, today: now, calendar: calendar)
-        let restIndices = Set(
-            fetchOrEmpty(FetchDescriptor<SplitDay>(), from: context)
-                .filter(\.isRest)
-                .map(\.dayIndex)
-        )
-        streakDays = StreakCalculator.adherenceStreak(
-            sessionDates: dates,
-            restDayIndices: restIndices,
-            today: now,
-            calendar: calendar
-        )
+        streakDays = TrainingProgramService.streak(sessionDates: dates, context: context, now: now, calendar: calendar)
     }
 
     private func loadSupplements(from context: ModelContext, now: Date, calendar: Calendar) {

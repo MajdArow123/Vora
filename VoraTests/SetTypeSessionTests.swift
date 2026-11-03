@@ -604,7 +604,7 @@ struct SetTypeSessionTests {
         vm.linkWithNext(vm.exercises[0].id)
 
         let snapshot = vm.snapshot()
-        #expect(snapshot.version == 4)
+        #expect(snapshot.version == ActiveSessionDraft.currentVersion)
         let data = try JSONEncoder().encode(snapshot)
         let decoded = try JSONDecoder().decode(ActiveSessionDraft.self, from: data)
         #expect(decoded == snapshot)
@@ -652,6 +652,35 @@ struct SetTypeSessionTests {
         #expect(vm.exercises[0].sets[0].isCompleted)
         #expect(vm.exercises[0].sets[1].activeRecommendation != nil)
         #expect(vm.snapshot().version == ActiveSessionDraft.currentVersion)
+    }
+
+    /// `Fixtures/v4-session-draft.json` was written by the shipped code (commit
+    /// 2517af9): a linked bench press (a completed warm-up and working set) and
+    /// row, from Monday's PPL slot, with no cycle day.
+    @Test func realV4DraftRestoresWithItsWeeklySlot() throws {
+        let source = try #require(Bundle(for: BundleToken.self).url(forResource: "v4-session-draft", withExtension: "json"))
+        let draft = try JSONDecoder().decode(ActiveSessionDraft.self, from: Data(contentsOf: source))
+        #expect(draft.version == 4)
+        #expect(ActiveSessionDraft.readableVersions.contains(draft.version))
+        #expect(draft.templateSlot == TemplateSlot(split: .ppl, dayIndex: 0))
+        #expect(draft.templateSlot?.cycleDayID == nil)
+
+        let vm = viewModel()
+        vm.restore(from: draft, context: context)
+        #expect(vm.exercises.map(\.exerciseId) == ["barbell-bench-press", "barbell-row"])
+        #expect(vm.exercises.map(\.supersetGroup) == [1, 1])
+        #expect(vm.exercises[0].sets.map(\.setType) == [.warmUp, .normal])
+        let rewritten = vm.snapshot()
+        #expect(rewritten.version == ActiveSessionDraft.currentVersion)
+        #expect(rewritten.templateSlot == draft.templateSlot)
+    }
+
+    @Test func aCycleSlotRoundTripsThroughADraft() throws {
+        let id = UUID()
+        let slot = TemplateSlot(cycleDayID: id)
+        let decoded = try JSONDecoder().decode(TemplateSlot.self, from: JSONEncoder().encode(slot))
+        #expect(decoded == slot)
+        #expect(decoded.cycleDayID == id)
     }
 
     // MARK: - Plate captions

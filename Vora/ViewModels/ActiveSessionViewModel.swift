@@ -371,9 +371,11 @@ final class ActiveSessionViewModel {
                 targets: targets,
                 predictedE1RMKg: recommendations.isEmpty ? nil : input.flatMap(ProgressionEngine.predictedE1RM),
                 daysSinceLastSession: recommendations.isEmpty ? nil : days,
-                loggedLoadsKg: loggedLoads
+                loggedLoadsKg: loggedLoads,
+                supersetGroup: spec.supersetGroup
             )
         }
+        normalizeSupersets()
     }
 
     // MARK: - Progression
@@ -470,8 +472,8 @@ final class ActiveSessionViewModel {
         _ fix: ProgressionFix,
         exerciseID: DraftExercise.ID,
         context: ModelContext,
-        saveTemplate: ([TemplateExerciseSpec], TrainingSplit, Int, ModelContext) throws -> Void = {
-            try WorkoutTemplateService.save($0, for: $1, dayIndex: $2, context: $3)
+        saveTemplate: ([TemplateExerciseSpec], TemplateSlot, ModelContext) throws -> Void = {
+            try WorkoutTemplateService.save($0, for: $1, context: $2)
         }
     ) {
         guard let e = exercises.firstIndex(where: { $0.id == exerciseID }) else { return }
@@ -533,18 +535,18 @@ final class ActiveSessionViewModel {
         minReps: Int,
         maxReps: Int,
         context: ModelContext,
-        saveTemplate: ([TemplateExerciseSpec], TrainingSplit, Int, ModelContext) throws -> Void
+        saveTemplate: ([TemplateExerciseSpec], TemplateSlot, ModelContext) throws -> Void
     ) {
-        guard let slot = templateSlot, let split = TrainingSplit(rawValue: slot.splitRawValue) else { return }
+        guard let slot = templateSlot else { return }
         let key = ExerciseIdentity.key(exerciseId: exercises[e].exerciseId, name: exercises[e].name)
         do {
-            var specs = try WorkoutTemplateService.plan(for: split, dayIndex: slot.dayIndex, context: context)
+            var specs = try WorkoutTemplateService.plan(for: slot, context: context)
             guard specs.contains(where: { $0.identityKey == key }) else { return }
             for index in specs.indices where specs[index].identityKey == key {
                 specs[index].repRangeMin = minReps
                 specs[index].repRangeMax = maxReps
             }
-            try saveTemplate(specs, split, slot.dayIndex, context)
+            try saveTemplate(specs, slot, context)
         } catch {
             Self.logger.error("Failed to save the widened range: \(String(describing: error), privacy: .public)")
             templateSaveFailed = true
@@ -626,31 +628,27 @@ final class ActiveSessionViewModel {
     /// superset, the other joins it, and two supersets merge.
     func linkWithNext(_ id: DraftExercise.ID) {
         guard let e = exercises.firstIndex(where: { $0.id == id }), e + 1 < exercises.count else { return }
-        let current = exercises[e].supersetGroup
-        let next = exercises[e + 1].supersetGroup
-        let group = current ?? next ?? (exercises.compactMap(\.supersetGroup).max() ?? 0) + 1
-        for index in exercises.indices where index == e || index == e + 1
-            || (exercises[index].supersetGroup != nil
-                && (exercises[index].supersetGroup == current || exercises[index].supersetGroup == next)) {
-            exercises[index].supersetGroup = group
-        }
-        normalizeSupersets()
+        assignSupersetGroups(SetCounting.linkingWithNext(exercises.map(\.supersetGroup), at: e))
     }
 
     /// Takes one exercise out of its superset. Leaving from the middle splits
     /// it, and any exercise left alone loses its link.
     func unlinkFromSuperset(_ id: DraftExercise.ID) {
         guard let e = exercises.firstIndex(where: { $0.id == id }) else { return }
-        exercises[e].supersetGroup = nil
-        normalizeSupersets()
+        assignSupersetGroups(SetCounting.unlinking(exercises.map(\.supersetGroup), at: e))
     }
 
     func supersetPosition(of id: DraftExercise.ID) -> SupersetPosition? {
-        guard let e = exercises.firstIndex(where: { $0.id == id }),
-              let group = exercises[e].supersetGroup
-        else { return nil }
-        let linkedBefore = e > 0 && exercises[e - 1].supersetGroup == group
-        let linkedAfter = e + 1 < exercises.count && exercises[e + 1].supersetGroup == group
+        guard let e = exercises.firstIndex(where: { $0.id == id }) else { return nil }
+        return Self.supersetPosition(in: exercises.map(\.supersetGroup), at: e)
+    }
+
+    /// Where an exercise sits in its superset, for the bracket in the session
+    /// and the template editor.
+    static func supersetPosition(in groups: [Int?], at e: Int) -> SupersetPosition? {
+        guard let group = groups[e] else { return nil }
+        let linkedBefore = e > 0 && groups[e - 1] == group
+        let linkedAfter = e + 1 < groups.count && groups[e + 1] == group
         switch (linkedBefore, linkedAfter) {
         case (false, true): return .first
         case (true, true): return .middle
@@ -660,7 +658,10 @@ final class ActiveSessionViewModel {
     }
 
     private func normalizeSupersets() {
-        let groups = SetCounting.normalizedSupersetGroups(exercises.map(\.supersetGroup))
+        assignSupersetGroups(SetCounting.normalizedSupersetGroups(exercises.map(\.supersetGroup)))
+    }
+
+    private func assignSupersetGroups(_ groups: [Int?]) {
         for index in exercises.indices where exercises[index].supersetGroup != groups[index] {
             exercises[index].supersetGroup = groups[index]
         }
@@ -959,6 +960,8 @@ final class ActiveSessionViewModel {
             saved.log.supersetGroup = group
         }
 
+        let cycleAdvance = savedSetCount > 0 ? recordCycleFinish(context: context) : nil
+
         do {
             try save(context)
             savedSessionID = session.id
@@ -967,6 +970,7 @@ final class ActiveSessionViewModel {
             discardDraft()
         } catch {
             Self.logger.error("Failed to save workout session: \(String(describing: error), privacy: .public)")
+            cycleAdvance?.undo()
         }
         // The session screen goes away with the summary, saved or not.
         restEndDate = nil
@@ -979,6 +983,18 @@ final class ActiveSessionViewModel {
             setCount: savedSetCount,
             newPRs: newPRs
         )
+    }
+
+    /// Moves the cycle past this session's day, to be saved with the session.
+    /// A failed read costs only the advance: the workout still saves.
+    private func recordCycleFinish(context: ModelContext) -> CycleAdvance? {
+        guard let dayID = templateSlot?.cycleDayID else { return nil }
+        do {
+            return try TrainingProgramService.recordFinish(dayID: dayID, context: context, now: now())
+        } catch {
+            Self.logger.error("Failed to advance the training cycle: \(String(describing: error), privacy: .public)")
+            return nil
+        }
     }
 
     /// Writes the saved workout to HealthKit and stores its ID on the

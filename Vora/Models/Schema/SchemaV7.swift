@@ -150,3 +150,69 @@ extension SchemaV7 {
         }
     }
 }
+
+// Verbatim copies of the live template cluster as of SchemaV7, with
+// main-actor helpers left out of the initializers. Do not edit.
+extension SchemaV7 {
+    @Model
+    final class WorkoutTemplate {
+        @Attribute(.unique) var id: UUID
+        var splitRawValue: String
+        var dayIndex: Int
+        var name: String
+
+        @Relationship(deleteRule: .cascade, inverse: \TemplateExercise.parent)
+        var exercises: [TemplateExercise]
+
+        init(
+            id: UUID = UUID(),
+            splitRawValue: String,
+            dayIndex: Int,
+            name: String,
+            exercises: [TemplateExercise] = []
+        ) {
+            self.id = id
+            self.splitRawValue = splitRawValue
+            self.dayIndex = dayIndex
+            self.name = name
+            self.exercises = exercises
+        }
+    }
+
+    @Model
+    final class TemplateExercise {
+        @Attribute(.unique) var id: UUID
+        var exerciseId: String?
+        var customName: String?
+        var orderIndex: Int
+        var targetSets: Int = 3
+        var repRangeMin: Int = 8
+        var repRangeMax: Int = 12
+        var targetRIR: Int? = 2
+        var restSeconds: Int = 90
+
+        var parent: WorkoutTemplate?
+
+        init(
+            id: UUID = UUID(),
+            exerciseId: String?,
+            customName: String? = nil,
+            orderIndex: Int,
+            targetSets: Int = 3,
+            repRangeMin: Int = 8,
+            repRangeMax: Int = 12,
+            targetRIR: Int? = 2,
+            restSeconds: Int = 90
+        ) {
+            self.id = id
+            self.exerciseId = exerciseId
+            self.customName = customName
+            self.orderIndex = orderIndex
+            self.targetSets = targetSets
+            self.repRangeMin = repRangeMin
+            self.repRangeMax = repRangeMax
+            self.targetRIR = targetRIR
+            self.restSeconds = restSeconds
+        }
+    }
+}

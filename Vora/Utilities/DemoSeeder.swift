@@ -35,6 +35,24 @@ enum DemoSeeder {
             return
         }
         seed(into: context)
+        guard ProcessInfo.processInfo.arguments.contains("--seed-cycle") else { return }
+        do {
+            try seedCycle(into: context)
+        } catch {
+            Logger(subsystem: "com.majdarow.Vora", category: "DemoSeeder")
+                .error("Failed to seed the training cycle: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// Switches to cycle mode and links Day 1's first two exercises, so both
+    /// show up as soon as the app opens.
+    static func seedCycle(into context: ModelContext) throws {
+        try TrainingProgramService.setMode(.cycle, context: context)
+        guard let first = try TrainingProgramService.today(context: context)?.nextTraining else { return }
+        var plan = try WorkoutTemplateService.plan(for: first.slot, context: context)
+        let groups = SetCounting.linkingWithNext(plan.map(\.supersetGroup), at: 0)
+        for index in plan.indices { plan[index].supersetGroup = groups[index] }
+        try WorkoutTemplateService.save(plan, for: first.slot, context: context)
     }
 
     /// Internal (not private) so tests can check what the seed writes.

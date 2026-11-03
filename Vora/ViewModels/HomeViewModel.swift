@@ -18,11 +18,15 @@ final class HomeViewModel {
     private(set) var todayFood: [FoodEntry] = []
     private(set) var todayWater: [WaterEntry] = []
     private(set) var todaySplitDay: SplitDay?
+    /// Where the cycle stands; nil in weekly mode.
+    private(set) var cycleToday: CycleToday?
     /// Monday-based index of the day last loaded (0 = Monday).
     private(set) var todayIndex = 0
     /// Today's plan title while there is no SplitDay to name the day.
     private var planDayTitle: String?
     private(set) var hasTrainedToday = false
+    /// Whole days since the last session in the loaded window; nil without one.
+    private var daysSinceLastSession: Int?
     /// Last 7 days of weigh-ins, oldest first.
     private(set) var weekWeights: [WeightEntry] = []
     /// The trend over all history, so it matches Progress; nil without weigh-ins.
@@ -80,6 +84,8 @@ final class HomeViewModel {
             predicate: #Predicate { $0.dayIndex == todayIndex }
         )
         todaySplitDay = fetchOrEmpty(splitDescriptor, from: context).first
+        TrainingProgramService.settle(context: context, now: now, calendar: cal)
+        cycleToday = TrainingProgramService.todayOrNil(context: context, now: now, calendar: cal)
         planDayTitle = resolvePlanDayTitle(context: context)
 
         loadWeights(from: context, todayStart: todayStart, calendar: cal)
@@ -120,11 +126,15 @@ final class HomeViewModel {
     /// SplitDay rows are seeded by the Train tab, and the card still offers
     /// Start Session before then.
     var templateSlot: TemplateSlot {
-        TemplateSlot(split: profile?.trainingSplit ?? .fullBody, dayIndex: todayIndex)
+        cycleToday?.nextTraining?.slot
+            ?? TemplateSlot(split: profile?.trainingSplit ?? .fullBody, dayIndex: todayIndex)
     }
 
     func templatePlan(context: ModelContext) -> [TemplateExerciseSpec] {
-        WorkoutTemplateService.sessionPlan(
+        if let slot = cycleToday?.nextTraining?.slot {
+            return WorkoutTemplateService.sessionPlan(for: slot, context: context)
+        }
+        return WorkoutTemplateService.sessionPlan(
             isRestDay: todaySplitDay?.isRest ?? false,
             split: profile?.trainingSplit ?? .fullBody,
             dayIndex: todayIndex,
@@ -135,16 +145,32 @@ final class HomeViewModel {
     /// The day's title for the workout card; nil when there is neither a
     /// SplitDay nor a plan to name it.
     var todayTitle: String? {
-        todaySplitDay?.title ?? planDayTitle
+        if let cycleToday { return cycleToday.current.name }
+        return todaySplitDay?.title ?? planDayTitle
+    }
+
+    /// Whether the card rests today: a rest day, or a cycle's rest entry.
+    var isRestToday: Bool {
+        cycleToday?.current.isRest ?? (todaySplitDay?.isRest == true)
+    }
+
+    var todayMuscleGroups: [String] {
+        cycleToday?.current.muscleGroups ?? todaySplitDay?.muscleGroups ?? []
+    }
+
+    /// In a cycle, a finished session has already moved the card to the next day.
+    var workoutCardLabel: String {
+        cycleToday != nil && hasTrainedToday ? "Up Next" : "Today's Workout"
     }
 
     /// Name for a session started from the card; matches its title.
     var sessionName: String {
-        todayTitle ?? "Workout"
+        if let cycleToday { return cycleToday.nextTraining?.name ?? "Workout" }
+        return todayTitle ?? "Workout"
     }
 
     private func resolvePlanDayTitle(context: ModelContext) -> String? {
-        guard todaySplitDay == nil, !templatePlan(context: context).isEmpty else { return nil }
+        guard cycleToday == nil, todaySplitDay == nil, !templatePlan(context: context).isEmpty else { return nil }
         return WorkoutTemplateService.dayTitle(
             split: profile?.trainingSplit ?? .fullBody,
             dayIndex: todayIndex,
@@ -183,23 +209,15 @@ final class HomeViewModel {
             predicate: #Predicate { $0.date >= windowStart && $0.date < todayEnd },
             sortBy: [SortDescriptor(\.date)]
         )
-        let sessions = (try? context.fetch(descriptor)) ?? []
+        let sessions = fetchOrEmpty(descriptor, from: context)
         let dates = sessions.map(\.date)
 
         hasTrainedToday = sessions.contains { calendar.isDate($0.date, inSameDayAs: now) }
         weekDots = StreakCalculator.trailingWeek(sessionDates: dates, today: now, calendar: calendar)
-
-        let restIndices = Set(
-            ((try? context.fetch(FetchDescriptor<SplitDay>())) ?? [])
-                .filter(\.isRest)
-                .map(\.dayIndex)
-        )
-        streakDays = StreakCalculator.adherenceStreak(
-            sessionDates: dates,
-            restDayIndices: restIndices,
-            today: now,
-            calendar: calendar
-        )
+        daysSinceLastSession = dates.last.flatMap {
+            calendar.dateComponents([.day], from: calendar.startOfDay(for: $0), to: calendar.startOfDay(for: now)).day
+        }
+        streakDays = TrainingProgramService.streak(sessionDates: dates, context: context, now: now, calendar: calendar)
     }
 
     private func loadFoodStreak(from context: ModelContext, now: Date, todayEnd: Date, calendar: Calendar) {
@@ -286,15 +304,25 @@ final class HomeViewModel {
             proteinTargetG: profile?.proteinTargetG ?? 0,
             caloriesConsumed: totalCalories,
             calorieTarget: profile?.dailyCalorieTarget ?? 0,
-            isScheduledWorkoutDay: todaySplitDay.map { !$0.isRest } ?? false,
+            isScheduledWorkoutDay: isScheduledWorkoutDay,
             hasTrainedToday: hasTrainedToday,
             streakDays: streakDays,
             consecutiveDailyWeightsKg: Self.consecutiveDailyWeights(from: weekWeights, calendar: calendar),
             units: profile?.preferredUnits ?? .metric,
             daysTracked: daysTracked,
             untakenEarlySupplementNames: untakenEarlySupplementNames,
-            supplementStreakDays: supplementStreakDays
+            supplementStreakDays: supplementStreakDays,
+            nextCycleDayName: cycleToday?.current.name
         )
+    }
+
+    /// A cycle has no scheduled weekdays, and asking every untrained day would
+    /// nag through the rest it leaves to the user, so it only asks once the
+    /// last session is a couple of days old.
+    private var isScheduledWorkoutDay: Bool {
+        guard let cycleToday else { return todaySplitDay.map { !$0.isRest } ?? false }
+        guard !cycleToday.current.isRest else { return false }
+        return (daysSinceLastSession ?? .max) >= CycleEngine.minimumRestAllowance
     }
 
     private static func dayKey(for date: Date, calendar: Calendar) -> String {

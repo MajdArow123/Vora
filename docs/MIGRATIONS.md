@@ -15,6 +15,7 @@ a migration stage. Never edit an existing version.
 | `Vora/Models/Schema/SchemaV6.swift` | Adds ExerciseLog's optional target snapshot: `repRangeMin`, `repRangeMax`, `targetRIR`, `targetSets` (lightweight stage); V4 and V5 each hold a frozen copy of WorkoutSession, ExerciseLog and SetEntry |
 | `Vora/Models/Schema/SchemaV7.swift` | Adds the `ExpenditureCheckIn` entity (lightweight stage); no existing model changes, so nothing is frozen |
 | `Vora/Models/Schema/SchemaV8.swift` | Adds optional `SetEntry.setTypeRawValue` and `sideRawValue`, and `ExerciseLog.supersetGroup` (lightweight stage); nil reads as a normal, unlinked set, so nothing is backfilled. V6 and V7 each hold a frozen copy of WorkoutSession, ExerciseLog and SetEntry |
+| `Vora/Models/Schema/SchemaV9.swift` | Adds the `TrainingProgram` and `CycleDay` entities, the optional `TemplateExercise.supersetGroup` and `WorkoutTemplate.cycleDay` (lightweight stage). No program row reads as weekly mode, so nothing is backfilled (see docs/TRAINING_CYCLES.md). V3–V8 each hold a frozen copy of WorkoutTemplate and TemplateExercise |
 | `Vora/Models/Schema/GymInventoryBackfill.swift` | Post-open fill of unfilled gym inventories from the preset and the user's units; skips when no user profile exists yet, and runs again when onboarding completes |
 | `Vora/Models/Schema/TemplateDefaultsMigration.swift` | Post-open move of the pre-V3 `vora.workoutTemplates` UserDefaults dictionary into SwiftData; removes the key only after a successful save |
 | `Vora/Models/Schema/VoraMigrationPlan.swift` | Ordered `schemas` and `stages`; `CurrentSchema` alias |
@@ -77,7 +78,9 @@ a migration stage. Never edit an existing version.
      2b8a20e; `v5-fixture.store` and `v2-session-draft.json` (a version 2
      `ActiveSessionDraft`) from commit ec4b816; `v6-fixture.store` from commit
      5228197; `v7-fixture.store` and `v3-session-draft.json` (a version 3
-     `ActiveSessionDraft`) from commit 0dbc46f. When data outside the store
+     `ActiveSessionDraft`) from commit 0dbc46f; `v8-fixture.store` and
+     `v4-session-draft.json` (a version 4 `ActiveSessionDraft`) from commit
+     2517af9. When data outside the store
      moves into it (UserDefaults, files), fixture that data too and test
      the move against it.
    - Read fixtures only through a copy, including with `sqlite3`. Opening a

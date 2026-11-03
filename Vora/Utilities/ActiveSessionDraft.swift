@@ -20,14 +20,23 @@ nonisolated struct TemplateTargets: Codable, Equatable {
     }
 }
 
-/// Which split day a session came from, so a fix can save to its template.
+/// Which split or cycle day a session came from, so a fix can save to its
+/// template and finishing can advance the cycle.
 nonisolated struct TemplateSlot: Codable, Equatable {
     var splitRawValue: String
     var dayIndex: Int
+    /// Set for a cycle day; older drafts and weekly slots decode as nil.
+    var cycleDayID: UUID?
 
     init(split: TrainingSplit, dayIndex: Int) {
         self.splitRawValue = split.rawValue
         self.dayIndex = dayIndex
+    }
+
+    init(cycleDayID: UUID) {
+        self.splitRawValue = "cycle"
+        self.dayIndex = -1
+        self.cycleDayID = cycleDayID
     }
 }
 
@@ -36,8 +45,9 @@ nonisolated struct TemplateSlot: Codable, Equatable {
 nonisolated struct ActiveSessionDraft: Codable, Equatable {
     /// Version 2 added `Set.rir`. Version 3 added recommendations and the
     /// template slot. Version 4 added set types, sides and superset groups.
-    /// Older drafts decode as they are, with none of them.
-    static let currentVersion = 4
+    /// Version 5 added the slot's cycle day. Older drafts decode as they are,
+    /// with none of them.
+    static let currentVersion = 5
     static let readableVersions = 1...currentVersion
 
     struct Exercise: Codable, Equatable {

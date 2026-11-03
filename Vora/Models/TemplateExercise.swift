@@ -26,6 +26,9 @@ final class TemplateExercise {
     /// Reps in reserve to aim for; nil means no target.
     var targetRIR: Int? = 2
     var restSeconds: Int = 90
+    /// Links consecutive exercises into a superset; nil when unlinked. Same
+    /// rules as `ExerciseLog.supersetGroup`.
+    var supersetGroup: Int?
 
     var parent: WorkoutTemplate?
 
@@ -38,7 +41,8 @@ final class TemplateExercise {
         repRangeMin: Int = 8,
         repRangeMax: Int = 12,
         targetRIR: Int? = 2,
-        restSeconds: Int? = nil
+        restSeconds: Int? = nil,
+        supersetGroup: Int? = nil
     ) {
         self.id = id
         self.exerciseId = exerciseId
@@ -49,6 +53,7 @@ final class TemplateExercise {
         self.repRangeMax = repRangeMax
         self.targetRIR = targetRIR
         self.restSeconds = restSeconds ?? ExerciseLibrary.defaultRestSeconds(exerciseId: exerciseId)
+        self.supersetGroup = supersetGroup
     }
 
     var displayName: String {

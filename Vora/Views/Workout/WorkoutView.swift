@@ -18,6 +18,9 @@ struct WorkoutView: View {
     @State private var showingCardio = false
     @State private var showingSplitBuilder = false
     @State private var showingTemplateEditor = false
+    @State private var showingDayPicker = false
+    /// The day picked with "Start a different day"; nil starts the next day.
+    @State private var chosenCycleDay: CycleDayInfo?
 
     init(resumeDraft: Binding<ActiveSessionDraft?> = .constant(nil)) {
         _resumeDraft = resumeDraft
@@ -61,10 +64,22 @@ struct WorkoutView: View {
         }
         .fullScreenCover(isPresented: $showingSession, onDismiss: {
             restoringDraft = nil
+            chosenCycleDay = nil
             viewModel.load(from: modelContext)
+            // A finished session moved the cycle, and reminders name its next day.
+            if viewModel.isCycleMode {
+                NotificationService.shared.refreshAll(context: modelContext)
+            }
         }) {
             if let restoringDraft {
                 ActiveSessionView(restoring: restoringDraft, units: units)
+            } else if let cycleDay = chosenCycleDay ?? viewModel.nextCycleDay {
+                ActiveSessionView(
+                    sessionName: cycleDay.name,
+                    templatePlan: WorkoutTemplateService.sessionPlan(for: cycleDay.slot, context: modelContext),
+                    templateSlot: cycleDay.slot,
+                    units: units
+                )
             } else {
                 ActiveSessionView(
                     sessionName: viewModel.todaySplitDay.map {
@@ -78,9 +93,8 @@ struct WorkoutView: View {
         }
         .sheet(isPresented: $showingTemplateEditor) {
             TemplateEditorView(
-                split: viewModel.trainingSplit,
-                dayIndex: viewModel.todayIndex,
-                dayTitle: viewModel.todaySplitDay?.title ?? "Today"
+                slot: viewModel.templateSlot,
+                dayTitle: viewModel.nextCycleDay?.name ?? viewModel.todaySplitDay?.title ?? "Today"
             )
         }
         .sheet(isPresented: $showingCardio, onDismiss: {
@@ -107,6 +121,15 @@ struct WorkoutView: View {
 
     @ViewBuilder
     private var todayCard: some View {
+        if let cycle = viewModel.cycleToday {
+            cycleCard(cycle)
+        } else {
+            weeklyTodayCard
+        }
+    }
+
+    @ViewBuilder
+    private var weeklyTodayCard: some View {
         let day = viewModel.todaySplitDay
         VStack(alignment: .leading, spacing: DesignSystem.Spacing.md) {
             HStack {
@@ -161,6 +184,91 @@ struct WorkoutView: View {
         .padding(DesignSystem.Spacing.md)
         .background(DesignSystem.Colors.card)
         .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.large))
+    }
+
+    private func cycleCard(_ cycle: CycleToday) -> some View {
+        VStack(alignment: .leading, spacing: DesignSystem.Spacing.md) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(viewModel.hasTrainedToday ? "Up Next" : "Today")
+                        .font(DesignSystem.Typography.caption)
+                        .foregroundStyle(DesignSystem.Colors.textSecondary)
+                        .textCase(.uppercase)
+                    Text(cycle.current.isRest ? "Rest Day" : cycle.current.name)
+                        .font(DesignSystem.Typography.title)
+                        .foregroundStyle(DesignSystem.Colors.textPrimary)
+                    if let progress = viewModel.cycleProgressText, !cycle.current.isRest {
+                        Text(progress)
+                            .font(DesignSystem.Typography.caption)
+                            .foregroundStyle(DesignSystem.Colors.textSecondary)
+                    }
+                }
+                Spacer()
+                if viewModel.hasTrainedToday {
+                    HStack(spacing: 4) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .accessibilityHidden(true)
+                        Text("Done")
+                    }
+                    .font(DesignSystem.Typography.caption)
+                    .foregroundStyle(DesignSystem.Colors.accent)
+                }
+            }
+
+            if !cycle.current.muscleGroups.isEmpty {
+                muscleChips(cycle.current.muscleGroups)
+            }
+
+            PrimaryButton(title: cycle.current.isRest
+                          ? "Start \(cycle.nextTraining?.name ?? "Session")"
+                          : "Start Session") {
+                showingSession = true
+            }
+
+            HStack(spacing: DesignSystem.Spacing.sm) {
+                cycleAction("Skip to Next Day", icon: "forward.end") {
+                    viewModel.skipCycleDay(context: modelContext)
+                    NotificationService.shared.refreshAll(context: modelContext)
+                }
+                cycleAction("Start a Different Day", icon: "list.number") {
+                    showingDayPicker = true
+                }
+            }
+
+            if !cycle.current.isRest {
+                cycleAction("Edit Template", icon: "square.and.pencil") {
+                    showingTemplateEditor = true
+                }
+            }
+        }
+        .padding(DesignSystem.Spacing.md)
+        .background(DesignSystem.Colors.card)
+        .clipShape(RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.large))
+        .confirmationDialog("Start a different day", isPresented: $showingDayPicker, titleVisibility: .visible) {
+            ForEach(cycle.trainingDays) { day in
+                Button(day.name) {
+                    chosenCycleDay = day
+                    showingSession = true
+                }
+            }
+        } message: {
+            Text("The cycle carries on from whichever day you finish.")
+        }
+    }
+
+    private func cycleAction(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: DesignSystem.Spacing.xs) {
+                Image(systemName: icon)
+                    .accessibilityHidden(true)
+                Text(title)
+            }
+            .font(DesignSystem.Typography.caption)
+            .foregroundStyle(DesignSystem.Colors.accent)
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func muscleChips(_ groups: [String]) -> some View {
@@ -220,12 +328,21 @@ struct WorkoutView: View {
         case .upcoming: DesignSystem.Colors.background
         case .missed: DesignSystem.Colors.background
         case .rest: DesignSystem.Colors.background.opacity(0.5)
+        case .open: DesignSystem.Colors.background
         }
     }
 
     private func accessibilityLabel(for day: SplitDay, state: SplitDayState) -> String {
         let fullDayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
         let name = fullDayNames[day.dayIndex]
+        if viewModel.isCycleMode {
+            // The strip is only the calendar here: no day has a planned workout.
+            return switch state {
+            case .done: "\(name), trained"
+            case .today: "\(name), today"
+            default: "\(name), no session"
+            }
+        }
         if day.isRest {
             return "\(name), rest day"
         }
@@ -235,6 +352,7 @@ struct WorkoutView: View {
         case .upcoming: "upcoming"
         case .missed: "missed"
         case .rest: "rest day"
+        case .open: "no session"
         }
         return "\(name), \(day.title), \(status)"
     }
@@ -254,7 +372,7 @@ struct WorkoutView: View {
             Image(systemName: "minus")
                 .font(.caption2)
                 .foregroundStyle(DesignSystem.Colors.textSecondary.opacity(0.5))
-        case .today, .upcoming:
+        case .today, .upcoming, .open:
             EmptyView()
         }
     }
@@ -365,7 +483,7 @@ struct WorkoutView: View {
                 actionLabel("History", icon: "clock.arrow.circlepath")
             }
             .buttonStyle(.plain)
-            actionButton("Edit Split", icon: "calendar") { showingSplitBuilder = true }
+            actionButton(viewModel.isCycleMode ? "Edit Cycle" : "Edit Split", icon: "calendar") { showingSplitBuilder = true }
         }
     }
 

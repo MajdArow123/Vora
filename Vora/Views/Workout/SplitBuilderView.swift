@@ -5,15 +5,25 @@
 //  Created by Majd Arow on 2026-07-21.
 //
 
+import OSLog
 import SwiftUI
 import SwiftData
 
-/// Weekly split editor. Edits the persisted SplitDay rows directly;
-/// changes are saved on Done.
+/// Schedule editor: the weekly split or the training cycle, with the mode
+/// picker above them. Edits the persisted SplitDay rows directly; changes are
+/// saved on Done. Switching mode never touches the other mode's days.
 struct SplitBuilderView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Query(sort: \SplitDay.dayIndex) private var days: [SplitDay]
+    @Query private var programs: [TrainingProgram]
+    @State private var errorMessage: String?
+
+    private static let logger = Logger(subsystem: "com.majdarow.Vora", category: "Workout")
+
+    private var mode: ScheduleMode {
+        programs.first?.mode ?? .weekly
+    }
 
     var body: some View {
         NavigationStack {
@@ -21,33 +31,80 @@ struct SplitBuilderView: View {
                 DesignSystem.Colors.background
                     .ignoresSafeArea()
 
-                ScrollView {
-                    VStack(spacing: DesignSystem.Spacing.sm) {
-                        ForEach(days) { day in
-                            NavigationLink {
-                                SplitDayEditorView(day: day)
-                            } label: {
-                                dayRow(day)
+                VStack(spacing: 0) {
+                    VStack(alignment: .leading, spacing: DesignSystem.Spacing.xs) {
+                        Picker("Schedule", selection: Binding(get: { mode }, set: { setMode($0) })) {
+                            ForEach(ScheduleMode.allCases) { mode in
+                                Text(mode.displayName).tag(mode)
                             }
-                            .buttonStyle(.plain)
                         }
+                        .pickerStyle(.segmented)
+                        Text(mode == .cycle
+                             ? "Train in order, on any day. A missed day just waits for you."
+                             : "Each workout belongs to a weekday.")
+                            .font(DesignSystem.Typography.caption)
+                            .foregroundStyle(DesignSystem.Colors.textSecondary)
                     }
                     .padding(.horizontal, DesignSystem.Spacing.lg)
-                    .padding(.vertical, DesignSystem.Spacing.md)
+                    .padding(.vertical, DesignSystem.Spacing.sm)
+
+                    if mode == .cycle {
+                        CycleEditorView()
+                    } else {
+                        ScrollView {
+                            VStack(spacing: DesignSystem.Spacing.sm) {
+                                ForEach(days) { day in
+                                    NavigationLink {
+                                        SplitDayEditorView(day: day)
+                                    } label: {
+                                        dayRow(day)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .padding(.horizontal, DesignSystem.Spacing.lg)
+                            .padding(.vertical, DesignSystem.Spacing.md)
+                        }
+                    }
                 }
             }
-            .navigationTitle("Weekly Split")
+            .navigationTitle(mode == .cycle ? "Training Cycle" : "Weekly Split")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") {
-                        try? modelContext.save()
+                        do {
+                            try modelContext.save()
+                        } catch {
+                            Self.logger.error("Failed to save the schedule: \(String(describing: error), privacy: .public)")
+                        }
                         dismiss()
                     }
                     .fontWeight(.semibold)
                     .foregroundStyle(DesignSystem.Colors.accent)
                 }
             }
+            .alert(
+                "Couldn't Switch Schedule",
+                isPresented: Binding(
+                    get: { errorMessage != nil },
+                    set: { if !$0 { errorMessage = nil } }
+                )
+            ) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(errorMessage ?? "")
+            }
+        }
+    }
+
+    private func setMode(_ mode: ScheduleMode) {
+        do {
+            try TrainingProgramService.setMode(mode, context: modelContext)
+        } catch {
+            Self.logger.error("Failed to switch schedule mode: \(String(describing: error), privacy: .public)")
+            modelContext.rollback()
+            errorMessage = "Your schedule wasn't changed. Please try again."
         }
     }
 
@@ -137,7 +194,7 @@ struct SplitDayEditorView: View {
                                 .foregroundStyle(DesignSystem.Colors.textSecondary)
                                 .textCase(.uppercase)
 
-                            FlowingChips(day: day)
+                            MuscleGroupChips(selection: $day.muscleGroups)
                         }
                     }
                 }
@@ -150,20 +207,20 @@ struct SplitDayEditorView: View {
 }
 
 /// Toggleable muscle-group chips in a simple two-column grid.
-private struct FlowingChips: View {
-    @Bindable var day: SplitDay
+struct MuscleGroupChips: View {
+    @Binding var selection: [String]
 
     private let columns = [GridItem(.adaptive(minimum: 104), spacing: 8)]
 
     var body: some View {
         LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
             ForEach(MuscleGroup.allCases) { group in
-                let isSelected = day.muscleGroups.contains(group.rawValue)
+                let isSelected = selection.contains(group.rawValue)
                 Button {
                     if isSelected {
-                        day.muscleGroups.removeAll { $0 == group.rawValue }
+                        selection.removeAll { $0 == group.rawValue }
                     } else {
-                        day.muscleGroups.append(group.rawValue)
+                        selection.append(group.rawValue)
                     }
                 } label: {
                     Text(group.displayName)
@@ -185,5 +242,5 @@ private struct FlowingChips: View {
 
 #Preview {
     SplitBuilderView()
-        .modelContainer(for: SplitDay.self, inMemory: true)
+        .modelContainer(for: [SplitDay.self, TrainingProgram.self], inMemory: true)
 }

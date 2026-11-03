@@ -47,6 +47,9 @@ enum SplitDayState {
     case upcoming
     case missed
     case rest
+    /// A past untrained day in cycle mode: nothing was scheduled, so nothing
+    /// was missed.
+    case open
 }
 
 @Observable
@@ -55,6 +58,8 @@ final class WorkoutHomeViewModel {
 
     private(set) var profile: UserProfile?
     private(set) var splitDays: [SplitDay] = []
+    /// Where the cycle stands; nil in weekly mode.
+    private(set) var cycleToday: CycleToday?
     /// Dates, not sessions: this outlives the History screen, where a
     /// session can be deleted, and is read before the next reload.
     private var weekSessionDates: [Date] = []
@@ -73,14 +78,32 @@ final class WorkoutHomeViewModel {
         profile?.trainingSplit ?? .fullBody
     }
 
+    var isCycleMode: Bool {
+        cycleToday != nil
+    }
+
+    /// The day a session started now is for; nil in weekly mode.
+    var nextCycleDay: CycleDayInfo? {
+        cycleToday?.nextTraining
+    }
+
+    /// "Day 2 of 4" for the next training day.
+    var cycleProgressText: String? {
+        guard let cycleToday, let number = cycleToday.nextTraining?.number else { return nil }
+        return "Day \(number) of \(cycleToday.trainingDays.count)"
+    }
+
     var templateSlot: TemplateSlot {
-        TemplateSlot(split: trainingSplit, dayIndex: todayIndex)
+        nextCycleDay?.slot ?? TemplateSlot(split: trainingSplit, dayIndex: todayIndex)
     }
 
     /// Today's template for a new session; a missing day reads as rest, as
     /// it does on the Today card.
     func templatePlan(context: ModelContext) -> [TemplateExerciseSpec] {
-        WorkoutTemplateService.sessionPlan(
+        if let slot = nextCycleDay?.slot {
+            return WorkoutTemplateService.sessionPlan(for: slot, context: context)
+        }
+        return WorkoutTemplateService.sessionPlan(
             isRestDay: todaySplitDay?.isRest ?? true,
             split: trainingSplit,
             dayIndex: todayIndex,
@@ -101,6 +124,8 @@ final class WorkoutHomeViewModel {
             Self.logger.error("Failed to fetch the user profile: \(String(describing: error), privacy: .public)")
         }
         loadSplitDays(from: context)
+        TrainingProgramService.settle(context: context)
+        cycleToday = TrainingProgramService.todayOrNil(context: context)
         loadWeekSessions(from: context)
         personalRecords = Self.computePersonalRecords(from: context, limit: 5)
     }
@@ -161,6 +186,16 @@ final class WorkoutHomeViewModel {
         }
     }
 
+    /// "Skip to next day". On failure the position simply stays where it was.
+    func skipCycleDay(context: ModelContext) {
+        do {
+            try TrainingProgramService.skip(context: context)
+        } catch {
+            Self.logger.error("Failed to skip the cycle day: \(String(describing: error), privacy: .public)")
+        }
+        load(from: context)
+    }
+
     // MARK: - Week states
 
     func state(for day: SplitDay) -> SplitDayState {
@@ -168,6 +203,10 @@ final class WorkoutHomeViewModel {
             (Calendar.current.component(.weekday, from: $0) + 5) % 7 == day.dayIndex
         }
         if trained { return .done }
+        if isCycleMode {
+            if day.dayIndex == todayIndex { return .today }
+            return day.dayIndex > todayIndex ? .upcoming : .open
+        }
         if day.isRest { return .rest }
         if day.dayIndex == todayIndex { return .today }
         return day.dayIndex > todayIndex ? .upcoming : .missed

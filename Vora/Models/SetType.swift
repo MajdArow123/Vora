@@ -112,6 +112,30 @@ nonisolated enum SetCounting {
         }
     }
 
+    /// Links the exercise at `index` with the one after it. If either is
+    /// already in a superset, the other joins it, and two supersets merge.
+    static func linkingWithNext(_ groups: [Int?], at index: Int) -> [Int?] {
+        guard groups.indices.contains(index), groups.indices.contains(index + 1) else { return groups }
+        let current = groups[index]
+        let next = groups[index + 1]
+        let group = current ?? next ?? (groups.compactMap { $0 }.max() ?? 0) + 1
+        var linked = groups
+        for member in groups.indices where member == index || member == index + 1
+            || (groups[member] != nil && (groups[member] == current || groups[member] == next)) {
+            linked[member] = group
+        }
+        return normalizedSupersetGroups(linked)
+    }
+
+    /// Takes one exercise out of its superset. Leaving from the middle splits
+    /// it, and any exercise left alone loses its link.
+    static func unlinking(_ groups: [Int?], at index: Int) -> [Int?] {
+        guard groups.indices.contains(index) else { return groups }
+        var unlinked = groups
+        unlinked[index] = nil
+        return normalizedSupersetGroups(unlinked)
+    }
+
     /// Dense group numbers in exercise order. A group must be consecutive and
     /// have at least two exercises: a later run of the same number becomes its
     /// own group, and a lone exercise loses its link.

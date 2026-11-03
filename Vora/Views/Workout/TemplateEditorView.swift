@@ -9,16 +9,16 @@ import OSLog
 import SwiftUI
 import SwiftData
 
-/// Edits the exercises and per-exercise targets (sets, rep range, target
-/// RIR, rest) for one split day. Changes apply to future sessions only;
+/// Edits the exercises, superset links and per-exercise targets (sets, rep
+/// range, target RIR, rest) for one split or cycle day. Changes apply to
+/// future sessions only;
 /// Close abandons edits, Save persists them via WorkoutTemplateService.
 /// Exercises the active gym can't support stay in the template but are
 /// flagged as unavailable.
 struct TemplateEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
-    let split: TrainingSplit
-    let dayIndex: Int
+    let slot: TemplateSlot
     let dayTitle: String
 
     @Query(filter: #Predicate<GymProfile> { $0.isActive })
@@ -35,10 +35,20 @@ struct TemplateEditorView: View {
 
     private static let logger = Logger(subsystem: "com.majdarow.Vora", category: "Workout")
 
-    init(split: TrainingSplit, dayIndex: Int, dayTitle: String) {
-        self.split = split
-        self.dayIndex = dayIndex
+    init(slot: TemplateSlot, dayTitle: String) {
+        self.slot = slot
         self.dayTitle = dayTitle
+    }
+
+    init(split: TrainingSplit, dayIndex: Int, dayTitle: String) {
+        self.init(slot: TemplateSlot(split: split, dayIndex: dayIndex), dayTitle: dayTitle)
+    }
+
+    /// The weekly slot being edited. A cycle day has no built-in default to
+    /// reset to.
+    private var weeklySlot: (split: TrainingSplit, dayIndex: Int)? {
+        guard slot.cycleDayID == nil, let split = TrainingSplit(rawValue: slot.splitRawValue) else { return nil }
+        return (split, slot.dayIndex)
     }
 
     private func isAvailable(_ spec: TemplateExerciseSpec) -> Bool {
@@ -69,12 +79,18 @@ struct TemplateEditorView: View {
 
                         ForEach($specs) { $spec in
                             exerciseRow($spec)
-                                .listRowBackground(Color.clear)
+                                .listRowBackground(SupersetBracket(position: supersetPosition(of: spec.id)))
                                 .listRowSeparator(.hidden)
                                 .listRowInsets(rowInsets)
                         }
-                        .onDelete { specs.remove(atOffsets: $0) }
-                        .onMove { specs.move(fromOffsets: $0, toOffset: $1) }
+                        .onDelete {
+                            specs.remove(atOffsets: $0)
+                            assignSupersetGroups(SetCounting.normalizedSupersetGroups(specs.map(\.supersetGroup)))
+                        }
+                        .onMove {
+                            specs.move(fromOffsets: $0, toOffset: $1)
+                            assignSupersetGroups(SetCounting.normalizedSupersetGroups(specs.map(\.supersetGroup)))
+                        }
 
                         Button {
                             showingExercisePicker = true
@@ -97,24 +113,26 @@ struct TemplateEditorView: View {
                         .listRowSeparator(.hidden)
                         .listRowInsets(rowInsets)
 
-                        Button {
-                            let defaults = WorkoutTemplateService.defaultPlan(for: split, dayIndex: dayIndex)
-                            resetSnapshot = defaults
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                specs = defaults
-                                expanded = []
+                        if let weeklySlot {
+                            Button {
+                                let defaults = WorkoutTemplateService.defaultPlan(for: weeklySlot.split, dayIndex: weeklySlot.dayIndex)
+                                resetSnapshot = defaults
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    specs = defaults
+                                    expanded = []
+                                }
+                            } label: {
+                                Text("Reset to Default")
+                                    .font(DesignSystem.Typography.caption)
+                                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+                                    .frame(maxWidth: .infinity)
+                                    .contentShape(Rectangle())
                             }
-                        } label: {
-                            Text("Reset to Default")
-                                .font(DesignSystem.Typography.caption)
-                                .foregroundStyle(DesignSystem.Colors.textSecondary)
-                                .frame(maxWidth: .infinity)
-                                .contentShape(Rectangle())
+                            .buttonStyle(.plain)
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(rowInsets)
                         }
-                        .buttonStyle(.plain)
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                        .listRowInsets(rowInsets)
                     }
                     .listStyle(.plain)
                     .scrollContentBackground(.hidden)
@@ -170,19 +188,19 @@ struct TemplateEditorView: View {
 
     private func load() {
         do {
-            specs = try WorkoutTemplateService.plan(for: split, dayIndex: dayIndex, context: modelContext)
+            specs = try WorkoutTemplateService.plan(for: slot, context: modelContext)
         } catch {
             Self.logger.error("Failed to load template: \(String(describing: error), privacy: .public)")
-            specs = WorkoutTemplateService.defaultPlan(for: split, dayIndex: dayIndex)
+            specs = weeklySlot.map { WorkoutTemplateService.defaultPlan(for: $0.split, dayIndex: $0.dayIndex) } ?? []
         }
     }
 
     private func save() {
         do {
-            if let resetSnapshot, specs == resetSnapshot {
-                try WorkoutTemplateService.reset(for: split, dayIndex: dayIndex, context: modelContext)
+            if let resetSnapshot, specs == resetSnapshot, let weeklySlot {
+                try WorkoutTemplateService.reset(for: weeklySlot.split, dayIndex: weeklySlot.dayIndex, context: modelContext)
             } else {
-                try WorkoutTemplateService.save(specs, for: split, dayIndex: dayIndex, context: modelContext)
+                try WorkoutTemplateService.save(specs, for: slot, context: modelContext)
             }
             dismiss()
         } catch {
@@ -277,10 +295,59 @@ struct TemplateEditorView: View {
         .contentShape(Rectangle())
     }
 
+    // MARK: - Supersets
+
+    private func supersetPosition(of id: TemplateExerciseSpec.ID) -> ActiveSessionViewModel.SupersetPosition? {
+        guard let index = specs.firstIndex(where: { $0.id == id }) else { return nil }
+        return ActiveSessionViewModel.supersetPosition(in: specs.map(\.supersetGroup), at: index)
+    }
+
+    private func assignSupersetGroups(_ groups: [Int?]) {
+        for index in specs.indices where specs[index].supersetGroup != groups[index] {
+            specs[index].supersetGroup = groups[index]
+        }
+    }
+
+    @ViewBuilder
+    private func supersetButtons(for id: TemplateExerciseSpec.ID) -> some View {
+        if let index = specs.firstIndex(where: { $0.id == id }) {
+            VStack(alignment: .leading, spacing: DesignSystem.Spacing.sm) {
+                if index + 1 < specs.count,
+                   specs[index].supersetGroup == nil || specs[index].supersetGroup != specs[index + 1].supersetGroup {
+                    supersetButton("Superset with Next", icon: "link") {
+                        assignSupersetGroups(SetCounting.linkingWithNext(specs.map(\.supersetGroup), at: index))
+                    }
+                }
+                if specs[index].supersetGroup != nil {
+                    supersetButton("Remove from Superset", icon: "personalhotspot.slash") {
+                        assignSupersetGroups(SetCounting.unlinking(specs.map(\.supersetGroup), at: index))
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, DesignSystem.Spacing.xs)
+        }
+    }
+
+    private func supersetButton(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: DesignSystem.Spacing.xs) {
+                Image(systemName: icon)
+                    .accessibilityHidden(true)
+                Text(title)
+            }
+            .font(DesignSystem.Typography.caption)
+            .foregroundStyle(DesignSystem.Colors.accent)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
     private func targets(_ spec: Binding<TemplateExerciseSpec>) -> some View {
         let limits = TemplateExerciseSpec.Limits.self
         return VStack(spacing: DesignSystem.Spacing.xs) {
             Divider()
+            supersetButtons(for: spec.wrappedValue.id)
             stepperRow("Sets", value: "\(spec.wrappedValue.targetSets)") {
                 Stepper("Sets", value: spec.targetSets, in: limits.sets)
             }

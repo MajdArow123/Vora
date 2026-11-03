@@ -173,6 +173,13 @@ enum WorkoutTemplateService {
             context.insert(template)
         }
 
+        apply(specs, to: template, context: context)
+        try context.save()
+    }
+
+    /// Writes `specs` over a template's exercises: matches keep their IDs, new
+    /// ones are inserted, missing ones deleted, and superset links normalized.
+    private static func apply(_ specs: [TemplateExerciseSpec], to template: WorkoutTemplate, context: ModelContext) {
         let keptIDs = Set(specs.map(\.id))
         for exercise in template.exercises where !keptIDs.contains(exercise.id) {
             context.delete(exercise)
@@ -183,6 +190,7 @@ enum WorkoutTemplateService {
             template.exercises.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
+        let groups = SetCounting.normalizedSupersetGroups(specs.map(\.supersetGroup))
         for (index, spec) in specs.enumerated() {
             let values = spec.clamped()
             let exercise: TemplateExercise
@@ -200,9 +208,75 @@ enum WorkoutTemplateService {
             exercise.repRangeMax = values.repRangeMax
             exercise.targetRIR = values.targetRIR
             exercise.restSeconds = values.restSeconds
+            exercise.supersetGroup = groups[index]
         }
+    }
 
-        try context.save()
+    /// Fills a new cycle day's template with a copy of `specs`. Fresh IDs,
+    /// because the source template keeps its own rows.
+    static func copy(_ specs: [TemplateExerciseSpec], into template: WorkoutTemplate?) {
+        guard let template else { return }
+        let groups = SetCounting.normalizedSupersetGroups(specs.map(\.supersetGroup))
+        for (index, spec) in specs.enumerated() {
+            let values = spec.clamped()
+            template.exercises.append(TemplateExercise(
+                exerciseId: values.exerciseId,
+                customName: values.customName,
+                orderIndex: index,
+                targetSets: values.targetSets,
+                repRangeMin: values.repRangeMin,
+                repRangeMax: values.repRangeMax,
+                targetRIR: values.targetRIR,
+                restSeconds: values.restSeconds,
+                supersetGroup: groups[index]
+            ))
+        }
+    }
+
+    // MARK: - Slots
+
+    /// The template a weekly or cycle slot reads from. A cycle day that no
+    /// longer exists has none.
+    private static func cycleDay(_ id: UUID, context: ModelContext) throws -> CycleDay? {
+        var descriptor = FetchDescriptor<CycleDay>(predicate: #Predicate { $0.id == id })
+        descriptor.fetchLimit = 1
+        return try context.fetch(descriptor).first
+    }
+
+    /// The slot's exercises in order. Cycle days have no built-in defaults.
+    static func plan(for slot: TemplateSlot, context: ModelContext) throws -> [TemplateExerciseSpec] {
+        if let id = slot.cycleDayID {
+            let template = try cycleDay(id, context: context)?.template
+            return template?.orderedExercises.map { TemplateExerciseSpec($0) } ?? []
+        }
+        guard let split = TrainingSplit(rawValue: slot.splitRawValue) else { return [] }
+        return try plan(for: split, dayIndex: slot.dayIndex, context: context)
+    }
+
+    /// The plan for a new session in a cycle slot. Empty when it can't be
+    /// read, since a cycle day has no default to fall back on.
+    static func sessionPlan(for slot: TemplateSlot, context: ModelContext) -> [TemplateExerciseSpec] {
+        do {
+            return try plan(for: slot, context: context)
+        } catch {
+            logger.error("Failed to load the cycle day's template: \(String(describing: error), privacy: .public)")
+            return []
+        }
+    }
+
+    /// Saves `specs` to the slot's template. Saving to a removed cycle day is
+    /// a no-op.
+    static func save(_ specs: [TemplateExerciseSpec], for slot: TemplateSlot, context: ModelContext) throws {
+        if let id = slot.cycleDayID {
+            guard let day = try cycleDay(id, context: context) else { return }
+            let template = day.template ?? WorkoutTemplate(cycleName: day.title)
+            if day.template == nil { day.template = template }
+            apply(specs, to: template, context: context)
+            try context.save()
+            return
+        }
+        guard let split = TrainingSplit(rawValue: slot.splitRawValue) else { return }
+        try save(specs, for: split, dayIndex: slot.dayIndex, context: context)
     }
 
     /// Deletes the slot's saved template so the default applies again.

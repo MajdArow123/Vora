@@ -93,6 +93,10 @@ struct HomeView: View {
         }
         .fullScreenCover(isPresented: $showingSession, onDismiss: {
             viewModel.load(from: modelContext)
+            // A finished session moved the cycle, and reminders name its next day.
+            if viewModel.cycleToday != nil {
+                NotificationService.shared.refreshAll(context: modelContext)
+            }
         }) {
             ActiveSessionView(
                 sessionName: viewModel.sessionName,
@@ -310,25 +314,25 @@ struct HomeView: View {
 
     @ViewBuilder
     private var todayWorkoutCard: some View {
-        let day = viewModel.todaySplitDay
+        let muscleGroups = viewModel.todayMuscleGroups
         VStack(alignment: .leading, spacing: DesignSystem.Spacing.sm) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Today's Workout")
+                    Text(viewModel.workoutCardLabel)
                         .font(DesignSystem.Typography.caption)
                         .foregroundStyle(DesignSystem.Colors.textSecondary)
                         .textCase(.uppercase)
                     Text(viewModel.todayTitle ?? "No plan")
                         .font(DesignSystem.Typography.title)
                         .foregroundStyle(DesignSystem.Colors.textPrimary)
-                    if let day, !day.muscleGroups.isEmpty {
-                        Text(day.muscleGroups.map(\.capitalized).joined(separator: " · "))
+                    if !muscleGroups.isEmpty {
+                        Text(muscleGroups.map(\.capitalized).joined(separator: " · "))
                             .font(DesignSystem.Typography.caption)
                             .foregroundStyle(DesignSystem.Colors.textSecondary)
                     }
                 }
                 Spacer()
-                Image(systemName: day?.isRest == true ? "moon.zzz.fill" : "dumbbell.fill")
+                Image(systemName: viewModel.isRestToday ? "moon.zzz.fill" : "dumbbell.fill")
                     .font(.title2)
                     .foregroundStyle(DesignSystem.Colors.accent)
                     .accessibilityHidden(true)
@@ -340,7 +344,7 @@ struct HomeView: View {
                     .foregroundStyle(DesignSystem.Colors.accent)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, DesignSystem.Spacing.sm)
-            } else if day?.isRest == true {
+            } else if viewModel.isRestToday {
                 Text("Rest and recover — your streak carries through rest days.")
                     .font(DesignSystem.Typography.caption)
                     .foregroundStyle(DesignSystem.Colors.textSecondary)

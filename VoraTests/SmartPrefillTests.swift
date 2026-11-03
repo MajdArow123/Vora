@@ -311,7 +311,7 @@ struct SmartPrefillTests {
             .widenRange(min: 8, max: 18),
             exerciseID: vm.exercises[0].id,
             context: context,
-            saveTemplate: { _, _, _, _ in throw SaveFailed() }
+            saveTemplate: { _, _, _ in throw SaveFailed() }
         )
         #expect(vm.templateSaveFailed)
         #expect(vm.exercises[0].targets?.repRange == 8...18)

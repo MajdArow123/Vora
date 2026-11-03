@@ -907,7 +907,7 @@ fileprivate struct SetRow: View {
 
 /// Joins a superset's cards in the left gutter. Lives in the row background,
 /// which spans the row's insets, so its lines meet across rows.
-private struct SupersetBracket: View {
+struct SupersetBracket: View {
     let position: ActiveSessionViewModel.SupersetPosition?
 
     var body: some View {

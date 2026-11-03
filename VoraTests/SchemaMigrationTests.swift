@@ -69,9 +69,9 @@ struct SchemaMigrationTests {
     }
 
     @Test func schemaV8IsCurrent() {
-        #expect(SchemaV8.versionIdentifier == Schema.Version(8, 0, 0))
-        #expect(CurrentSchema.versionIdentifier == SchemaV8.versionIdentifier)
-        #expect(SchemaV8.models.count == 21)
+        #expect(SchemaV9.versionIdentifier == Schema.Version(9, 0, 0))
+        #expect(CurrentSchema.versionIdentifier == SchemaV9.versionIdentifier)
+        #expect(SchemaV9.models.count == 23)
     }
 
     /// V8 changes exactly these columns and nothing else.
@@ -79,7 +79,36 @@ struct SchemaMigrationTests {
         var expected = Self.shapes(Schema(versionedSchema: SchemaV7.self))
         expected["SetEntry", default: []].formUnion(["setTypeRawValue", "sideRawValue"])
         expected["ExerciseLog", default: []].insert("supersetGroup")
+        #expect(Self.shapes(Schema(versionedSchema: SchemaV8.self)) == expected)
+    }
+
+    /// V9 changes exactly these columns and adds exactly these entities.
+    @Test func schemaV9AddsTheCycleAndNothingElse() {
+        var expected = Self.shapes(Schema(versionedSchema: SchemaV8.self))
+        expected["TemplateExercise", default: []].insert("supersetGroup")
+        expected["WorkoutTemplate", default: []].insert("cycleDay")
+        expected["TrainingProgram"] = ["id", "scheduleModeRawValue", "currentDayID", "restDay", "days"]
+        expected["CycleDay"] = ["id", "orderIndex", "title", "muscleGroups", "isRest", "program", "template"]
         #expect(Self.shapes(PersistenceController.schema) == expected)
+    }
+
+    /// V3 to V8 listed the live template cluster, and now each hold their own.
+    @Test(arguments: [
+        SchemaV3.self as any VersionedSchema.Type,
+        SchemaV4.self as any VersionedSchema.Type,
+        SchemaV5.self as any VersionedSchema.Type,
+        SchemaV6.self as any VersionedSchema.Type,
+        SchemaV7.self as any VersionedSchema.Type,
+        SchemaV8.self as any VersionedSchema.Type,
+    ])
+    func v3ToV8ListAFrozenTemplateCluster(version: any VersionedSchema.Type) {
+        let names = version.models.map { String(reflecting: $0) }
+        #expect(names.contains("Vora.\(version).WorkoutTemplate"))
+        #expect(names.contains("Vora.\(version).TemplateExercise"))
+        let shapes = Self.shapes(Schema(versionedSchema: version))
+        #expect(shapes["WorkoutTemplate"] == ["id", "splitRawValue", "dayIndex", "name", "exercises"])
+        #expect(!(shapes["TemplateExercise"] ?? []).contains("supersetGroup"))
+        #expect(shapes["TrainingProgram"] == nil)
     }
 
     /// V6 and V7 listed the live workout cluster, and now each hold their own.
@@ -195,8 +224,9 @@ struct SchemaMigrationTests {
         #expect(versions == [
             Schema.Version(1, 0, 0), Schema.Version(2, 0, 0), Schema.Version(3, 0, 0), Schema.Version(4, 0, 0),
             Schema.Version(5, 0, 0), Schema.Version(6, 0, 0), Schema.Version(7, 0, 0), Schema.Version(8, 0, 0),
+            Schema.Version(9, 0, 0),
         ])
-        #expect(VoraMigrationPlan.stages.count == 7)
+        #expect(VoraMigrationPlan.stages.count == 8)
     }
 
     // MARK: - Container
@@ -693,6 +723,99 @@ struct SchemaMigrationTests {
         #expect(sets.map(\.weightKg) == [102.25, 100])
         #expect(sets.map(\.rir) == [1, nil])
         #expect(sets.allSatisfy { $0.setTypeRawValue == nil && $0.setType == .normal && $0.side == nil })
+    }
+
+    // MARK: - V8 -> V9
+
+    /// A store made from V8's frozen types reads the same through the plan,
+    /// with no links and no program.
+    @Test @MainActor func frozenV8TemplatesMigrateWithoutLoss() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("V8-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { removeTestItem(at: directory) }
+        let url = directory.appendingPathComponent("v8.store")
+
+        do {
+            let schema = Schema(versionedSchema: SchemaV8.self)
+            let container = try ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema, url: url))
+            let context = ModelContext(container)
+            let template = SchemaV8.WorkoutTemplate(splitRawValue: "ppl", dayIndex: 3, name: "Push B")
+            context.insert(template)
+            template.exercises.append(SchemaV8.TemplateExercise(
+                exerciseId: "dip", orderIndex: 0, targetSets: 4, repRangeMin: 6, repRangeMax: 9, targetRIR: nil, restSeconds: 150
+            ))
+            try context.save()
+        }
+
+        let container = try PersistenceController.makeContainer(url: url)
+        let context = container.mainContext
+        let template = try #require(try WorkoutTemplateService.template(for: .ppl, dayIndex: 3, context: context))
+        #expect(template.name == "Push B")
+        #expect(template.cycleDay == nil)
+        let exercise = try #require(template.exercises.first)
+        #expect(exercise.exerciseId == "dip")
+        #expect(exercise.targetSets == 4)
+        #expect(exercise.targetRIR == nil)
+        #expect(exercise.restSeconds == 150)
+        #expect(exercise.supersetGroup == nil)
+        #expect(try TrainingProgramService.mode(context: context) == .weekly)
+    }
+
+    /// `Fixtures/v8-fixture.store` was written by the shipped V8 code (commit
+    /// 2517af9): a PPL profile and split, a saved Monday template (bench and a
+    /// custom Sled Push), and a Push session with a superset, a warm-up and a
+    /// left-side failure set.
+    @Test @MainActor func realV8FixtureMigratesWithoutLoss() throws {
+        let fixture = try Self.copyFixtureStore(named: "v8-fixture")
+        defer { removeTestItem(at: fixture.directory) }
+        let storeURL = fixture.store
+
+        let store = AppDataStore(
+            open: { try PersistenceController.makeContainer(url: storeURL) },
+            migrateTemplates: { _ in TemplateDefaultsMigration.Outcome() }
+        )
+        store.load()
+        let context = try #require(store.container).mainContext
+
+        let profile = try #require(try context.fetch(FetchDescriptor<UserProfile>()).first)
+        #expect(profile.trainingSplit == .ppl)
+        #expect(try context.fetchCount(FetchDescriptor<SplitDay>()) == 7)
+
+        // Existing data reads as weekly, with the same plan as before.
+        #expect(try TrainingProgramService.mode(context: context) == .weekly)
+        #expect(try context.fetchCount(FetchDescriptor<TrainingProgram>()) == 0)
+        #expect(try context.fetchCount(FetchDescriptor<CycleDay>()) == 0)
+
+        let plan = try WorkoutTemplateService.plan(for: .ppl, dayIndex: 0, context: context)
+        #expect(plan.map(\.displayName) == ["Barbell Bench Press", "Sled Push"])
+        #expect(plan.map(\.targetSets) == [4, 2])
+        #expect(plan.map(\.repRangeMin) == [6, 10])
+        #expect(plan.map(\.targetRIR) == [1, nil])
+        #expect(plan.map(\.restSeconds) == [150, 60])
+        #expect(plan.allSatisfy { $0.supersetGroup == nil })
+
+        let session = try #require(try context.fetch(FetchDescriptor<WorkoutSession>()).first)
+        #expect(session.sessionName == "Push")
+        #expect(session.totalVolumeKg == 1648)
+        let logs = session.exercises.sorted { $0.orderIndex < $1.orderIndex }
+        #expect(logs.map(\.exerciseId) == ["barbell-bench-press", "barbell-row"])
+        #expect(logs.map(\.supersetGroup) == [1, 1])
+        let bench = logs[0].sets.sorted { $0.setNumber < $1.setNumber }
+        #expect(bench.map(\.setType) == [.warmUp, .normal])
+        #expect(bench.map(\.weightKg) == [60, 102.25])
+        #expect(logs[1].sets.first?.setType == .failure)
+        #expect(logs[1].sets.first?.side == .left)
+
+        // And it can switch to a cycle and back on migrated data.
+        try TrainingProgramService.setMode(.cycle, context: context)
+        let days = try #require(try TrainingProgramService.today(context: context)).days
+        #expect(days.count == 6)
+        let copied = try WorkoutTemplateService.plan(for: days[0].slot, context: context)
+        #expect(copied.map(\.displayName) == ["Barbell Bench Press", "Sled Push"])
+        #expect(Set(copied.map(\.id)).isDisjoint(with: plan.map(\.id)))
+        try TrainingProgramService.setMode(.weekly, context: context)
+        #expect(try WorkoutTemplateService.plan(for: .ppl, dayIndex: 0, context: context).map(\.id) == plan.map(\.id))
     }
 
     // MARK: - V7 -> V8 (real store from commit 0dbc46f)

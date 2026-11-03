@@ -13,7 +13,7 @@ import SwiftData
 /// stage that reaches it from the previous one to `stages`.
 nonisolated enum VoraMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
-        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self, SchemaV7.self, SchemaV8.self]
+        [SchemaV1.self, SchemaV2.self, SchemaV3.self, SchemaV4.self, SchemaV5.self, SchemaV6.self, SchemaV7.self, SchemaV8.self, SchemaV9.self]
     }
 
     static var stages: [MigrationStage] {
@@ -41,10 +41,14 @@ nonisolated enum VoraMigrationPlan: SchemaMigrationPlan {
             // Adds the optional SetEntry.setTypeRawValue and sideRawValue, and
             // ExerciseLog.supersetGroup. nil reads as a normal, unlinked set.
             .lightweight(fromVersion: SchemaV7.self, toVersion: SchemaV8.self),
+            // Adds the TrainingProgram and CycleDay entities, the optional
+            // TemplateExercise.supersetGroup and WorkoutTemplate.cycleDay. No
+            // TrainingProgram row reads as weekly mode.
+            .lightweight(fromVersion: SchemaV8.self, toVersion: SchemaV9.self),
         ]
     }
 }
 
 /// The schema the app currently runs on. Always the last entry of
 /// `VoraMigrationPlan.schemas`.
-typealias CurrentSchema = SchemaV8
+typealias CurrentSchema = SchemaV9

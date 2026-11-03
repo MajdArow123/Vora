@@ -21,6 +21,7 @@ struct ProfileView: View {
     @State private var showingGymProfiles = false
     @Query(filter: #Predicate<GymProfile> { $0.isActive })
     private var activeGymProfiles: [GymProfile]
+    @Query private var programs: [TrainingProgram]
 
     var body: some View {
         ZStack {
@@ -406,6 +407,11 @@ struct ProfileView: View {
             pickerRow("Activity", selection: $viewModel.draftActivityLevel)
             Divider()
             pickerRow("Split", selection: $viewModel.draftTrainingSplit)
+            if programs.first?.mode == .cycle {
+                Text("Your training cycle doesn't use this. It sets your weekly split, for when you switch back.")
+                    .font(DesignSystem.Typography.caption)
+                    .foregroundStyle(DesignSystem.Colors.textSecondary)
+            }
         }
 
         card("Daily Targets") {

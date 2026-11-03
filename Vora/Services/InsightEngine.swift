@@ -48,6 +48,8 @@ struct InsightInput {
     /// Untaken morning / pre-workout supplement names, in user order.
     var untakenEarlySupplementNames: [String] = []
     var supplementStreakDays: Int = 0
+    /// The cycle's next day; nil in weekly mode, where training days are scheduled.
+    var nextCycleDayName: String?
 }
 
 /// Picks one insight per day from a fixed-priority rule list. The rule
@@ -130,7 +132,9 @@ enum InsightEngine {
             return Insight(
                 rule: rule,
                 title: "Training day",
-                message: "Today is a scheduled training day and no session is logged yet. Even a short session keeps the habit alive.",
+                message: input.nextCycleDayName.map {
+                    "Next up: \($0). You haven't logged a session in a couple of days. Even a short one keeps the habit alive."
+                } ?? "Today is a scheduled training day and no session is logged yet. Even a short session keeps the habit alive.",
                 iconName: "dumbbell.fill"
             )
 

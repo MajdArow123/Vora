@@ -50,6 +50,36 @@ enum StreakCalculator {
         return streak
     }
 
+    /// Consecutive days (ending today) of keeping to a training cycle, which
+    /// has no scheduled weekdays: up to `restAllowance` untrained days in a row
+    /// carry the streak, and one more breaks it. Carried days only count with a
+    /// session before them, so rest alone can't build a streak. Today follows
+    /// the grace rule in `adherenceStreak`.
+    static func cycleStreak(
+        sessionDates: [Date],
+        restAllowance: Int,
+        today: Date = .now,
+        calendar: Calendar = .current
+    ) -> Int {
+        let trainedDays = Set(sessionDates.map { calendar.startOfDay(for: $0) })
+        let todayStart = calendar.startOfDay(for: today)
+        var streak = trainedDays.contains(todayStart) ? 1 : 0
+        var carried = 0
+        var offset = -1
+
+        while carried <= restAllowance,
+              let day = calendar.date(byAdding: .day, value: offset, to: todayStart) {
+            if trainedDays.contains(day) {
+                streak += carried + 1
+                carried = 0
+            } else {
+                carried += 1
+            }
+            offset -= 1
+        }
+        return streak
+    }
+
     /// Days on which the user tracked a real day of eating: at least
     /// three distinct meal slots have an entry. Returns start-of-day
     /// dates.

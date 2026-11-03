@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import OSLog
 import SwiftData
 import UserNotifications
 
@@ -20,6 +21,7 @@ import UserNotifications
 final class NotificationService {
     static let shared = NotificationService()
     static let weeklySummaryId = "vora.weeklySummary"
+    private static let logger = Logger(subsystem: "com.majdarow.Vora", category: "Notifications")
 
     private init() {}
 
@@ -75,7 +77,9 @@ final class NotificationService {
         minutes: Int,
         now: Date
     ) -> UNNotificationRequest? {
-        let trainingDays: Set<Int>? = kind == .workout ? trainingDayIndices(context: context) : nil
+        let cycle = kind == .workout ? TrainingProgramService.todayOrNil(context: context, now: now) : nil
+        // A cycle has no scheduled weekdays, so every day is valid.
+        let trainingDays: Set<Int>? = kind == .workout && cycle == nil ? trainingDayIndices(context: context) : nil
 
         let todayNeedsReminder: Bool
         switch kind {
@@ -85,7 +89,7 @@ final class NotificationService {
             let progress = waterProgressToday(context: context, now: now)
             todayNeedsReminder = progress.loggedMl < 0.5 * progress.targetMl
         case .workout:
-            todayNeedsReminder = !hasTrainedToday(context: context, now: now)
+            todayNeedsReminder = !hasTrainedToday(context: context, now: now) && cycle?.current.isRest != true
         }
 
         guard let fireDate = nextFireDate(
@@ -169,7 +173,9 @@ final class NotificationService {
             content.userInfo = ["vora.destination": "diary"]
         case .workout:
             let dayIndex = (Calendar.current.component(.weekday, from: fireDate) + 5) % 7
-            let sessionName = splitTitle(forDayIndex: dayIndex, context: context) ?? "your workout"
+            let sessionName = TrainingProgramService.todayOrNil(context: context, now: now)?.nextTraining?.name
+                ?? splitTitle(forDayIndex: dayIndex, context: context)
+                ?? "your workout"
             content.title = "Workout time"
             content.body = "Time for \(sessionName). Tap to start your session."
             content.userInfo = ["vora.destination": "workout"]
@@ -295,15 +301,28 @@ final class NotificationService {
 
     /// Monday-first day indices (0 = Mon … 6 = Sun) of non-rest split days.
     static func trainingDayIndices(context: ModelContext) -> Set<Int> {
-        let days = (try? context.fetch(FetchDescriptor<SplitDay>())) ?? []
+        let days = fetchOrEmpty(FetchDescriptor<SplitDay>(), from: context)
         return Set(days.filter { !$0.isRest }.map(\.dayIndex))
     }
 
     static func splitTitle(forDayIndex dayIndex: Int, context: ModelContext) -> String? {
-        let days = (try? context.fetch(FetchDescriptor<SplitDay>(
+        let days = fetchOrEmpty(FetchDescriptor<SplitDay>(
             predicate: #Predicate { $0.dayIndex == dayIndex }
-        ))) ?? []
+        ), from: context)
         return days.first?.title
+    }
+
+    /// A failed fetch reads as no rows, so one bad query can't stop a reminder.
+    private static func fetchOrEmpty<Model: PersistentModel>(
+        _ descriptor: FetchDescriptor<Model>,
+        from context: ModelContext
+    ) -> [Model] {
+        do {
+            return try context.fetch(descriptor)
+        } catch {
+            logger.error("Failed to fetch \(String(describing: Model.self), privacy: .public): \(String(describing: error), privacy: .public)")
+            return []
+        }
     }
 
     private static func todayBounds(for now: Date) -> (start: Date, end: Date) {
@@ -335,16 +354,16 @@ final class NotificationService {
         let todayStart = cal.startOfDay(for: now)
         let weekAgo = cal.date(byAdding: .day, value: -6, to: todayStart) ?? todayStart
 
-        let sessions = (try? context.fetch(FetchDescriptor<WorkoutSession>(
+        let sessions = Self.fetchOrEmpty(FetchDescriptor<WorkoutSession>(
             predicate: #Predicate { $0.date >= weekAgo }
-        ))) ?? []
-        let food = (try? context.fetch(FetchDescriptor<FoodEntry>(
+        ), from: context)
+        let food = Self.fetchOrEmpty(FetchDescriptor<FoodEntry>(
             predicate: #Predicate { $0.date >= weekAgo }
-        ))) ?? []
-        let weights = (try? context.fetch(FetchDescriptor<WeightEntry>(
+        ), from: context)
+        let weights = Self.fetchOrEmpty(FetchDescriptor<WeightEntry>(
             predicate: #Predicate { $0.date >= weekAgo },
             sortBy: [SortDescriptor(\.date)]
-        ))) ?? []
+        ), from: context)
 
         var stats: [String] = []
         stats.append("\(sessions.count) workout\(sessions.count == 1 ? "" : "s")")
@@ -358,16 +377,17 @@ final class NotificationService {
             stats.append(String(format: "%+.1f kg", last.weightKg - first.weightKg))
         }
 
-        let trainingDays = ((try? context.fetch(FetchDescriptor<SplitDay>())) ?? [])
+        let trainingDays = Self.fetchOrEmpty(FetchDescriptor<SplitDay>(), from: context)
             .filter { !$0.isRest }
             .count
+        let nextCycleDay = TrainingProgramService.todayOrNil(context: context, now: now)?.nextTraining?.name
 
         let content = UNMutableNotificationContent()
         content.title = "Your week in review"
         content.body = "This week: \(stats.joined(separator: " · ")). "
-            + (trainingDays > 0
+            + (nextCycleDay.map { "Next up: \($0). Show up for it." } ?? (trainingDays > 0
                ? "Next week: \(trainingDays) training day\(trainingDays == 1 ? "" : "s") planned — show up for the first one."
-               : "Set up your training split to plan next week.")
+               : "Set up your training split to plan next week."))
         content.sound = .default
         return content
     }
