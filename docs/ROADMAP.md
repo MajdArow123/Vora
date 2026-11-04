@@ -110,6 +110,7 @@ Later or never: auto-generated programs, spreadsheet import.
 - Verify the `GenericFoods` values against USDA FoodData Central and cite an FDC ID for each entry; they were written from memory.
 - Replace the " (estimated)" name suffix on logged meal-suggestion foods with a real `FoodEntry` field at the next schema change.
 - **Required before TestFlight:** App Attest, per-install tokens and per-device rate limits for meal suggestions. The shared token in Info.plist can be read out of any build, so it only suits personal builds.
+- Backend (ProTracker): add a cooked/dry `state` field to meal-suggestion foods, and rate limiting on the meal endpoint. Until then the app treats grains as cooked unless the name says otherwise, and labels them so.
 
 ## Claude Code prompts
 
