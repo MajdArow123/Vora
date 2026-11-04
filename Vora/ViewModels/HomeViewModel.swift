@@ -402,13 +402,16 @@ final class HomeViewModel {
 
     /// What's left of one slot's share of the daily targets — what the AI
     /// suggestion should fill for that meal.
-    func mealRemaining(for slot: MealSlot) -> RemainingMacros {
+    /// Whether today's meals should leave room for a post-workout meal.
+    var isTrainingDay: Bool { hasTrainedToday || todayTargets.kind == .training }
+
+    func mealRemaining(for slot: MealSlot, now: Date = .now) -> RemainingMacros {
         MealAllocation.remaining(
             for: slot,
             daily: dailyTargets,
-            slotConsumed: todayFood
-                .filter { $0.mealSlot == slot }
-                .map { ($0.calories, $0.proteinG, $0.carbsG, $0.fatG) }
+            entries: todayFood,
+            isTrainingDay: isTrainingDay,
+            hour: Calendar.current.component(.hour, from: now)
         )
     }
 

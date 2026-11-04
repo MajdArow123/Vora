@@ -57,29 +57,18 @@ struct SuggestedFoodsLoggerTests {
         #expect(draft.proteinG == 22)
     }
 
-    @Test func missingItemFallsBackToEstimates() {
+    @Test func missingItemFallsBackToTypicalValuesForThatFood() {
         let draft = SuggestedFoodsLogger.draft(for: enrichedFood(item: nil))
 
         #expect(draft.isEstimated == true)
-        #expect(draft.foodName == "Chicken Breast")
+        #expect(draft.foodName == "Chicken Breast (estimated)")
         #expect(draft.servingGrams == 200)
-        #expect(draft.proteinG == 50)
-        #expect(draft.carbsG == 90)
-        #expect(draft.fatG == 16)
-        #expect(draft.calories == 704)
+        #expect(draft.proteinG == 62)
+        #expect(draft.carbsG == 0)
+        #expect(abs(draft.fatG - 7.2) < 0.001)
+        #expect(abs(draft.calories - 312.8) < 0.001)
         #expect(draft.fibreG == 0)
         #expect(draft.sodiumMg == 0)
         #expect(draft.barcode == nil)
-    }
-
-    @Test func estimatedNutritionFormula() {
-        let n = SuggestedFoodsLogger.estimatedNutrition(for: 100)
-        #expect(n.proteinG == 25)
-        #expect(n.carbsG == 45)
-        #expect(n.fatG == 8)
-        #expect(n.calories == 352)
-        #expect(n.fibreG == 0)
-        #expect(n.sugarG == 0)
-        #expect(n.sodiumMg == 0)
     }
 }

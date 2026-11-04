@@ -20,6 +20,8 @@ struct HomeView: View {
     @State private var suggestionViewModel = MealSuggestionViewModel()
     @State private var showingAISuggestion = false
     @State private var showingCheckIn = false
+    /// Bumped when the sheet may have changed the cache, so the card reads it again.
+    @State private var suggestionReloads = 0
 
     var body: some View {
         NavigationStack {
@@ -74,7 +76,7 @@ struct HomeView: View {
                                 onViewAndLog: { showingAISuggestion = true },
                                 onRefresh: { refreshSuggestion(force: true) }
                             )
-                            .task { await loadSuggestion() }
+                            .task(id: suggestionRequest) { await loadSuggestion() }
                         }
                     }
                     .padding(.horizontal, DesignSystem.Spacing.md)
@@ -130,13 +132,13 @@ struct HomeView: View {
             // Foods can be logged inside the sheet, and the sheet may have
             // refreshed the shared day cache — reconverge both.
             viewModel.load(from: modelContext)
-            refreshSuggestion(force: false)
+            suggestionReloads += 1
         }) {
             AIMealSuggestionView(logDate: .now)
         }
         .sheet(isPresented: $showingCheckIn, onDismiss: {
             // Applied targets change what's left to eat today.
-            refreshSuggestion(force: false)
+            suggestionReloads += 1
         }) {
             if case .ready(let proposal) = viewModel.checkInState {
                 WeeklyCheckInSheet(
@@ -159,6 +161,12 @@ struct HomeView: View {
             && Calendar.current.component(.hour, from: .now) >= 11
             && viewModel.mealRemaining(for: suggestedMealType).calories
                 >= MealAllocation.minimumMealCalories
+    }
+
+    /// What the card's load depends on: changing meals or a reload runs it
+    /// again, cache first.
+    private var suggestionRequest: [String] {
+        [suggestedMealType.rawValue, String(suggestionReloads)]
     }
 
     private func loadSuggestion() async {

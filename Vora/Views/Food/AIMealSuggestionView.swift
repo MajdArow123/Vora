@@ -25,6 +25,8 @@ struct AIMealSuggestionView: View {
     @State private var mealTypeOverride: MealSlot?
     @State private var preferenceText = ""
     @State private var searchFood: EnrichedFood?
+    /// The row whose search sheet was last opened; logging from there replaces it.
+    @State private var searchedFoodID: UUID?
     @State private var showingSlotPicker = false
     @State private var selectedSlot: MealSlot = .dinner
     @State private var logAllState: LogAllState = .idle
@@ -37,6 +39,7 @@ struct AIMealSuggestionView: View {
     private enum LogAllState: Equatable {
         case idle
         case success(count: Int, slot: MealSlot, usedEstimates: Bool)
+        case failed
     }
 
     private static let preferenceChips = [
@@ -59,20 +62,26 @@ struct AIMealSuggestionView: View {
         dayTargets?.targets ?? MacroTargets(calories: 0, proteinG: 0, carbsG: 0, fatG: 0)
     }
 
+    private var isToday: Bool { Calendar.current.isDateInToday(logDate) }
+
+    private var isTrainingDay: Bool { trainedToday || dayTargets?.kind == .training }
+
     private var targetsHit: Bool {
+        // Nothing is known until the day's context has loaded.
+        guard dayTargets != nil else { return false }
         let consumed = Int(dayEntries.reduce(0) { $0 + $1.calories }.rounded())
         return dailyTargets.calories - consumed <= Self.doneThreshold
     }
 
-    /// What's left of this slot's share of the daily targets — the numbers
-    /// the backend is asked to fill.
+    /// What this meal should provide, capped by what's left of the day — the
+    /// numbers the backend is asked to fill.
     private var mealRemaining: RemainingMacros {
         MealAllocation.remaining(
             for: effectiveMealType,
             daily: dailyTargets,
-            slotConsumed: dayEntries
-                .filter { $0.mealSlot == effectiveMealType }
-                .map { ($0.calories, $0.proteinG, $0.carbsG, $0.fatG) }
+            entries: dayEntries,
+            isTrainingDay: isTrainingDay,
+            hour: Calendar.current.component(.hour, from: logDate)
         )
     }
 
@@ -86,7 +95,9 @@ struct AIMealSuggestionView: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: DesignSystem.Spacing.md) {
-                        if targetsHit {
+                        if dayTargets == nil {
+                            EmptyView()
+                        } else if targetsHit {
                             targetsHitCard
                         } else {
                             mealTypeIndicator
@@ -129,7 +140,11 @@ struct AIMealSuggestionView: View {
                 hasTrainedToday: trainedToday,
                 loggedSlots: Set(dayEntries.map(\.mealSlot))
             )
-            viewModel.loadCached()
+            viewModel.loadCached(mealType: effectiveMealType, now: logDate)
+        }
+        // Each meal has its own suggestion and budget.
+        .onChange(of: effectiveMealType) { _, newType in
+            viewModel.loadCached(mealType: newType, now: logDate)
         }
         // Fresh suggestions only arrive while the card is visible, so this
         // never enriches behind a hidden card.
@@ -142,9 +157,13 @@ struct AIMealSuggestionView: View {
             viewModel.cancelEnrichment()
         }
         .sheet(item: $searchFood, onDismiss: {
-            // A food may have been logged in the search sheet, changing
-            // this slot's remaining budget.
+            // A food logged in the search sheet changes this slot's budget and
+            // replaces its row, so Log all can't add it a second time.
+            let entriesBefore = dayEntries.count
             loadDayContext()
+            if dayEntries.count > entriesBefore, let searchedFoodID {
+                viewModel.removeFood(id: searchedFoodID)
+            }
         }) { food in
             FoodSearchView(
                 mealSlot: effectiveMealType,
@@ -171,7 +190,9 @@ struct AIMealSuggestionView: View {
                 .font(.largeTitle)
                 .foregroundStyle(DesignSystem.Colors.accent)
                 .accessibilityHidden(true)
-            Text("You've hit your targets for today.\nCome back tomorrow for a fresh suggestion.")
+            Text(isToday
+                 ? "You've hit your targets for today.\nCome back tomorrow for a fresh suggestion."
+                 : "You've hit your targets for this day.")
                 .font(DesignSystem.Typography.body)
                 .foregroundStyle(DesignSystem.Colors.textSecondary)
                 .multilineTextAlignment(.center)
@@ -243,6 +264,7 @@ struct AIMealSuggestionView: View {
             }
             .foregroundStyle(DesignSystem.Colors.accent)
         }
+        .disabled(isLoading)
         .accessibilityLabel("Meal type: \(effectiveMealType.displayName). Tap to change.")
     }
 
@@ -383,12 +405,18 @@ struct AIMealSuggestionView: View {
             Divider()
 
             if !viewModel.activeFoods.isEmpty {
+                if logAllState == .failed {
+                    Text("Couldn't add these foods. Nothing was logged, so try again.")
+                        .font(DesignSystem.Typography.caption)
+                        .foregroundStyle(DesignSystem.Colors.warning)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 logAllButton
             }
             GhostButton(title: "Refresh suggestion") {
                 Task { await generate() }
             }
-            .disabled(isLoading || logAllState != .idle)
+            .disabled(isLoading)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(DesignSystem.Spacing.md)
@@ -431,10 +459,11 @@ struct AIMealSuggestionView: View {
             HStack(spacing: DesignSystem.Spacing.xs) {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: DesignSystem.Spacing.xs) {
+                        // Two lines, so an estimate's "cooked" stays visible.
                         Text(food.displayName)
                             .font(DesignSystem.Typography.body)
                             .foregroundStyle(DesignSystem.Colors.textPrimary)
-                            .lineLimit(1)
+                            .lineLimit(2)
                         if food.isLoading {
                             ProgressView()
                                 .controlSize(.small)
@@ -481,6 +510,7 @@ struct AIMealSuggestionView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Increase \(food.suggestedName) amount")
                 Button {
+                    searchedFoodID = food.id
                     searchFood = food
                 } label: {
                     Image(systemName: "magnifyingglass")
@@ -536,8 +566,7 @@ struct AIMealSuggestionView: View {
             .disabled(true)
         } else {
             PrimaryButton(title: "Log all foods") {
-                guard case .loaded(let suggestion) = viewModel.state else { return }
-                selectedSlot = suggestion.slot
+                selectedSlot = effectiveMealType
                 showingSlotPicker = true
             }
         }
@@ -586,7 +615,8 @@ struct AIMealSuggestionView: View {
             goal: goal,
             mealType: effectiveMealType,
             preference: MealSuggestionService.normalizedPreference(preferenceText),
-            force: true
+            force: true,
+            now: logDate
         )
     }
 
@@ -596,27 +626,14 @@ struct AIMealSuggestionView: View {
         let drafts = viewModel.activeFoods.map { SuggestedFoodsLogger.draft(for: $0) }
         guard !drafts.isEmpty else { return }
 
-        for draft in drafts {
-            modelContext.insert(FoodEntry(
-                date: logDate,
-                mealSlot: slot,
-                foodName: draft.foodName,
-                servingGrams: draft.servingGrams,
-                calories: draft.calories,
-                proteinG: draft.proteinG,
-                carbsG: draft.carbsG,
-                fatG: draft.fatG,
-                fibreG: draft.fibreG,
-                sugarG: draft.sugarG,
-                sodiumMg: draft.sodiumMg,
-                barcode: draft.barcode
-            ))
-        }
         do {
-            try modelContext.save()
+            try SuggestedFoodsLogger.log(drafts, to: slot, on: logDate, context: modelContext)
         } catch {
-            assertionFailure("Failed to save suggested foods: \(error)")
+            Self.logger.error("Failed to save suggested foods: \(String(describing: error), privacy: .public)")
+            logAllState = .failed
+            return
         }
+        viewModel.clearCached(mealType: effectiveMealType, now: logDate)
 
         withAnimation(.spring(duration: 0.4)) {
             logAllState = .success(
@@ -625,7 +642,11 @@ struct AIMealSuggestionView: View {
                 usedEstimates: drafts.contains(where: \.isEstimated)
             )
         }
-        try? await Task.sleep(for: .seconds(1.4))
+        do {
+            try await Task.sleep(for: .seconds(1.4))
+        } catch {
+            Self.logger.notice("Closing the suggestion sheet early: \(String(describing: error), privacy: .public)")
+        }
         dismiss()
     }
 
@@ -725,23 +746,6 @@ private struct MealSlotPickerSheet: View {
 }
 
 #Preview {
-    let container = try! ModelContainer(
-        for: UserProfile.self, FoodEntry.self, WorkoutSession.self,
-        configurations: ModelConfiguration(isStoredInMemoryOnly: true)
-    )
-    container.mainContext.insert(UserProfile(
-        name: "Preview",
-        dateOfBirth: .now,
-        heightCm: 180,
-        biologicalSex: .male,
-        goalType: .muscleGain,
-        activityLevel: .moderatelyActive,
-        trainingSplit: .fullBody,
-        dailyCalorieTarget: 2600,
-        proteinTargetG: 180,
-        carbsTargetG: 280,
-        fatTargetG: 80
-    ))
-    return AIMealSuggestionView(logDate: .now)
-        .modelContainer(container)
+    AIMealSuggestionView(logDate: .now)
+        .modelContainer(for: [UserProfile.self, FoodEntry.self, WorkoutSession.self], inMemory: true)
 }

@@ -6,16 +6,35 @@
 //
 
 import Foundation
+import OSLog
 
-enum MealSuggestionError: LocalizedError {
+enum MealSuggestionError: LocalizedError, Equatable {
+    /// The backend refused the request or is down; retrying now won't help.
+    case unavailable
     case badResponse
     case emptyContent
 
     var errorDescription: String? {
         switch self {
-        case .badResponse: "Couldn't generate suggestion. Check your connection."
+        case .unavailable: "Meal suggestions aren't available right now. Try again later."
+        case .badResponse: "Couldn't read the suggestion. Try again."
         case .emptyContent: "The suggestion came back empty. Try again."
         }
+    }
+
+    static let connectionMessage = "Couldn't generate suggestion. Check your connection."
+
+    /// What to tell the user about any failure from a fetch.
+    static func message(for error: Error) -> String {
+        if let error = error as? MealSuggestionError, let description = error.errorDescription {
+            return description
+        }
+        return connectionMessage
+    }
+
+    /// A cancelled request isn't a failure: nobody is waiting for it.
+    static func isCancellation(_ error: Error) -> Bool {
+        error is CancellationError || (error as? URLError)?.code == .cancelled
     }
 }
 
@@ -24,9 +43,15 @@ enum MealSuggestionError: LocalizedError {
 struct MealSuggestionService {
     static let timeout: TimeInterval = 15
 
-    private static let endpoint = URL(
-        string: "https://protracker-production.up.railway.app/api/v1/meal-suggestion"
-    )!
+    private static let logger = Logger(subsystem: "com.majdarow.Vora", category: "MealSuggestion")
+    private static let endpoint = "https://protracker-production.up.railway.app/api/v1/meal-suggestion"
+
+    /// Injectable so tests never reach the backend.
+    private let send: (URLRequest) async throws -> (Data, URLResponse)
+
+    init(send: @escaping (URLRequest) async throws -> (Data, URLResponse) = { try await URLSession.shared.data(for: $0) }) {
+        self.send = send
+    }
 
     func fetchSuggestion(
         remaining: RemainingMacros,
@@ -37,12 +62,12 @@ struct MealSuggestionService {
     ) async throws -> MealSuggestion {
         // The backend rejects caloriesRemaining <= 0 with a 400; the UI's
         // "targets hit" gate should make this unreachable.
-        guard remaining.calories > 0 else {
-            Self.logFailure("skipped request: caloriesRemaining \(remaining.calories) <= 0", body: nil)
+        guard remaining.calories > 0, let url = URL(string: Self.endpoint) else {
+            Self.logger.error("Skipped a request: \(remaining.calories, privacy: .public) kcal remaining")
             throw MealSuggestionError.badResponse
         }
 
-        var request = URLRequest(url: Self.endpoint)
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = Self.timeout
@@ -59,15 +84,18 @@ struct MealSuggestionService {
             )
         )
 
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            let status = (response as? HTTPURLResponse).map { "HTTP \($0.statusCode)" } ?? "non-HTTP response"
-            Self.logFailure(status, body: data)
-            throw MealSuggestionError.badResponse
+        let (data, response) = try await send(request)
+        let status = (response as? HTTPURLResponse)?.statusCode
+        guard status == 200 else {
+            Self.logger.error("Suggestion request failed with status \(status ?? -1, privacy: .public)")
+            throw Self.error(forStatus: status)
         }
 
-        guard let decoded = try? JSONDecoder().decode(SuggestionResponse.self, from: data) else {
-            Self.logFailure("response decode failed", body: data)
+        let decoded: SuggestionResponse
+        do {
+            decoded = try JSONDecoder().decode(SuggestionResponse.self, from: data)
+        } catch {
+            Self.logger.error("Couldn't decode the suggestion: \(String(describing: error), privacy: .public)")
             throw MealSuggestionError.badResponse
         }
         let mealName = decoded.mealName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -84,21 +112,20 @@ struct MealSuggestionService {
         )
     }
 
+    /// Refused and server-side failures are "unavailable", since the user's
+    /// connection is fine; anything else means we sent or read something wrong.
+    static func error(forStatus status: Int?) -> MealSuggestionError {
+        switch status ?? 0 {
+        case 401, 403, 404, 429, 500...599: .unavailable
+        default: .badResponse
+        }
+    }
+
     /// The backend sends ISO 8601, with or without fractional seconds.
     static func parseDate(_ string: String) -> Date? {
         let fractional = ISO8601DateFormatter()
         fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return fractional.date(from: string) ?? ISO8601DateFormatter().date(from: string)
-    }
-
-    /// Debug-only diagnostics for failed suggestion requests: the status
-    /// (or failure kind) plus the raw response body, so backend 400s are
-    /// distinguishable from network drops and contract drift.
-    private static func logFailure(_ context: String, body: Data?) {
-        #if DEBUG
-        let bodyText = body.flatMap { String(data: $0, encoding: .utf8) } ?? "<no body>"
-        print("[MealSuggestionService] \(context) — body: \(bodyText.prefix(500))")
-        #endif
     }
 
     /// The backend caps userPreference at 100 characters; nil when empty

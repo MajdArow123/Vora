@@ -26,13 +26,13 @@ struct EnrichedFood: Identifiable, Equatable {
 
     var isApproximate: Bool { realFoodItem == nil }
 
-    var displayName: String { realFoodItem?.name ?? suggestedName.capitalized }
+    var displayName: String { realFoodItem?.name ?? GenericFoods.estimateName(for: suggestedName) }
 
     /// Single source for row macros, the meal total, AND the logged draft —
     /// what the user sees is exactly what gets logged.
     var nutrition: FoodItem.Nutrition {
         realFoodItem?.nutrition(for: editedGrams)
-            ?? SuggestedFoodsLogger.estimatedNutrition(for: editedGrams)
+            ?? GenericFoods.nutrition(for: suggestedName, grams: editedGrams)
     }
 
     init(from food: SuggestedFood) {

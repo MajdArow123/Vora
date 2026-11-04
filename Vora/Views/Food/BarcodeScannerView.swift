@@ -96,7 +96,7 @@ struct BarcodeScannerView: View {
                         RoundedRectangle(cornerRadius: DesignSystem.CornerRadius.large)
                             .fill(.black.opacity(0.45))
                         VStack(spacing: DesignSystem.Spacing.sm) {
-                            SwiftUI.ProgressView()
+                            ProgressView()
                                 .tint(.white)
                             Text("Looking up…")
                                 .font(DesignSystem.Typography.caption)
@@ -148,7 +148,7 @@ struct BarcodeScannerView: View {
                 Task { await lookUp(manualCode) }
             } label: {
                 if isLookingUp {
-                    SwiftUI.ProgressView()
+                    ProgressView()
                         .tint(.white)
                         .frame(width: 80, height: 48)
                 } else {

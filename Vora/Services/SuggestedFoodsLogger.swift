@@ -6,10 +6,11 @@
 //
 
 import Foundation
+import SwiftData
 
 /// A FoodEntry-shaped value built from one suggested food, before insertion.
-/// `isEstimated` marks entries whose macros came from the fallback formula
-/// rather than an OpenFoodFacts match.
+/// `isEstimated` marks entries whose macros came from `GenericFoods` rather
+/// than an OpenFoodFacts match.
 struct LoggedFoodDraft: Equatable, Sendable {
     let foodName: String
     let servingGrams: Double
@@ -29,10 +30,13 @@ struct LoggedFoodDraft: Equatable, Sendable {
 /// never searches again, so the entry logged is exactly the food the user
 /// saw in the sheet.
 enum SuggestedFoodsLogger {
+    /// The diary has no field for estimates, so the name carries it.
+    static let estimatedSuffix = " (estimated)"
+
     static func draft(for food: EnrichedFood) -> LoggedFoodDraft {
         let n = food.nutrition
         return LoggedFoodDraft(
-            foodName: food.displayName,
+            foodName: food.isApproximate ? food.displayName + estimatedSuffix : food.displayName,
             servingGrams: food.editedGrams,
             calories: n.calories,
             proteinG: n.proteinG,
@@ -46,21 +50,37 @@ enum SuggestedFoodsLogger {
         )
     }
 
-    /// Generic whole-food macro split per gram; calories derived 4/4/9.
-    /// Shared by EnrichedFood's display macros and the estimate drafts so
-    /// the two can never diverge.
-    static func estimatedNutrition(for grams: Double) -> FoodItem.Nutrition {
-        let proteinG = grams * 0.25
-        let carbsG = grams * 0.45
-        let fatG = grams * 0.08
-        return FoodItem.Nutrition(
-            calories: proteinG * 4 + carbsG * 4 + fatG * 9,
-            proteinG: proteinG,
-            carbsG: carbsG,
-            fatG: fatG,
-            fibreG: 0,
-            sugarG: 0,
-            sodiumMg: 0
-        )
+    /// Adds the drafts to the diary, all or none: a failed save removes what
+    /// it inserted and throws, so the caller can't report a false success.
+    static func log(
+        _ drafts: [LoggedFoodDraft],
+        to slot: MealSlot,
+        on date: Date,
+        context: ModelContext,
+        save: (ModelContext) throws -> Void = { try $0.save() }
+    ) throws {
+        let entries = drafts.map { draft in
+            FoodEntry(
+                date: date,
+                mealSlot: slot,
+                foodName: draft.foodName,
+                servingGrams: draft.servingGrams,
+                calories: draft.calories,
+                proteinG: draft.proteinG,
+                carbsG: draft.carbsG,
+                fatG: draft.fatG,
+                fibreG: draft.fibreG,
+                sugarG: draft.sugarG,
+                sodiumMg: draft.sodiumMg,
+                barcode: draft.barcode
+            )
+        }
+        entries.forEach(context.insert)
+        do {
+            try save(context)
+        } catch {
+            entries.forEach(context.delete)
+            throw error
+        }
     }
 }

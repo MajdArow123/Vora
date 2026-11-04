@@ -1,5 +1,5 @@
 //
-//  ProgressView.swift
+//  ProgressScreen.swift
 //  Vora
 //
 //  Created by Majd Arow on 2026-07-21.
@@ -17,7 +17,7 @@ private enum ProgressSegment: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-struct ProgressView: View {
+struct ProgressScreen: View {
     @Environment(\.modelContext) private var modelContext
     @State private var viewModel = ProgressViewModel()
     @State private var strengthViewModel = StrengthProgressViewModel()
@@ -598,6 +598,6 @@ struct ProgressView: View {
 }
 
 #Preview {
-    ProgressView()
+    ProgressScreen()
         .modelContainer(for: UserProfile.self, inMemory: true)
 }

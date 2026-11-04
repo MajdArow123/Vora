@@ -107,6 +107,8 @@ Later or never: auto-generated programs, spreadsheet import.
 - Custom exercises have no muscle group: the picker and template prefill save them with `muscleGroups: []`, so Levels always lists them under "Not counted". Let the user pick a group when adding one.
 - The Train card in cycle mode repeats the position in "Day 1 · Push" and "Day 1 of 6"; show it once.
 - Fixed sleeps left in tests: `discardClearsTheDraftAndStopsAutosave` (300 ms, could pass without proving anything; check `pendingDraftSave == nil` after the edit instead) and `FoodSearchViewModelTests.swift:161` (50 ms, not yet assessed).
+- Verify the `GenericFoods` values against USDA FoodData Central and cite an FDC ID for each entry; they were written from memory.
+- Replace the " (estimated)" name suffix on logged meal-suggestion foods with a real `FoodEntry` field at the next schema change.
 
 ## Claude Code prompts
 

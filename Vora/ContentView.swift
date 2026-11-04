@@ -86,7 +86,7 @@ private struct MainTabView: View {
                 }
                 .tag(Self.trainTab)
 
-            ProgressView()
+            ProgressScreen()
                 .toolbarBackground(.visible, for: .tabBar)
                 .tabItem {
                     Label("Progress", systemImage: "chart.line.uptrend.xyaxis")

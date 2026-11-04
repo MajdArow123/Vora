@@ -265,7 +265,7 @@ struct FoodSearchView: View {
         case .loading:
             VStack(spacing: DesignSystem.Spacing.md) {
                 Spacer()
-                SwiftUI.ProgressView()
+                ProgressView()
                     .tint(DesignSystem.Colors.accent)
                 Text("Searching…")
                     .font(DesignSystem.Typography.caption)
