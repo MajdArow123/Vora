@@ -9,6 +9,8 @@ import Foundation
 import OSLog
 
 enum MealSuggestionError: LocalizedError, Equatable {
+    /// This build has no app token; see Secrets.example.xcconfig.
+    case notConfigured
     /// The backend refused the request or is down; retrying now won't help.
     case unavailable
     case badResponse
@@ -16,6 +18,7 @@ enum MealSuggestionError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
+        case .notConfigured: "Meal suggestions aren't configured in this build."
         case .unavailable: "Meal suggestions aren't available right now. Try again later."
         case .badResponse: "Couldn't read the suggestion. Try again."
         case .emptyContent: "The suggestion came back empty. Try again."
@@ -38,19 +41,35 @@ enum MealSuggestionError: LocalizedError, Equatable {
     }
 }
 
-/// Calls the ProTracker backend to generate a meal suggestion. No API key
-/// or setup is required — the backend holds the model credentials.
+/// Calls the ProTracker backend to generate a meal suggestion. The backend holds
+/// the model credentials and requires a shared app token, which comes from the
+/// untracked Secrets.xcconfig by way of Info.plist.
 struct MealSuggestionService {
     static let timeout: TimeInterval = 15
 
     private static let logger = Logger(subsystem: "com.majdarow.Vora", category: "MealSuggestion")
     private static let endpoint = "https://protracker-production.up.railway.app/api/v1/meal-suggestion"
+    private static let tokenHeader = "X-App-Token"
+    private static let tokenInfoKey = "MealSuggestionAppToken"
 
+    private let token: String?
     /// Injectable so tests never reach the backend.
     private let send: (URLRequest) async throws -> (Data, URLResponse)
 
-    init(send: @escaping (URLRequest) async throws -> (Data, URLResponse) = { try await URLSession.shared.data(for: $0) }) {
+    init(
+        token: String? = MealSuggestionService.configuredToken(),
+        send: @escaping (URLRequest) async throws -> (Data, URLResponse) = { try await URLSession.shared.data(for: $0) }
+    ) {
+        self.token = token
         self.send = send
+    }
+
+    /// The build's token, or nil when Secrets.xcconfig didn't supply one. An
+    /// unset build setting leaves the value empty or as its literal `$(NAME)`.
+    static func configuredToken(in info: [String: Any]? = Bundle.main.infoDictionary) -> String? {
+        guard let value = (info?[tokenInfoKey] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty, !value.hasPrefix("$(") else { return nil }
+        return value
     }
 
     func fetchSuggestion(
@@ -67,9 +86,15 @@ struct MealSuggestionService {
             throw MealSuggestionError.badResponse
         }
 
+        guard let token else {
+            Self.logger.notice("No app token in this build; not calling the backend")
+            throw MealSuggestionError.notConfigured
+        }
+
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(token, forHTTPHeaderField: Self.tokenHeader)
         request.timeoutInterval = Self.timeout
         request.httpBody = try JSONEncoder().encode(
             SuggestionRequest(

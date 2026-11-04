@@ -19,12 +19,14 @@ nonisolated enum FoodMatcher {
     static let calorieTolerance = 0.4
     static let calorieToleranceFloor = 40.0
 
-    static func bestMatch(for query: String, in items: [FoodItem]) -> FoodItem? {
+    /// `state` is the grain's cooked or dry state, when the food is a grain.
+    static func bestMatch(for query: String, state: GrainState? = nil, in items: [FoodItem]) -> FoodItem? {
         let queryWords = Set(words(in: query))
         guard !queryWords.isEmpty else { return nil }
 
         var best: (item: FoodItem, coverage: Double)?
-        for item in items where hasPlausibleCalories(item) {
+        for item in items where hasPlausibleCalories(item)
+            && GenericFoods.isPlausible(caloriesPer100g: item.caloriesPer100g, for: query, state: state) {
             let nameWords = Set(words(in: item.name))
             guard queryWords.isSubset(of: nameWords) else { continue }
             let coverage = Double(queryWords.count) / Double(nameWords.count)
@@ -50,10 +52,16 @@ nonisolated enum FoodMatcher {
     }
 }
 
+/// Whether a grain's weight means cooked or dry, about 2.5× apart in calories.
+enum GrainState: String, Codable, Equatable, Sendable {
+    case cooked
+    case dry
+}
+
 /// Typical nutrition for common foods, used when no OpenFoodFacts match is
-/// available. Rough reference values per 100 g as usually eaten (rice, pasta and
+/// available. Rough reference values per 100 g as usually eaten (grains and
 /// meat cooked; oats dry), always shown and logged as estimates.
-enum GenericFoods {
+nonisolated enum GenericFoods {
     struct Macros: Equatable {
         let proteinG: Double
         let carbsG: Double
@@ -146,25 +154,61 @@ enum GenericFoods {
         ("sauce", Macros(proteinG: 2, carbsG: 10, fatG: 3)),
     ]
 
-    /// Table values for these are cooked weights, while a recipe may mean dry,
-    /// so their estimates say which was assumed.
-    private static let cookedWeightFoods: Set<String> = ["rice", "pasta", "spaghetti", "noodle", "egg noodle"]
-    /// A name saying one of these already states its own basis.
-    private static let preparationWords: Set<String> = ["cooked", "boiled", "steamed", "dry", "uncooked", "raw"]
+    /// Dry values for the grains, whose `table` values are cooked. A grain is
+    /// any food listed here: these are the foods whose state changes the numbers.
+    private static let dryGrains: [String: Macros] = [
+        "rice": Macros(proteinG: 7.1, carbsG: 80, fatG: 0.7),
+        "pasta": Macros(proteinG: 13, carbsG: 75, fatG: 1.5),
+        "spaghetti": Macros(proteinG: 13, carbsG: 75, fatG: 1.5),
+        "noodle": Macros(proteinG: 12, carbsG: 72, fatG: 2),
+        "egg noodle": Macros(proteinG: 14, carbsG: 71, fatG: 4.5),
+        "quinoa": Macros(proteinG: 14, carbsG: 64, fatG: 6),
+        "couscous": Macros(proteinG: 13, carbsG: 77, fatG: 0.6),
+    ]
 
-    /// Per-100 g macros for a food's name, `unknown` when nothing matches.
-    static func macros(for name: String) -> Macros {
-        entry(for: name)?.macros ?? unknown
+    private static let cookedWords: Set<String> = ["cooked", "boiled", "steamed"]
+    private static let dryWords: Set<String> = ["dry", "dried", "uncooked", "raw"]
+
+    /// A product's calories must sit within this factor of the typical value for
+    /// the grain's state, so a dry product can't be logged for a cooked weight.
+    static let plausibleCalorieRatio = 0.67...1.5
+
+    /// A grain's state: what its name says, else what the suggestion says, else
+    /// cooked, the way people weigh a plated meal. nil when it isn't a grain.
+    static func state(for name: String, stated: GrainState?) -> GrainState? {
+        guard let entry = entry(for: name), dryGrains[entry.name] != nil else { return nil }
+        let words = Set(FoodMatcher.words(in: name))
+        if !dryWords.isDisjoint(with: words) { return .dry }
+        if !cookedWords.isDisjoint(with: words) { return .cooked }
+        return stated ?? .cooked
     }
 
-    /// The name to show for an estimate of this food.
-    static func estimateName(for name: String) -> String {
-        let display = name.capitalized
-        guard let entry = entry(for: name),
-              cookedWeightFoods.contains(entry.name),
-              preparationWords.isDisjoint(with: FoodMatcher.words(in: name))
-        else { return display }
-        return display + ", cooked"
+    /// Per-100 g macros for a food's name, `unknown` when nothing matches. A dry
+    /// grain gets dry values.
+    static func macros(for name: String, state: GrainState? = nil) -> Macros {
+        guard let entry = entry(for: name) else { return unknown }
+        return state == .dry ? dryGrains[entry.name] ?? entry.macros : entry.macros
+    }
+
+    /// False when a grain's product is too far from the typical value for its
+    /// state. Other foods vary too much for one number to judge them.
+    static func isPlausible(caloriesPer100g: Double, for name: String, state: GrainState?) -> Bool {
+        guard let state else { return true }
+        let typical = calories(of: macros(for: name, state: state), grams: 100)
+        return plausibleCalorieRatio.contains(caloriesPer100g / typical)
+    }
+
+    /// A grain's name with its state, unless the name already says.
+    static func labelled(_ displayName: String, state: GrainState?) -> String {
+        let words = Set(FoodMatcher.words(in: displayName))
+        guard let state, cookedWords.isDisjoint(with: words), dryWords.isDisjoint(with: words) else {
+            return displayName
+        }
+        return "\(displayName), \(state.rawValue)"
+    }
+
+    private static func calories(of macros: Macros, grams: Double) -> Double {
+        (macros.proteinG * 4 + macros.carbsG * 4 + macros.fatG * 9) * grams / 100
     }
 
     private static func entry(for name: String) -> (name: String, macros: Macros)? {
@@ -184,13 +228,13 @@ enum GenericFoods {
 
     /// Calories derived 4/4/9. Shared by the sheet's display and the logged
     /// draft, so the two can never diverge.
-    static func nutrition(for name: String, grams: Double) -> FoodItem.Nutrition {
-        let macros = macros(for: name)
+    static func nutrition(for name: String, grams: Double, state: GrainState? = nil) -> FoodItem.Nutrition {
+        let macros = macros(for: name, state: state)
         let proteinG = macros.proteinG * grams / 100
         let carbsG = macros.carbsG * grams / 100
         let fatG = macros.fatG * grams / 100
         return FoodItem.Nutrition(
-            calories: proteinG * 4 + carbsG * 4 + fatG * 9,
+            calories: calories(of: macros, grams: grams),
             proteinG: proteinG,
             carbsG: carbsG,
             fatG: fatG,

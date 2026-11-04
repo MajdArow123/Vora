@@ -50,6 +50,21 @@ struct SuggestedFoodCodableTests {
         #expect(Set(keys) == ["name", "grams", "unit"])
     }
 
+    @Test func aStatedStateDecodesAndAnUnknownOneIsIgnored() throws {
+        func decode(_ json: String) throws -> SuggestedFood {
+            try JSONDecoder().decode(SuggestedFood.self, from: Data(json.utf8))
+        }
+        #expect(try decode(#"{"name":"rice","grams":80,"unit":"g","state":"dry"}"#).state == .dry)
+        #expect(try decode(#"{"name":"rice","grams":80,"unit":"g","state":"parboiled"}"#).state == nil)
+        #expect(try decode(#"{"name":"rice","grams":80,"unit":"g"}"#).state == nil)
+    }
+
+    @Test func aStateSurvivesTheCache() throws {
+        let food = SuggestedFood(name: "rice", grams: 80, unit: "g", state: .dry)
+        let decoded = try JSONDecoder().decode(SuggestedFood.self, from: try JSONEncoder().encode(food))
+        #expect(decoded == food)
+    }
+
     @Test func equalityIgnoresID() {
         let a = SuggestedFood(name: "rice", grams: 150, unit: "g")
         let b = SuggestedFood(name: "rice", grams: 150, unit: "g")
@@ -277,7 +292,7 @@ struct MealSuggestionServiceTests {
     private static let url = URL(fileURLWithPath: "/stub")
 
     private func service(status: Int, body: String) -> MealSuggestionService {
-        MealSuggestionService { _ in
+        MealSuggestionService(token: "test-token") { _ in
             (Data(body.utf8), try #require(HTTPURLResponse(url: Self.url, statusCode: status, httpVersion: nil, headerFields: nil)))
         }
     }
@@ -300,7 +315,7 @@ struct MealSuggestionServiceTests {
 
     @Test func theRequestCarriesTheMealsNumbers() async throws {
         var sent: URLRequest?
-        let service = MealSuggestionService { request in
+        let service = MealSuggestionService(token: "test-token") { request in
             sent = request
             return (Data(), try #require(HTTPURLResponse(url: Self.url, statusCode: 500, httpVersion: nil, headerFields: nil)))
         }
@@ -310,6 +325,7 @@ struct MealSuggestionServiceTests {
         let body = try #require(sent?.httpBody)
         let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
         #expect(sent?.httpMethod == "POST")
+        #expect(sent?.value(forHTTPHeaderField: "X-App-Token") == "test-token")
         #expect(json["caloriesRemaining"] as? Int == 625)
         #expect(json["goalType"] as? String == "fatLoss")
         #expect(json["mealType"] as? String == "postWorkout")
@@ -332,8 +348,30 @@ struct MealSuggestionServiceTests {
         #expect(await fetchError(service(status: 200, body: body)) == .emptyContent)
     }
 
+    @Test func withoutATokenItSaysNotConfiguredAndSendsNothing() async {
+        let service = MealSuggestionService(token: nil) { _ in
+            Issue.record("must not send a request")
+            throw URLError(.badURL)
+        }
+        #expect(await fetchError(service) == .notConfigured)
+        #expect(MealSuggestionError.notConfigured.errorDescription?.contains("configured") == true)
+    }
+
+    @Test func theTokenComesFromInfoPlistOnlyWhenSet() {
+        func token(_ value: Any?) -> String? {
+            MealSuggestionService.configuredToken(in: value.map { ["MealSuggestionAppToken": $0] } ?? [:])
+        }
+        #expect(token("abc123") == "abc123")
+        #expect(token(" abc123\n") == "abc123")
+        #expect(token(nil) == nil)
+        #expect(token("") == nil)
+        #expect(token("   ") == nil)
+        #expect(token("$(VORA_MEAL_SUGGESTION_TOKEN)") == nil)
+        #expect(MealSuggestionService.configuredToken(in: nil) == nil)
+    }
+
     @Test func nothingLeftToEatNeverReachesTheBackend() async {
-        let service = MealSuggestionService { _ in
+        let service = MealSuggestionService(token: "test-token") { _ in
             Issue.record("must not send a request")
             throw URLError(.badURL)
         }
@@ -613,7 +651,7 @@ struct MealSuggestionViewModelTests {
         #expect(viewModel.state == MealSuggestionViewModel.SuggestionState.failed("Couldn't generate suggestion. Check your connection."))
     }
 
-    @Test(arguments: [MealSuggestionError.unavailable, .badResponse, .emptyContent])
+    @Test(arguments: [MealSuggestionError.notConfigured, .unavailable, .badResponse, .emptyContent])
     func eachFailureSaysWhatHappened(error: MealSuggestionError) async throws {
         let viewModel = MealSuggestionViewModel(defaults: makeDefaults()) { _, _, _, _, _ in throw error }
         await viewModel.load(remaining: remaining, goal: .maintain)
@@ -785,6 +823,46 @@ struct MealSuggestionEnrichmentTests {
         await viewModel.enrichmentTask?.value
         #expect(await counter.count == 2)
         #expect(viewModel.enrichedFoods[0].isApproximate == false)
+    }
+
+    @Test func aDryProductFallsBackToACookedEstimate() async throws {
+        let viewModel = try loadedViewModel(
+            foods: [SuggestedFood(name: "basmati rice", grams: 100, unit: "g")],
+            search: { _ in
+                [FoodItem(
+                    id: "dry", name: "Basmati Rice", brand: nil,
+                    caloriesPer100g: 351, proteinPer100g: 9, carbsPer100g: 77, fatPer100g: 1,
+                    fibrePer100g: 0, sugarPer100g: 0, sodiumMgPer100g: 0, defaultServingGrams: 100
+                )]
+            }
+        )
+        viewModel.enrich()
+        await viewModel.enrichmentTask?.value
+
+        let food = viewModel.enrichedFoods[0]
+        #expect(food.realFoodItem == nil)
+        #expect(food.displayName == "Basmati Rice, cooked")
+        #expect(food.nutrition.calories < 150)
+    }
+
+    @Test func aSuggestionSayingDryKeepsTheDryProduct() async throws {
+        let viewModel = try loadedViewModel(
+            foods: [SuggestedFood(name: "basmati rice", grams: 100, unit: "g", state: .dry)],
+            search: { _ in
+                [FoodItem(
+                    id: "dry", name: "Basmati Rice", brand: nil,
+                    caloriesPer100g: 351, proteinPer100g: 9, carbsPer100g: 77, fatPer100g: 1,
+                    fibrePer100g: 0, sugarPer100g: 0, sodiumMgPer100g: 0, defaultServingGrams: 100
+                )]
+            }
+        )
+        viewModel.enrich()
+        await viewModel.enrichmentTask?.value
+
+        let food = viewModel.enrichedFoods[0]
+        #expect(food.realFoodItem != nil)
+        #expect(food.displayName == "Basmati Rice, dry")
+        #expect(SuggestedFoodsLogger.draft(for: food).foodName == "Basmati Rice, dry")
     }
 
     @Test func anUnrelatedFirstResultIsPassedOver() async throws {
@@ -980,6 +1058,52 @@ struct FoodMatcherTests {
         )
     }
 
+    // MARK: - Cooked or dry
+
+    private func grain(_ name: String, kcal: Double, protein: Double = 7, carbs: Double, fat: Double = 1) -> FoodItem {
+        item(name, kcal: kcal, protein: protein, carbs: carbs, fat: fat)
+    }
+
+    @Test func aDryBasmatiCantBeLoggedForACookedWeight() {
+        let product = grain("Rice Basmati", kcal: 351, carbs: 77)
+        #expect(FoodMatcher.bestMatch(for: "basmati rice", state: .cooked, in: [product]) == nil)
+        #expect(FoodMatcher.bestMatch(for: "basmati rice", state: .dry, in: [product]) != nil)
+    }
+
+    @Test func aCookedBasmatiCantBeLoggedForADryWeight() {
+        let product = grain("Basmati Rice", kcal: 130, protein: 3, carbs: 28, fat: 0.3)
+        #expect(FoodMatcher.bestMatch(for: "basmati rice", state: .cooked, in: [product]) != nil)
+        #expect(FoodMatcher.bestMatch(for: "basmati rice", state: .dry, in: [product]) == nil)
+    }
+
+    @Test func dryPastaKeepsItsDryProduct() {
+        let product = grain("Dry Pasta", kcal: 355, protein: 13, carbs: 72, fat: 1.5)
+        let state = GenericFoods.state(for: "dry pasta", stated: nil)
+        #expect(state == .dry)
+        #expect(FoodMatcher.bestMatch(for: "dry pasta", state: state, in: [product]) != nil)
+    }
+
+    @Test func quinoaIsJudgedByItsState() {
+        let dry = grain("Organic Quinoa", kcal: 368, protein: 14, carbs: 64, fat: 6)
+        let cooked = grain("Quinoa", kcal: 120, protein: 4.4, carbs: 21, fat: 1.9)
+        #expect(FoodMatcher.bestMatch(for: "quinoa", state: .cooked, in: [dry]) == nil)
+        #expect(FoodMatcher.bestMatch(for: "quinoa", state: .cooked, in: [cooked]) != nil)
+        #expect(FoodMatcher.bestMatch(for: "quinoa", state: .dry, in: [dry]) != nil)
+        #expect(FoodMatcher.bestMatch(for: "quinoa", state: .dry, in: [cooked]) == nil)
+    }
+
+    @Test func theCalorieRatioHasBothEdges() {
+        // Cooked rice is typically 125.5 kcal per 100 g.
+        let typical = 125.5
+        for (ratio, passes) in [(0.66, false), (0.68, true), (1.49, true), (1.51, false)] {
+            #expect(GenericFoods.isPlausible(caloriesPer100g: typical * ratio, for: "rice", state: .cooked) == passes)
+        }
+    }
+
+    @Test func otherFoodsArentJudgedByCalories() {
+        #expect(GenericFoods.isPlausible(caloriesPer100g: 900, for: "chicken breast", state: nil))
+    }
+
     @Test func theClosestNameWins() {
         let items = [item("Chicken Breast Fillets With Herbs"), item("Chicken Breast"), item("Chicken")]
         #expect(FoodMatcher.bestMatch(for: "chicken breast", in: items)?.name == "Chicken Breast")
@@ -1042,19 +1166,44 @@ struct GenericFoodsTests {
         #expect(GenericFoods.macros(for: "coconut") == GenericFoods.unknown)
     }
 
-    @Test(arguments: ["rice", "basmati rice", "pasta", "whole wheat spaghetti", "egg noodles"])
-    func riceAndPastaEstimatesSayCooked(name: String) {
-        #expect(GenericFoods.estimateName(for: name) == name.capitalized + ", cooked")
+    // MARK: - Cooked or dry
+
+    @Test(arguments: ["rice", "basmati rice", "pasta", "whole wheat spaghetti", "egg noodles", "quinoa", "couscous"])
+    func aGrainDefaultsToCookedAndSaysSo(name: String) {
+        let food = EnrichedFood(from: SuggestedFood(name: name, grams: 100, unit: "g"))
+        #expect(food.state == .cooked)
+        #expect(food.displayName == name.capitalized + ", cooked")
     }
 
-    @Test(arguments: ["cooked rice", "boiled pasta", "dry pasta", "uncooked rice", "raw noodles"])
-    func aNameStatingItsPreparationIsLeftAlone(name: String) {
-        #expect(GenericFoods.estimateName(for: name) == name.capitalized)
+    @Test(arguments: ["rice", "pasta", "egg noodles", "quinoa", "couscous"])
+    func aDryGrainSaysDryAndUsesDryValues(name: String) {
+        let dry = EnrichedFood(from: SuggestedFood(name: name, grams: 100, unit: "g", state: .dry))
+        let cooked = EnrichedFood(from: SuggestedFood(name: name, grams: 100, unit: "g"))
+        #expect(dry.displayName == name.capitalized + ", dry")
+        #expect(dry.nutrition.calories > cooked.nutrition.calories * 2)
     }
 
-    @Test(arguments: ["chicken breast", "broccoli", "mystery stew"])
-    func otherEstimatesKeepTheirName(name: String) {
-        #expect(GenericFoods.estimateName(for: name) == name.capitalized)
+    @Test(arguments: [
+        ("cooked rice", GrainState.cooked), ("boiled pasta", .cooked), ("steamed couscous", .cooked),
+        ("dry pasta", .dry), ("uncooked rice", .dry), ("raw noodles", .dry), ("dried quinoa", .dry),
+    ])
+    func aNameStatingItsStateIsLeftAlone(name: String, state: GrainState) {
+        let food = EnrichedFood(from: SuggestedFood(name: name, grams: 100, unit: "g"))
+        #expect(food.state == state)
+        #expect(food.displayName == name.capitalized)
+    }
+
+    @Test func aNameOutranksTheSuggestion() {
+        #expect(GenericFoods.state(for: "dry pasta", stated: .cooked) == .dry)
+        #expect(GenericFoods.state(for: "cooked rice", stated: .dry) == .cooked)
+        #expect(GenericFoods.state(for: "pasta", stated: .dry) == .dry)
+    }
+
+    @Test(arguments: ["chicken breast", "broccoli", "mystery stew", "oats"])
+    func otherFoodsHaveNoState(name: String) {
+        let food = EnrichedFood(from: SuggestedFood(name: name, grams: 100, unit: "g", state: .dry))
+        #expect(food.state == nil)
+        #expect(food.displayName == name.capitalized)
     }
 
     @Test func anUnknownFoodGetsAModestAverage() {
@@ -1107,12 +1256,12 @@ struct SuggestedFoodsLoggingTests {
         #expect(try entries.isEmpty)
     }
 
-    @Test func riceIsLoggedAsCookedOnlyWhenEstimated() {
+    @Test func riceIsLoggedWithItsStateEitherWay() {
         #expect(draft("basmati rice").foodName == "Basmati Rice, cooked (estimated)")
 
         var real = EnrichedFood(from: SuggestedFood(name: "basmati rice", grams: 100, unit: "g"))
         real.realFoodItem = makeItem(name: "Basmati Rice")
-        #expect(SuggestedFoodsLogger.draft(for: real).foodName == "Basmati Rice")
+        #expect(SuggestedFoodsLogger.draft(for: real).foodName == "Basmati Rice, cooked")
     }
 
     @Test func anEstimateSaysSoInTheDiary() {

@@ -42,6 +42,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		E3C0000000000000000000A1 /* Base.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Base.xcconfig; sourceTree = "<group>"; };
 		B8E5A8BB300F8EED0099F045 /* Vora.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Vora.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C1A0000000000000000000A2 /* VoraTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VoraTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		D2B000000000000000000002 /* VoraRestActivity.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = VoraRestActivity.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -98,6 +99,7 @@
 		B8E5A8B2300F8EED0099F045 = {
 			isa = PBXGroup;
 			children = (
+				E3C0000000000000000000A1 /* Base.xcconfig */,
 				B8E5A8BD300F8EED0099F045 /* Vora */,
 				D2B000000000000000000003 /* Shared */,
 				D2B000000000000000000004 /* VoraRestActivity */,
@@ -297,6 +299,7 @@
 /* Begin XCBuildConfiguration section */
 		B8E5A8C6300F8EEF0099F045 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = E3C0000000000000000000A1 /* Base.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -360,6 +363,7 @@
 		};
 		B8E5A8C7300F8EEF0099F045 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = E3C0000000000000000000A1 /* Base.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;

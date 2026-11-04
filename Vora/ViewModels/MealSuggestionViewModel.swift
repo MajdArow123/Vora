@@ -89,7 +89,7 @@ final class MealSuggestionViewModel {
         cancelEnrichment()
         enrichedFoods = suggestion.foods.map(EnrichedFood.init)
 
-        let lookups = enrichedFoods.map { (id: $0.id, name: $0.suggestedName) }
+        let lookups = enrichedFoods.map { (id: $0.id, name: $0.suggestedName, state: $0.state) }
         let search = search
         let stagger = enrichmentStagger
         let retryDelay = enrichmentRetryDelay
@@ -97,7 +97,7 @@ final class MealSuggestionViewModel {
             await withTaskGroup(of: (UUID, FoodItem?).self) { group in
                 for (index, lookup) in lookups.enumerated() {
                     group.addTask {
-                        (lookup.id, await Self.lookUp(lookup.name, after: stagger * index, retryDelay: retryDelay, search: search))
+                        (lookup.id, await Self.lookUp(lookup.name, state: lookup.state, after: stagger * index, retryDelay: retryDelay, search: search))
                     }
                 }
                 for await (id, item) in group {
@@ -114,6 +114,7 @@ final class MealSuggestionViewModel {
     /// A failed search is tried once more; a cancelled run stops quietly.
     private nonisolated static func lookUp(
         _ name: String,
+        state: GrainState?,
         after delay: Duration,
         retryDelay: Duration,
         search: @Sendable (String) async throws -> [FoodItem]
@@ -121,7 +122,7 @@ final class MealSuggestionViewModel {
         for wait in [delay, retryDelay] {
             do {
                 try await Task.sleep(for: wait)
-                return FoodMatcher.bestMatch(for: name, in: try await search(name))
+                return FoodMatcher.bestMatch(for: name, state: state, in: try await search(name))
             } catch {
                 if Task.isCancelled { return nil }
                 logger.notice("Food lookup failed: \(String(describing: error), privacy: .public)")

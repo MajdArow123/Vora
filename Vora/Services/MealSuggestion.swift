@@ -140,15 +140,28 @@ struct SuggestedFood: Codable, Identifiable, Equatable, Sendable {
     let name: String
     var grams: Double
     let unit: String
+    /// Whether a grain's grams mean cooked or dry, when the backend says.
+    var state: GrainState?
 
     // The backend sends no id; regenerating one per decode is fine because
     // equality and coding both ignore it.
     private enum CodingKeys: String, CodingKey {
-        case name, grams, unit
+        case name, grams, unit, state
     }
 
     static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.name == rhs.name && lhs.grams == rhs.grams && lhs.unit == rhs.unit
+        lhs.name == rhs.name && lhs.grams == rhs.grams && lhs.unit == rhs.unit && lhs.state == rhs.state
+    }
+}
+
+extension SuggestedFood {
+    /// An unknown state reads as unstated, so it can't lose the whole meal.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        grams = try container.decode(Double.self, forKey: .grams)
+        unit = try container.decode(String.self, forKey: .unit)
+        state = try container.decodeIfPresent(String.self, forKey: .state).flatMap(GrainState.init(rawValue:))
     }
 }
 

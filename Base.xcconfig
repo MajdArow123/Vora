@@ -1,0 +1,4 @@
+// Base build settings for every target and configuration. The "?" makes the
+// include optional, so a checkout without secrets still builds; meal
+// suggestions then say they aren't configured.
+#include? "Secrets.xcconfig"
